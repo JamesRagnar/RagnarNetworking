@@ -7,28 +7,92 @@
 
 import Foundation
 
-public struct RequestService {
+public protocol RequestService {
+        
+    var loggingService: LoggingService? { get }
     
-    public enum Error: Swift.Error {
-        case badConfiguration
-    }
+    var dataTaskProvider: DataTaskProvider { get }
     
-    public weak var configurationProvider: ServerConfigurationProvider?
+    func serverConfiguration() throws -> ServerConfiguration
     
-    public weak var loggingService: LoggingService?
+    func dataTask<T: Interface>(
+        _ interface: T.Type,
+        _ parameters: T.Parameters
+    ) async throws -> T.Response
+
+}
+
+public extension RequestService {
     
-    var dataTaskProvider: DataTaskProvider
-    
-    public init(dataTaskProvider: DataTaskProvider) {
-        self.dataTaskProvider = dataTaskProvider
-    }
-    
-    public func getConfiguration() throws -> ServerConfiguration {
-        guard let configuration = configurationProvider?.serverConfiguration else {
-            throw Error.badConfiguration
+    func dataTask<T: Interface>(
+        _ interface: T.Type,
+        _ parameters: T.Parameters
+    ) async throws -> T.Response {
+        var interfaceRequest: URLRequest!
+        do {
+            interfaceRequest = try request(interface, parameters)
+        } catch {
+            loggingService?
+                .log(
+                    source: .requestService,
+                    level: .error,
+                    message: "Failed to create request - \(error.localizedDescription)"
+                )
+            
+            throw error
         }
         
-        return configuration
+        loggingService?
+            .log(
+                source: .requestService,
+                level: .debug,
+                message: "\(interfaceRequest.httpMethod ?? "") - \(interfaceRequest.url?.description ?? "")"
+            )
+
+        do {
+            return try T.handle(
+                try await dataTaskProvider.data(for: interfaceRequest)
+            )
+        } catch {
+            loggingService?
+                .log(
+                    source: .requestService,
+                    level: .error,
+                    message: "Request error - \(error.localizedDescription)"
+                )
+            
+            throw error
+        }
     }
     
+    func request<T: Interface>(
+        _ interface: T.Type,
+        _ parameters: T.Parameters
+    ) throws -> URLRequest {
+        return try URLRequest(
+            requestParameters: parameters,
+            serverConfiguration: try serverConfiguration()
+        )
+    }
+
+}
+
+public extension RequestService {
+    
+    static func dataTask<T: Interface>(
+        _ interface: T.Type,
+        _ parameters: T.Parameters,
+        _ configuration: ServerConfiguration,
+        _ dataTaskProvider: DataTaskProvider
+    ) async throws -> T.Response {
+        let request = try URLRequest(
+            requestParameters: parameters,
+            serverConfiguration: configuration
+        )
+        
+        return try T.handle(
+            try await dataTaskProvider.data(for: request)
+        )
+    }
+
 }
