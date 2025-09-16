@@ -79,20 +79,6 @@ public extension RequestService {
 
 public extension RequestService {
     
-    static func dataTask<T: Interface>(
-        _ interface: T.Type,
-        _ parameters: T.Parameters,
-        _ configuration: ServerConfiguration,
-        _ dataTaskProvider: DataTaskProvider
-    ) async throws -> T.Response {
-        let request = try URLRequest(
-            requestParameters: parameters,
-            serverConfiguration: configuration
-        )
-        
-        return try T.handle(
-            try await dataTaskProvider.data(for: request)
-        )
-    }
+    
 
 }
