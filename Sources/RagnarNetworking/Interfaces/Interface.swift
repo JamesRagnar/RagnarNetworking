@@ -7,14 +7,14 @@
 
 import Foundation
 
-public protocol Interface {
-    
+public protocol Interface: Sendable {
+
     associatedtype Parameters: RequestParameters
 
     associatedtype Response: Decodable, Sendable
-    
+
     typealias ResponseCases = [Int: Result<Response.Type, Error>]
-        
+
     static var responseCases: ResponseCases { get }
-        
+
 }

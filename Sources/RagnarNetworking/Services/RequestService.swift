@@ -76,9 +76,3 @@ public extension RequestService {
     }
 
 }
-
-public extension RequestService {
-    
-    
-
-}
