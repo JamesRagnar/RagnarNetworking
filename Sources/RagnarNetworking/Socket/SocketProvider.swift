@@ -8,38 +8,34 @@
 import Foundation
 import SocketIO
 
-/// Abstracts socket.io operations to enable testing and dependency injection.
-///
-/// This protocol wraps the essential socket.io client methods, allowing `SocketService`
-/// to work with any conforming type. `SocketIOClient` conforms to this protocol automatically,
-/// and you can provide mock implementations for testing.
+/// Protocol abstracting socket operations for testability
 public protocol SocketProvider {
 
-    /// The socket's unique session identifier
+    /// The socket's unique identifier
     var sid: String? { get }
 
     /// Current connection status
     var status: SocketIOStatus { get }
 
-    /// Initiate connection to the server
+    /// Connect the socket
     func connect(withPayload payload: [String: Any]?)
 
-    /// Disconnect from the server
+    /// Disconnect the socket
     func disconnect()
 
-    /// Emit an event to the server
+    /// Emit an event with data
     func emit(_ event: String, _ items: any SocketData..., completion: (() -> ())?)
 
-    /// Emit an event and receive an acknowledgment callback
+    /// Emit an event with data and receive acknowledgment
     func emitWithAck(_ event: String, _ items: any SocketData...) -> OnAckCallback
 
-    /// Register a listener for a specific event
+    /// Listen for a specific event
     func on(_ event: String, callback: @escaping NormalCallback) -> UUID
 
-    /// Register a listener for socket lifecycle events
+    /// Listen for status changes
     func on(clientEvent event: SocketClientEvent, callback: @escaping NormalCallback) -> UUID
 
-    /// Remove a listener by its unique identifier
+    /// Remove a specific listener by UUID
     func off(id: UUID)
 
     /// Remove all listeners for a specific event
@@ -49,5 +45,5 @@ public protocol SocketProvider {
 // MARK: - SocketIOClient Conformance
 
 extension SocketIOClient: SocketProvider {
-    // SocketIOClient already implements all required methods
+    // Protocol conformance is automatic as SocketIOClient already implements all required methods
 }

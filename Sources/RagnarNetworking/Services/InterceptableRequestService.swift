@@ -8,7 +8,7 @@
 import Foundation
 
 /// Concrete implementation of RequestService with interceptor support
-public final class InterceptableRequestService: RequestService, Sendable {
+open class InterceptableRequestService: RequestService {
 
     public let loggingService: LoggingService?
     public let dataTaskProvider: any DataTaskProvider

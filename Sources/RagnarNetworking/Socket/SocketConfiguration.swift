@@ -8,25 +8,25 @@
 import Foundation
 import SocketIO
 
-/// Configuration options for socket.io connections.
-///
-/// Encapsulates connection settings including URL, authentication, and reconnection behavior.
-/// The configuration is used when initializing a `SocketService` instance.
+/// Configuration for socket connections
 public struct SocketConfiguration: Sendable {
 
-    /// The socket.io server URL
+    /// The URL to connect to
     public let url: URL
 
-    /// Optional authentication token passed as a connection parameter
+    /// Optional authentication token
     public let authToken: String?
 
-    /// Maximum number of reconnection attempts (-1 for infinite, default: 5)
+    /// Number of reconnection attempts (default: 5)
     public let reconnectAttempts: Int
 
-    /// Delay between reconnection attempts in seconds (default: 2)
+    /// Time to wait between reconnection attempts in seconds (default: 2)
     public let reconnectWait: TimeInterval
 
-    /// Whether to enable socket.io compression (default: false)
+    /// Whether to automatically connect on initialization (default: false)
+    public let autoConnect: Bool
+
+    /// Whether to enable compression (default: false)
     public let compress: Bool
 
     public init(
@@ -34,15 +34,18 @@ public struct SocketConfiguration: Sendable {
         authToken: String? = nil,
         reconnectAttempts: Int = 5,
         reconnectWait: TimeInterval = 2,
+        autoConnect: Bool = false,
         compress: Bool = false
     ) {
         self.url = url
         self.authToken = authToken
         self.reconnectAttempts = reconnectAttempts
         self.reconnectWait = reconnectWait
+        self.autoConnect = autoConnect
         self.compress = compress
     }
 
+    /// Converts configuration to SocketIO configuration array
     internal func toSocketIOConfig() -> SocketIOClientConfiguration {
         var config: SocketIOClientConfiguration = [
             .reconnectAttempts(reconnectAttempts),
@@ -53,6 +56,7 @@ public struct SocketConfiguration: Sendable {
             config.insert(.compress)
         }
 
+        // Add auth token if provided
         if let authToken = authToken {
             config.insert(.connectParams(["token": authToken]))
         }

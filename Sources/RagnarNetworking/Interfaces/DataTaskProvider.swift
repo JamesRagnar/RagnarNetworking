@@ -12,7 +12,7 @@ import Foundation.NSURLSession
 /// This protocol defines the interface for executing network requests. `URLSession` conforms to
 /// this protocol by default, but you can provide custom implementations for testing or specialized
 /// networking behavior.
-public protocol DataTaskProvider: Sendable {
+public protocol DataTaskProvider {
 
     /// Executes a type-safe network request using an Interface definition.
     /// - Parameters:

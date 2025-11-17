@@ -7,35 +7,31 @@
 
 import Foundation
 
-/// Errors that can occur during socket operations.
-///
-/// Provides detailed error information including the event name, raw data, and underlying
-/// errors to aid debugging. Use the helper properties `eventName`, `isRetryable`, and
-/// `debugDescription` for error handling and logging.
+/// Errors that can occur during socket operations
 public enum SocketError: LocalizedError {
 
-    /// Attempted to send an event while not connected to the server
+    /// Socket is not connected
     case notConnected
 
-    /// Connection to the server failed
+    /// Connection failed with underlying error
     case connectionFailed(underlying: Error)
 
-    /// Failed to decode event data received from the server
+    /// Failed to decode event data
     case eventDecodingFailed(event: String, data: Any, underlying: Error)
 
-    /// Failed to emit an event to the server
+    /// Failed to emit event
     case emitFailed(event: String, underlying: Error)
 
-    /// Socket configuration is invalid or could not be loaded
+    /// Configuration is invalid or failed to load
     case configurationFailed(underlying: Error)
 
-    /// Server did not acknowledge an event within the timeout period
+    /// Acknowledgment timeout
     case acknowledgmentTimeout(event: String)
 
-    /// Failed to decode acknowledgment data from the server
+    /// Acknowledgment received invalid data
     case acknowledgmentDecodingFailed(event: String, data: Any, underlying: Error)
 
-    /// Socket disconnected unexpectedly
+    /// Socket was disconnected unexpectedly
     case unexpectedDisconnection(reason: String)
 
     public var errorDescription: String? {
@@ -59,7 +55,7 @@ public enum SocketError: LocalizedError {
         }
     }
 
-    /// The socket event name associated with this error, if applicable
+    /// The event name associated with this error, if applicable
     public var eventName: String? {
         switch self {
         case .eventDecodingFailed(let event, _, _),
@@ -72,10 +68,7 @@ public enum SocketError: LocalizedError {
         }
     }
 
-    /// Whether the operation could be retried after this error
-    ///
-    /// Returns `true` for connection-related errors that might succeed on retry,
-    /// `false` for errors that are unlikely to succeed without intervention.
+    /// Whether this error is potentially retryable
     public var isRetryable: Bool {
         switch self {
         case .notConnected, .connectionFailed, .unexpectedDisconnection:
@@ -86,6 +79,7 @@ public enum SocketError: LocalizedError {
         }
     }
 
+    /// Debug description with detailed context
     public var debugDescription: String {
         switch self {
         case .notConnected:
