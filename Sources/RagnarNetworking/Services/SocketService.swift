@@ -7,39 +7,74 @@
 
 import Foundation
 import SocketIO
+import Synchronization
 
-/// Modern async/await-based socket service
-public final class SocketService: @unchecked Sendable {
+/// Actor-based service for managing socket.io connections with type-safe event handling.
+///
+/// `SocketService` provides a modern async/await API for socket.io communication, with
+/// automatic concurrency safety through Swift's actor model. Use this service to connect
+/// to socket.io servers, emit and observe events, and handle acknowledgments in a type-safe manner.
+///
+/// Example:
+/// ```swift
+/// // Initialize with configuration
+/// let config = SocketConfiguration(
+///     url: URL(string: "https://api.example.com")!,
+///     authToken: "user-token"
+/// )
+/// let socket = SocketService(configuration: config)
+///
+/// // Connect to server
+/// await socket.connect()
+///
+/// // Observe status changes
+/// for await status in socket.statusUpdates() {
+///     print("Status: \(status)")
+/// }
+///
+/// // Observe events
+/// for try await message in socket.observe(ChatMessageEvent.self) {
+///     print("Message: \(message.text)")
+/// }
+///
+/// // Send events
+/// try await socket.send(ChatMessageEvent.self, payload)
+///
+/// // Send with acknowledgment
+/// let response = try await socket.sendWithAck(LoginEvent.self, credentials)
+/// ```
+public actor SocketService {
 
     // MARK: - Types
 
+    /// Socket connection status
     public enum SocketStatus: Int, Sendable {
 
-        /// The client/manager has never been connected, or the client has been reset.
+        /// Not yet connected or connection has been reset
         case notConnected
 
-        /// The client/manager was once connected, but not anymore.
+        /// Previously connected but currently disconnected
         case disconnected
 
-        /// The client/manager is in the process of connecting.
+        /// Connection in progress
         case connecting
 
-        /// The client/manager is currently connected.
+        /// Currently connected to the server
         case connected
     }
 
     // MARK: - Properties
 
-    public weak var loggingService: LoggingService?
+    /// Optional logging service for debugging socket operations
+    public weak nonisolated(unsafe) var loggingService: LoggingService?
 
-    private let socket: SocketProvider
+    private nonisolated(unsafe) let socket: SocketProvider
     private let configuration: SocketConfiguration
 
-    // Stream management
     private var statusContinuation: AsyncStream<SocketStatus>.Continuation?
     private var eventListenerIDs: [String: UUID] = [:]
 
-    /// The socket's unique identifier
+    /// The socket's unique session identifier, if connected
     public var socketID: String? {
         socket.sid
     }
@@ -51,11 +86,14 @@ public final class SocketService: @unchecked Sendable {
 
     // MARK: - Initialization
 
-    /// Initialize with a configuration
+    /// Creates a new socket service with the specified configuration.
+    ///
+    /// The socket will not automatically connect. Call `connect()` when ready.
+    ///
+    /// - Parameter configuration: Socket connection settings
     public init(configuration: SocketConfiguration) {
         self.configuration = configuration
 
-        // Create socket manager and get default socket
         let manager = SocketManager(
             socketURL: configuration.url,
             config: configuration.toSocketIOConfig()
@@ -63,14 +101,8 @@ public final class SocketService: @unchecked Sendable {
         self.socket = manager.defaultSocket
 
         setupEventHandlers()
-
-        // Auto-connect if configured
-        if configuration.autoConnect {
-            connect()
-        }
     }
 
-    /// Initialize with a custom socket provider (for testing)
     internal init(socket: SocketProvider, configuration: SocketConfiguration) {
         self.socket = socket
         self.configuration = configuration
@@ -79,7 +111,10 @@ public final class SocketService: @unchecked Sendable {
 
     // MARK: - Lifecycle
 
-    /// Connect the socket
+    /// Initiates connection to the socket.io server.
+    ///
+    /// This method returns immediately. Monitor connection status using `statusUpdates()`
+    /// or check `currentStatus` to confirm the connection is established.
     public func connect() {
         loggingService?.log(
             source: .socketService,
@@ -89,7 +124,7 @@ public final class SocketService: @unchecked Sendable {
         socket.connect(withPayload: nil)
     }
 
-    /// Disconnect the socket
+    /// Disconnects from the socket.io server and cleans up event listeners.
     public func disconnect() {
         loggingService?.log(
             source: .socketService,
@@ -102,40 +137,82 @@ public final class SocketService: @unchecked Sendable {
 
     // MARK: - Status Updates
 
-    /// Observe socket status changes
-    public func statusUpdates() -> AsyncStream<SocketStatus> {
+    /// Returns an async stream of socket connection status changes.
+    ///
+    /// The stream yields new status values whenever the socket connection state changes.
+    /// This stream never completes and can be iterated indefinitely.
+    ///
+    /// Example:
+    /// ```swift
+    /// for await status in socket.statusUpdates() {
+    ///     switch status {
+    ///     case .connected:
+    ///         print("Socket connected")
+    ///     case .disconnected:
+    ///         print("Socket disconnected")
+    ///     default:
+    ///         break
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// - Returns: An async stream that yields status changes
+    public nonisolated func statusUpdates() -> AsyncStream<SocketStatus> {
         AsyncStream { continuation in
-            // Store continuation for cleanup
-            self.statusContinuation = continuation
-
-            // Set up status listener
             let listenerID = socket.on(clientEvent: .statusChange) { [weak self] (status, _) in
                 guard
-                    let self = self,
                     let statusInt = status.last as? Int,
                     let socketStatus = SocketStatus(rawValue: statusInt)
                 else { return }
 
-                self.loggingService?.log(
+                self?.loggingService?.log(
                     source: .socketService,
                     level: .debug,
                     message: "Status Change - \(socketStatus)"
                 )
+
                 continuation.yield(socketStatus)
             }
 
-            continuation.onTermination = { [weak self] _ in
+            continuation.onTermination = { @Sendable [weak self] _ in
                 guard let self = self else { return }
-                self.socket.off(id: listenerID)
-                self.statusContinuation = nil
+                Task {
+                    await self.cleanupStatusListener(listenerID)
+                }
+            }
+
+            Task {
+                await self.storeStatusContinuation(continuation)
             }
         }
     }
 
+    private func storeStatusContinuation(_ continuation: AsyncStream<SocketStatus>.Continuation) {
+        self.statusContinuation = continuation
+    }
+
+    private func cleanupStatusListener(_ listenerID: UUID) {
+        socket.off(id: listenerID)
+        statusContinuation = nil
+    }
+
     // MARK: - Event Observation
 
-    /// Observe a specific socket event
-    public func observe<Event: SocketEvent>(
+    /// Returns an async stream of events emitted by the server.
+    ///
+    /// The stream yields decoded event data whenever the server emits the specified event.
+    /// The stream finishes with an error if event decoding fails.
+    ///
+    /// Example:
+    /// ```swift
+    /// for try await message in socket.observe(ChatMessageEvent.self) {
+    ///     print("User \(message.userId): \(message.text)")
+    /// }
+    /// ```
+    ///
+    /// - Parameter eventType: The type of event to observe
+    /// - Returns: An async throwing stream that yields decoded event data
+    public nonisolated func observe<Event: SocketEvent>(
         _ eventType: Event.Type
     ) -> AsyncThrowingStream<Event.Schema, Error> {
         AsyncThrowingStream { continuation in
@@ -157,19 +234,45 @@ public final class SocketService: @unchecked Sendable {
             }
 
             // Store listener ID for cleanup
-            self.eventListenerIDs[Event.name] = listenerID
+            Task {
+                await self.storeEventListener(Event.name, listenerID: listenerID)
+            }
 
-            continuation.onTermination = { [weak self] _ in
+            continuation.onTermination = { @Sendable [weak self] _ in
                 guard let self = self else { return }
-                self.socket.off(id: listenerID)
-                self.eventListenerIDs.removeValue(forKey: Event.name)
+                Task {
+                    await self.cleanupEventListener(Event.name, listenerID: listenerID)
+                }
             }
         }
     }
 
+    private func storeEventListener(_ eventName: String, listenerID: UUID) {
+        eventListenerIDs[eventName] = listenerID
+    }
+
+    private func cleanupEventListener(_ eventName: String, listenerID: UUID) {
+        socket.off(id: listenerID)
+        eventListenerIDs.removeValue(forKey: eventName)
+    }
+
     // MARK: - Sending Events
 
-    /// Send an event without expecting acknowledgment
+    /// Emits an event to the server without waiting for acknowledgment.
+    ///
+    /// This is a fire-and-forget operation. The method returns immediately after
+    /// emitting the event, without waiting for the server to acknowledge receipt.
+    ///
+    /// Example:
+    /// ```swift
+    /// let message = ChatMessageEvent.Payload(text: "Hello!")
+    /// try await socket.send(ChatMessageEvent.self, message)
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - eventType: The type of event to send
+    ///   - payload: The event data to send
+    /// - Throws: `SocketError.notConnected` if the socket is not connected
     public func send<Event: SocketEvent>(
         _ eventType: Event.Type,
         _ payload: Event.Payload
@@ -187,7 +290,26 @@ public final class SocketService: @unchecked Sendable {
         socket.emit(Event.name, payload, completion: nil)
     }
 
-    /// Send an event and wait for acknowledgment
+    /// Emits an event to the server and waits for an acknowledgment response.
+    ///
+    /// This method suspends until the server acknowledges the event and sends a response,
+    /// or until the timeout expires. The response data is automatically decoded into the
+    /// event's `Response` type.
+    ///
+    /// Example:
+    /// ```swift
+    /// let credentials = LoginEvent.Payload(username: "user", password: "pass")
+    /// let response = try await socket.sendWithAck(LoginEvent.self, credentials, timeout: 5.0)
+    /// print("Login successful: \(response.token)")
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - eventType: The type of event to send
+    ///   - payload: The event data to send
+    ///   - timeout: Maximum time to wait for acknowledgment in seconds (default: 10)
+    /// - Returns: The decoded acknowledgment response from the server
+    /// - Throws: `SocketError.notConnected` if not connected, `SocketError.acknowledgmentTimeout`
+    ///           if the server doesn't respond within the timeout, or decoding errors
     public func sendWithAck<Event: SocketEvent>(
         _ eventType: Event.Type,
         _ payload: Event.Payload,
@@ -204,16 +326,12 @@ public final class SocketService: @unchecked Sendable {
         )
 
         return try await withCheckedThrowingContinuation { continuation in
-            var didComplete = false
-
             // Set up acknowledgment callback
             let ackCallback = socket.emitWithAck(Event.name, payload)
 
             // Wait for acknowledgment with timeout
+            // Note: SocketIO guarantees this callback is called exactly once
             ackCallback.timingOut(after: timeout) { [weak self] data in
-                guard !didComplete else { return }
-                didComplete = true
-
                 guard let self = self else { return }
 
                 // Check if timeout occurred
@@ -234,11 +352,10 @@ public final class SocketService: @unchecked Sendable {
 
     // MARK: - Private Helpers
 
-    private func setupEventHandlers() {
+    private nonisolated func setupEventHandlers() {
         // Global event handler for logging
         _ = socket.on("") { [weak self] (data, ack) in
-            guard let self = self else { return }
-            self.loggingService?.log(
+            self?.loggingService?.log(
                 source: .socketService,
                 level: .debug,
                 message: "Socket event received"
@@ -255,7 +372,7 @@ public final class SocketService: @unchecked Sendable {
         statusContinuation = nil
     }
 
-    private func decodeEvent<Event: SocketEvent>(
+    private nonisolated func decodeEvent<Event: SocketEvent>(
         _ eventType: Event.Type,
         from data: [Any]
     ) throws -> Event.Schema {
@@ -306,7 +423,7 @@ public final class SocketService: @unchecked Sendable {
         }
     }
 
-    private func decodeEvent<Event: SocketEvent>(
+    private nonisolated func decodeEvent<Event: SocketEvent>(
         _ eventType: Event.Type,
         responseFrom data: [Any]
     ) throws -> Event.Response {

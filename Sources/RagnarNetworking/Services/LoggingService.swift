@@ -21,12 +21,12 @@ public enum LogLevel {
     
 }
 
-public protocol LoggingService: AnyObject {
-    
+public protocol LoggingService: AnyObject, Sendable {
+
     func log(
         source: LoggingSource,
         level: LogLevel,
         message: String
     )
-    
+
 }
