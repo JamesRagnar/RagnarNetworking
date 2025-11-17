@@ -74,25 +74,16 @@ public struct ExponentialBackoffInterceptor: RequestInterceptor {
         case .networkErrors:
             return error is URLError
         case .httpStatusCodes(let statusCodes):
-            switch error {
-            case
-                ResponseError.unknownResponseCase(_, let response),
-                ResponseError.decoding(_, let response, _),
-                ResponseError.generic(_, let response, _):
-                return statusCodes.contains(response.statusCode)
-            default:
+            guard let responseError = error as? ResponseError,
+                  let statusCode = responseError.statusCode else {
                 return false
             }
+            return statusCodes.contains(statusCode)
         case .serverErrors:
-            switch error {
-            case
-                ResponseError.unknownResponseCase(_, let response),
-                ResponseError.decoding(_, let response, _),
-                ResponseError.generic(_, let response, _):
-                return (500...599).contains(response.statusCode)
-            default:
+            guard let responseError = error as? ResponseError else {
                 return false
             }
+            return responseError.isRetryable
         case .custom(let condition):
             return condition(error)
         }

@@ -42,15 +42,8 @@ public actor TokenRefreshInterceptor: RequestInterceptor {
             return .doNotRetry
         }
 
-        let is401Error = switch error {
-        case
-            ResponseError.unknownResponseCase(_, let response),
-            ResponseError.decoding(_, let response, _),
-            ResponseError.generic(_, let response, _):
-            response.statusCode == 401
-        default: false
-        }
-        
+        let is401Error = (error as? ResponseError)?.statusCode == 401
+
         guard is401Error else {
             return .doNotRetry
         }

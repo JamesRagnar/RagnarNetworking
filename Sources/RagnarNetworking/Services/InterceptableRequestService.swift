@@ -82,10 +82,17 @@ open class InterceptableRequestService: RequestService {
             let response = try await dataTaskProvider.data(for: request)
             return try T.handle(response)
         } catch {
+            let errorMessage: String
+            if let responseError = error as? ResponseError {
+                errorMessage = "Request error (attempt \(attemptNumber)) - \(responseError.debugDescription)"
+            } else {
+                errorMessage = "Request error (attempt \(attemptNumber)) - \(error.localizedDescription)"
+            }
+
             loggingService?.log(
                 source: .requestService,
                 level: .error,
-                message: "Request error (attempt \(attemptNumber)) - \(error.localizedDescription)"
+                message: errorMessage
             )
 
             // Check interceptors for retry
