@@ -26,7 +26,18 @@ public enum RequestError: Error {
 // MARK: - URLRequest Construction
 
 public extension URLRequest {
-
+    
+    init<T: Interface>(
+        _ interface: T.Type,
+        _ parameters: T.Parameters,
+        _ configuration: ServerConfiguration
+    ) throws (RequestError) {
+        try self.init(
+            requestParameters: parameters,
+            serverConfiguration: configuration
+        )
+    }
+    
     /// Constructs a URLRequest from Interface parameters and server configuration.
     ///
     /// This initializer builds a complete URLRequest by combining the base server configuration
