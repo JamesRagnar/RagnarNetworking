@@ -7,21 +7,36 @@
 
 import Foundation
 
+// MARK: - Request Error
+
+/// Errors that can occur during URLRequest construction.
 public enum RequestError: Error {
-    
-    /// The Server Configuration is either missing or malformed
+
+    /// The server configuration could not be parsed or is malformed
     case configuration
-    
-    /// The Interface indicates a required authentication type that is missing
+
+    /// The request requires authentication but no token was provided
     case authentication
-    
-    /// There was an error building the URL from
+
+    /// The URL components could not be assembled into a valid URL
     case componentsURL
-    
+
 }
 
+// MARK: - URLRequest Construction
+
 public extension URLRequest {
-    
+
+    /// Constructs a URLRequest from Interface parameters and server configuration.
+    ///
+    /// This initializer builds a complete URLRequest by combining the base server configuration
+    /// with request-specific parameters. It handles authentication, query parameters, headers,
+    /// and body data according to the Interface specification.
+    ///
+    /// - Parameters:
+    ///   - requestParameters: The Interface parameters defining the request
+    ///   - serverConfiguration: The server configuration with base URL and auth token
+    /// - Throws: `RequestError` if the request cannot be constructed
     init(
         requestParameters: RequestParameters,
         serverConfiguration: ServerConfiguration
@@ -32,11 +47,11 @@ public extension URLRequest {
         ) else {
             throw .configuration
         }
-        
+
         // MARK: Path
-        
+
         components.path = requestParameters.path
-        
+
         // MARK: Query Items
         
         var currentQueryItems = components.queryItems ?? []
