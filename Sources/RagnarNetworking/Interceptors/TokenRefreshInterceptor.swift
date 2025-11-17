@@ -42,15 +42,15 @@ public actor TokenRefreshInterceptor: RequestInterceptor {
             return .doNotRetry
         }
 
-        // Check if error is an authentication error (401)
-        let is401Error: Bool
-        switch error {
-        case ResponseError.unknownResponseCase(let httpResponse):
-            is401Error = httpResponse.statusCode == 401
-        default:
-            is401Error = false
+        let is401Error = switch error {
+        case
+            ResponseError.unknownResponseCase(_, let response),
+            ResponseError.decoding(_, let response, _),
+            ResponseError.generic(_, let response, _):
+            response.statusCode == 401
+        default: false
         }
-
+        
         guard is401Error else {
             return .doNotRetry
         }

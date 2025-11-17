@@ -11,11 +11,11 @@ public struct ServerConfiguration {
     
     let url: URL
     
-    let authToken: String
+    let authToken: String?
     
     public init(
         url: URL,
-        authToken: String
+        authToken: String? = nil
     ) {
         self.url = url
         self.authToken = authToken

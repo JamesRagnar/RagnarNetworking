@@ -7,6 +7,19 @@
 
 import Foundation
 
+public enum RequestError: Error {
+    
+    /// The Server Configuration is either missing or malformed
+    case configuration
+    
+    /// The Interface indicates a required authentication type that is missing
+    case authentication
+    
+    /// There was an error building the URL from
+    case componentsURL
+    
+}
+
 public extension URLRequest {
     
     init(
@@ -29,10 +42,14 @@ public extension URLRequest {
         var currentQueryItems = components.queryItems ?? []
         
         if case .url = requestParameters.authentication {
+            guard let token = serverConfiguration.authToken else {
+                throw .authentication
+            }
+            
             currentQueryItems.append(
                 URLQueryItem(
                     name: "token",
-                    value: serverConfiguration.authToken
+                    value: token
                 )
             )
         }
@@ -70,7 +87,11 @@ public extension URLRequest {
         var currentHeaderFields = request.allHTTPHeaderFields ?? [:]
         
         if case .bearer = requestParameters.authentication {
-            currentHeaderFields["Authorization"] = "Bearer \(serverConfiguration.authToken)"
+            guard let token = serverConfiguration.authToken else {
+                throw .authentication
+            }
+            
+            currentHeaderFields["Authorization"] = "Bearer \(token)"
         }
         
         if let newHeaderFields = requestParameters.headers {

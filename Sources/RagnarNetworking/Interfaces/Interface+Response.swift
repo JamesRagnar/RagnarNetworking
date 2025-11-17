@@ -7,24 +7,30 @@
 
 import Foundation
 
+/// The known possible response error scenarios
 public enum ResponseError: LocalizedError {
     
-    case unknownResponse(URLResponse)
+    /// The response type or code could not be determined
+    case unknownResponse(Data, URLResponse)
     
-    case unknownResponseCase(HTTPURLResponse)
+    /// The provided Interface does not accept the returned response case
+    case unknownResponseCase(Data, HTTPURLResponse)
     
-    case decoding(InterfaceDecodingError)
+    /// The expected result type could not be decoded for the expected response type
+    case decoding(Data, HTTPURLResponse, InterfaceDecodingError)
     
-    case generic(Error)
+    /// An unhandled error occurred
+    case generic(Data, HTTPURLResponse, Error)
     
 }
 
+/// Cases where the response type could not be read
 public enum InterfaceDecodingError: Error {
     
     /// The response expected a String, but was unable to decode one
     case missingString
     
-    /// The response expected raw Data, but
+    /// The response expected raw Data, but was unable to map
     case missingData
     
     /// There was an issue decoding the data to the expected type
@@ -38,11 +44,17 @@ public extension Interface {
         _ response: (data: Data, response: URLResponse)
     ) throws(ResponseError) -> Response {
         guard let httpResponse = response.response as? HTTPURLResponse else {
-            throw .unknownResponse(response.response)
+            throw .unknownResponse(
+                response.data,
+                response.response
+            )
         }
         
         guard let responseCase = responseCases[httpResponse.statusCode] else {
-            throw .unknownResponseCase(httpResponse)
+            throw .unknownResponseCase(
+                response.data,
+                httpResponse
+            )
         }
         
         switch responseCase {
@@ -50,10 +62,18 @@ public extension Interface {
             do {
                 return try decode(response: response.data)
             } catch {
-                throw .decoding(error)
+                throw .decoding(
+                    response.data,
+                    httpResponse,
+                    error
+                )
             }
         case .failure(let error):
-            throw .generic(error)
+            throw .generic(
+                response.data,
+                httpResponse,
+                error
+            )
         }
     }
     

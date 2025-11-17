@@ -72,25 +72,28 @@ public struct ExponentialBackoffInterceptor: RequestInterceptor {
     private func shouldRetry(error: Error) -> Bool {
         switch retryCondition {
         case .networkErrors:
-            // Retry on URLErrors (network issues)
             return error is URLError
-
         case .httpStatusCodes(let statusCodes):
-            // Retry on specific HTTP status codes
-            if case ResponseError.unknownResponseCase(let httpResponse) = error {
-                return statusCodes.contains(httpResponse.statusCode)
+            switch error {
+            case
+                ResponseError.unknownResponseCase(_, let response),
+                ResponseError.decoding(_, let response, _),
+                ResponseError.generic(_, let response, _):
+                return statusCodes.contains(response.statusCode)
+            default:
+                return false
             }
-            return false
-
         case .serverErrors:
-            // Retry on 5xx server errors
-            if case ResponseError.unknownResponseCase(let httpResponse) = error {
-                return (500...599).contains(httpResponse.statusCode)
+            switch error {
+            case
+                ResponseError.unknownResponseCase(_, let response),
+                ResponseError.decoding(_, let response, _),
+                ResponseError.generic(_, let response, _):
+                return (500...599).contains(response.statusCode)
+            default:
+                return false
             }
-            return false
-
         case .custom(let condition):
-            // Use custom condition
             return condition(error)
         }
     }

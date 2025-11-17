@@ -11,7 +11,7 @@ import Foundation
 open class InterceptableRequestService: RequestService {
 
     public let loggingService: LoggingService?
-    public let dataTaskProvider: DataTaskProvider
+    public let dataTaskProvider: any DataTaskProvider
     public let interceptors: [RequestInterceptor]
 
     private let configurationProvider: @Sendable () throws -> ServerConfiguration
@@ -23,7 +23,7 @@ open class InterceptableRequestService: RequestService {
     ///   - interceptors: Array of interceptors to apply to requests
     ///   - loggingService: Optional logging service
     public init(
-        dataTaskProvider: DataTaskProvider = URLSession.shared,
+        dataTaskProvider: any DataTaskProvider = URLSession.shared,
         configurationProvider: @escaping @Sendable () throws -> ServerConfiguration,
         interceptors: [RequestInterceptor] = [],
         loggingService: LoggingService? = nil
@@ -47,7 +47,10 @@ open class InterceptableRequestService: RequestService {
         _ interface: T.Type,
         _ parameters: T.Parameters
     ) async throws -> T.Response {
-        var request = try self.request(interface, parameters)
+        var request = try URLRequest(
+            requestParameters: parameters,
+            serverConfiguration: try serverConfiguration()
+        )
 
         // Apply adapters from all interceptors
         for interceptor in interceptors {
