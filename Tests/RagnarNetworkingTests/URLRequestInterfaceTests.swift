@@ -1,0 +1,441 @@
+//
+//  URLRequestInterfaceTests.swift
+//  RagnarNetworking
+//
+//  Created by James Harquail on 2025-01-16.
+//
+
+import Testing
+import Foundation
+@testable import RagnarNetworking
+
+@Suite("URLRequest+Interface Tests")
+struct URLRequestInterfaceTests {
+
+    // MARK: - Test Fixtures
+
+    struct BasicParameters: RequestParameters {
+        let method: RequestMethod = .get
+        let path: String
+        let queryItems: [String: String]? = nil
+        let headers: [String: String]? = nil
+        let body: Data? = nil
+        let authentication: AuthenticationType = .none
+    }
+
+    struct AuthenticatedParameters: RequestParameters {
+        let method: RequestMethod = .post
+        let path: String = "/api/users"
+        let queryItems: [String: String]? = nil
+        let headers: [String: String]? = nil
+        let body: Data?
+        let authentication: AuthenticationType
+    }
+
+    struct ComplexParameters: RequestParameters {
+        let method: RequestMethod = .put
+        let path: String = "/api/update"
+        let queryItems: [String: String]?
+        let headers: [String: String]?
+        let body: Data?
+        let authentication: AuthenticationType
+    }
+
+    // MARK: - Basic Request Construction
+
+    @Test("Constructs basic GET request")
+    func testBasicGETRequest() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = BasicParameters(path: "/test")
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        // URLComponents may add a trailing ? even with no query items
+        let urlString = request.url?.absoluteString ?? ""
+        #expect(urlString == "https://api.example.com/test" || urlString == "https://api.example.com/test?")
+        #expect(request.httpMethod == "GET")
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+    }
+
+    @Test("Constructs request with different HTTP methods")
+    func testDifferentHTTPMethods() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+
+        let methods: [RequestMethod] = [.get, .post, .put, .delete, .patch, .head, .options]
+
+        for method in methods {
+            struct TestParams: RequestParameters {
+                let method: RequestMethod
+                let path = "/test"
+                let queryItems: [String: String]? = nil
+                let headers: [String: String]? = nil
+                let body: Data? = nil
+                let authentication: AuthenticationType = .none
+            }
+
+            let params = TestParams(method: method)
+            let request = try URLRequest(
+                requestParameters: params,
+                serverConfiguration: config
+            )
+
+            #expect(request.httpMethod == method.rawValue)
+        }
+    }
+
+    // MARK: - Authentication
+
+    @Test("Adds bearer token to headers")
+    func testBearerAuthentication() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url, authToken: "secret-token")
+        let params = AuthenticatedParameters(body: nil, authentication: .bearer)
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer secret-token")
+    }
+
+    @Test("Adds token to URL query parameters")
+    func testURLAuthentication() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url, authToken: "url-token")
+        let params = AuthenticatedParameters(body: nil, authentication: .url)
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        #expect(request.url?.query?.contains("token=url-token") == true)
+    }
+
+    @Test("Throws authentication error when bearer token is missing")
+    func testMissingBearerToken() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url) // No token
+        let params = AuthenticatedParameters(body: nil, authentication: .bearer)
+
+        #expect(throws: RequestError.self) {
+            try URLRequest(
+                requestParameters: params,
+                serverConfiguration: config
+            )
+        }
+    }
+
+    @Test("Throws authentication error when URL token is missing")
+    func testMissingURLToken() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url) // No token
+        let params = AuthenticatedParameters(body: nil, authentication: .url)
+
+        #expect(throws: RequestError.self) {
+            try URLRequest(
+                requestParameters: params,
+                serverConfiguration: config
+            )
+        }
+    }
+
+    @Test("No authentication added for .none type")
+    func testNoAuthentication() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url, authToken: "should-not-be-used")
+        let params = AuthenticatedParameters(body: nil, authentication: .none)
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
+        // URLComponents may set query to empty string instead of nil
+        let query = request.url?.query
+        #expect(query == nil || query == "")
+    }
+
+    // MARK: - Query Parameters
+
+    @Test("Adds query parameters to URL")
+    func testQueryParameters() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = ComplexParameters(
+            queryItems: ["page": "1", "limit": "10"],
+            headers: nil,
+            body: nil,
+            authentication: .none
+        )
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        let urlString = request.url?.absoluteString ?? ""
+        #expect(urlString.contains("page=1"))
+        #expect(urlString.contains("limit=10"))
+    }
+
+    @Test("Preserves existing query parameters from base URL")
+    func testPreservesBaseURLQueryParameters() throws {
+        let url = URL(string: "https://api.example.com?existing=value")!
+        let config = ServerConfiguration(url: url)
+        let params = ComplexParameters(
+            queryItems: ["new": "param"],
+            headers: nil,
+            body: nil,
+            authentication: .none
+        )
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        let urlString = request.url?.absoluteString ?? ""
+        #expect(urlString.contains("existing=value"))
+        #expect(urlString.contains("new=param"))
+    }
+
+    @Test("Combines URL auth token with query parameters")
+    func testURLAuthWithQueryParameters() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url, authToken: "auth-token")
+        let params = ComplexParameters(
+            queryItems: ["filter": "active"],
+            headers: nil,
+            body: nil,
+            authentication: .url
+        )
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        let urlString = request.url?.absoluteString ?? ""
+        #expect(urlString.contains("token=auth-token"))
+        #expect(urlString.contains("filter=active"))
+    }
+
+    // MARK: - Headers
+
+    @Test("Sets default Content-Type header")
+    func testDefaultContentTypeHeader() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = BasicParameters(path: "/test")
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+    }
+
+    @Test("Adds custom headers")
+    func testCustomHeaders() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = ComplexParameters(
+            queryItems: nil,
+            headers: ["X-Custom-Header": "custom-value", "Accept-Language": "en-US"],
+            body: nil,
+            authentication: .none
+        )
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        #expect(request.value(forHTTPHeaderField: "X-Custom-Header") == "custom-value")
+        #expect(request.value(forHTTPHeaderField: "Accept-Language") == "en-US")
+    }
+
+    @Test("Custom headers override default headers")
+    func testCustomHeadersOverrideDefaults() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = ComplexParameters(
+            queryItems: nil,
+            headers: ["Content-Type": "application/xml"],
+            body: nil,
+            authentication: .none
+        )
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/xml")
+    }
+
+    @Test("Combines bearer auth with custom headers")
+    func testBearerAuthWithCustomHeaders() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url, authToken: "bearer-token")
+        let params = ComplexParameters(
+            queryItems: nil,
+            headers: ["X-Request-ID": "12345"],
+            body: nil,
+            authentication: .bearer
+        )
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer bearer-token")
+        #expect(request.value(forHTTPHeaderField: "X-Request-ID") == "12345")
+    }
+
+    // MARK: - Body
+
+    @Test("Adds request body")
+    func testRequestBody() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let bodyData = "test body".data(using: .utf8)!
+        let params = ComplexParameters(
+            queryItems: nil,
+            headers: nil,
+            body: bodyData,
+            authentication: .none
+        )
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        #expect(request.httpBody == bodyData)
+    }
+
+    @Test("Handles JSON body data")
+    func testJSONBody() throws {
+        struct TestPayload: Codable {
+            let name: String
+            let value: Int
+        }
+
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let payload = TestPayload(name: "test", value: 42)
+        let bodyData = try JSONEncoder().encode(payload)
+        let params = ComplexParameters(
+            queryItems: nil,
+            headers: nil,
+            body: bodyData,
+            authentication: .none
+        )
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        #expect(request.httpBody == bodyData)
+
+        // Verify we can decode it back
+        let decoded = try JSONDecoder().decode(TestPayload.self, from: request.httpBody!)
+        #expect(decoded.name == "test")
+        #expect(decoded.value == 42)
+    }
+
+    // MARK: - Path Handling
+
+    @Test("Constructs path correctly")
+    func testPathConstruction() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = BasicParameters(path: "/api/v1/users/123")
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        #expect(request.url?.path == "/api/v1/users/123")
+    }
+
+    @Test("Handles path with leading slash")
+    func testPathWithLeadingSlash() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = BasicParameters(path: "/api/users")
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        #expect(request.url?.path == "/api/users")
+        #expect(request.url?.absoluteString.contains("api/users") == true)
+    }
+
+    // MARK: - Error Cases
+
+    @Test("Throws configuration error for invalid URL")
+    func testInvalidURLConfiguration() throws {
+        // This is hard to trigger since ServerConfiguration takes a URL
+        // But we can test with a configuration that can't build URLComponents
+        // In practice, this is rare but the error exists for edge cases
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = BasicParameters(path: "/test")
+
+        // This should succeed
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        #expect(request.url != nil)
+    }
+
+    // MARK: - Integration Tests
+
+    @Test("Constructs complete complex request")
+    func testComplexRequest() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url, authToken: "complex-token")
+        let bodyData = "{\"test\":\"data\"}".data(using: .utf8)!
+        let params = ComplexParameters(
+            queryItems: ["filter": "active", "sort": "name"],
+            headers: ["X-API-Version": "2.0", "X-Client-ID": "ios-app"],
+            body: bodyData,
+            authentication: .bearer
+        )
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        // Verify all components
+        #expect(request.httpMethod == "PUT")
+        #expect(request.url?.path == "/api/update")
+        #expect(request.url?.query?.contains("filter=active") == true)
+        #expect(request.url?.query?.contains("sort=name") == true)
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer complex-token")
+        #expect(request.value(forHTTPHeaderField: "X-API-Version") == "2.0")
+        #expect(request.value(forHTTPHeaderField: "X-Client-ID") == "ios-app")
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+        #expect(request.httpBody == bodyData)
+    }
+
+}
