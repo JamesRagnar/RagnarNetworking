@@ -15,23 +15,17 @@ import Synchronization
 /// automatic concurrency safety through Swift's actor model. Use this service to connect
 /// to socket.io servers, emit and observe events, and handle acknowledgments in a type-safe manner.
 ///
-/// The service supports dynamic reconfiguration, making it suitable for long-running applications
-/// that need to handle changing auth tokens, user sessions, or server endpoints.
-///
 /// Example:
 /// ```swift
-/// // Create a long-running service
-/// let socket = SocketService()
-///
-/// // Configure when ready (e.g., after user login)
+/// // Initialize with configuration
 /// let config = SocketConfiguration(
 ///     url: URL(string: "https://api.example.com")!,
-///     authToken: userToken
+///     authToken: "user-token"
 /// )
-/// await socket.configure(config, shouldConnect: true)
+/// let socket = SocketService(configuration: config)
 ///
-/// // Enable auto-reconnect for token refreshes
-/// await socket.setAutoReconnect(true)
+/// // Connect to server
+/// await socket.connect()
 ///
 /// // Observe status changes
 /// for await status in socket.statusUpdates() {
@@ -46,11 +40,8 @@ import Synchronization
 /// // Send events
 /// try await socket.send(ChatMessageEvent.self, payload)
 ///
-/// // When auth token refreshes
-/// await socket.updateAuthToken(newToken)
-///
-/// // Switch users or sessions
-/// await socket.configure(newConfig, shouldConnect: true)
+/// // Send with acknowledgment
+/// let response = try await socket.sendWithAck(LoginEvent.self, credentials)
 /// ```
 public actor SocketService {
 
@@ -77,167 +68,45 @@ public actor SocketService {
     /// Optional logging service for debugging socket operations
     public weak nonisolated(unsafe) var loggingService: LoggingService?
 
-    private nonisolated(unsafe) var socket: SocketProvider?
-    private var manager: SocketManager?
-    private var configuration: SocketConfiguration?
+    private nonisolated(unsafe) let socket: SocketProvider
+    private let configuration: SocketConfiguration
 
     private var statusContinuation: AsyncStream<SocketStatus>.Continuation?
     private var eventListenerIDs: [String: UUID] = [:]
-    private var shouldAutoReconnect: Bool = false
 
     /// The socket's unique session identifier, if connected
     public var socketID: String? {
-        socket?.sid
+        socket.sid
     }
 
     /// Current connection status
     public var currentStatus: SocketStatus {
-        guard let socket = socket else { return .notConnected }
-        return SocketStatus(rawValue: socket.status.rawValue) ?? .notConnected
-    }
-
-    /// Current configuration, if set
-    public var currentConfiguration: SocketConfiguration? {
-        configuration
+        SocketStatus(rawValue: socket.status.rawValue) ?? .notConnected
     }
 
     // MARK: - Initialization
 
-    /// Creates a new socket service with optional configuration.
+    /// Creates a new socket service with the specified configuration.
     ///
-    /// If no configuration is provided, you must call `configure(_:shouldConnect:)` before connecting.
     /// The socket will not automatically connect. Call `connect()` when ready.
     ///
-    /// - Parameter configuration: Optional socket connection settings
-    public init(configuration: SocketConfiguration? = nil) {
-        if let configuration {
-            self.configuration = configuration
-            let manager = SocketManager(
-                socketURL: configuration.url,
-                config: configuration.toSocketIOConfig()
-            )
-            self.manager = manager
-            self.socket = manager.defaultSocket
-            setupEventHandlers()
-        }
-    }
-
-    internal init(
-        socket: SocketProvider,
-        configuration: SocketConfiguration?
-    ) {
-        self.socket = socket
+    /// - Parameter configuration: Socket connection settings
+    public init(configuration: SocketConfiguration) {
         self.configuration = configuration
 
-        setupEventHandlers()
-    }
-
-    // MARK: - Configuration
-
-    /// Updates the socket configuration and optionally connects.
-    ///
-    /// This method allows you to change the socket configuration at runtime, useful for:
-    /// - Setting initial configuration after creating the service
-    /// - Updating auth tokens when they refresh
-    /// - Changing server URLs
-    /// - Switching between users or sessions
-    ///
-    /// If the socket is currently connected, it will be disconnected first, then reconnected
-    /// with the new configuration if `shouldConnect` is true.
-    ///
-    /// Example:
-    /// ```swift
-    /// // Initial setup
-    /// let socket = SocketService()
-    /// await socket.configure(
-    ///     SocketConfiguration(url: serverURL, authToken: token),
-    ///     shouldConnect: true
-    /// )
-    ///
-    /// // Later, when token refreshes
-    /// await socket.configure(
-    ///     SocketConfiguration(url: serverURL, authToken: newToken),
-    ///     shouldConnect: true
-    /// )
-    /// ```
-    ///
-    /// - Parameters:
-    ///   - configuration: The new socket configuration
-    ///   - shouldConnect: Whether to automatically connect after configuration (default: false)
-    public func configure(
-        _ configuration: SocketConfiguration,
-        shouldConnect: Bool = false
-    ) {
-        let wasConnected = [.connected, .connecting].contains(currentStatus)
-
-        // Disconnect existing socket if present
-        if let socket = socket {
-            loggingService?.log(
-                source: .socketService,
-                level: .debug,
-                message: "Reconfiguring socket, disconnecting existing connection"
-            )
-            socket.disconnect()
-            cleanupEventListeners()
-        }
-
-        // Update configuration
-        self.configuration = configuration
-
-        // Create new manager and socket
         let manager = SocketManager(
             socketURL: configuration.url,
             config: configuration.toSocketIOConfig()
         )
-        self.manager = manager
         self.socket = manager.defaultSocket
+
         setupEventHandlers()
-
-        loggingService?.log(
-            source: .socketService,
-            level: .debug,
-            message: "Socket reconfigured"
-        )
-
-        // Reconnect if requested or if we were previously connected
-        if shouldConnect || (wasConnected && shouldAutoReconnect) {
-            connect()
-        }
     }
 
-    /// Updates only the authentication token in the current configuration.
-    ///
-    /// This is a convenience method for refreshing auth tokens without recreating
-    /// the entire configuration. If no configuration exists, this method does nothing.
-    ///
-    /// The socket will be disconnected and reconnected with the new token if currently connected.
-    ///
-    /// Example:
-    /// ```swift
-    /// // When your auth token refreshes
-    /// await socket.updateAuthToken(newToken)
-    /// ```
-    ///
-    /// - Parameter token: The new authentication token (or nil to remove it)
-    public func updateAuthToken(_ token: String?) {
-        guard let configuration = configuration else {
-            loggingService?.log(
-                source: .socketService,
-                level: .error,
-                message: "Cannot update auth token: no configuration set"
-            )
-            return
-        }
-
-        let updatedConfig = SocketConfiguration(
-            url: configuration.url,
-            authToken: token,
-            reconnectAttempts: configuration.reconnectAttempts,
-            reconnectWait: configuration.reconnectWait,
-            compress: configuration.compress
-        )
-
-        configure(updatedConfig, shouldConnect: false)
+    internal init(socket: SocketProvider, configuration: SocketConfiguration) {
+        self.socket = socket
+        self.configuration = configuration
+        setupEventHandlers()
     }
 
     // MARK: - Lifecycle
@@ -246,19 +115,7 @@ public actor SocketService {
     ///
     /// This method returns immediately. Monitor connection status using `statusUpdates()`
     /// or check `currentStatus` to confirm the connection is established.
-    ///
-    /// If no configuration has been set via `init(configuration:)` or `configure(_:shouldConnect:)`,
-    /// this method will log a warning and do nothing.
     public func connect() {
-        guard let socket = socket else {
-            loggingService?.log(
-                source: .socketService,
-                level: .error,
-                message: "Cannot connect: socket not configured. Call configure(_:shouldConnect:) first."
-            )
-            return
-        }
-
         loggingService?.log(
             source: .socketService,
             level: .debug,
@@ -269,15 +126,6 @@ public actor SocketService {
 
     /// Disconnects from the socket.io server and cleans up event listeners.
     public func disconnect() {
-        guard let socket = socket else {
-            loggingService?.log(
-                source: .socketService,
-                level: .debug,
-                message: "Disconnect called but socket not configured"
-            )
-            return
-        }
-
         loggingService?.log(
             source: .socketService,
             level: .debug,
@@ -285,21 +133,6 @@ public actor SocketService {
         )
         socket.disconnect()
         cleanupEventListeners()
-    }
-
-    /// Enables automatic reconnection when the configuration is updated.
-    ///
-    /// When enabled, the socket will automatically reconnect whenever `configure(_:shouldConnect:)`
-    /// or `updateAuthToken(_:)` is called if the socket was previously connected.
-    ///
-    /// - Parameter enabled: Whether to enable auto-reconnection (default: true)
-    public func setAutoReconnect(_ enabled: Bool) {
-        shouldAutoReconnect = enabled
-        loggingService?.log(
-            source: .socketService,
-            level: .debug,
-            message: "Auto-reconnect \(enabled ? "enabled" : "disabled")"
-        )
     }
 
     // MARK: - Status Updates
@@ -326,11 +159,6 @@ public actor SocketService {
     /// - Returns: An async stream that yields status changes
     public nonisolated func statusUpdates() -> AsyncStream<SocketStatus> {
         AsyncStream { continuation in
-            guard let socket = self.socket else {
-                continuation.finish()
-                return
-            }
-
             let listenerID = socket.on(clientEvent: .statusChange) { [weak self] (status, _) in
                 guard
                     let statusInt = status.last as? Int,
@@ -364,7 +192,7 @@ public actor SocketService {
     }
 
     private func cleanupStatusListener(_ listenerID: UUID) {
-        socket?.off(id: listenerID)
+        socket.off(id: listenerID)
         statusContinuation = nil
     }
 
@@ -388,11 +216,6 @@ public actor SocketService {
         _ eventType: Event.Type
     ) -> AsyncThrowingStream<Event.Schema, Error> {
         AsyncThrowingStream { continuation in
-            guard let socket = self.socket else {
-                continuation.finish(throwing: SocketError.notConnected)
-                return
-            }
-
             let listenerID = socket.on(Event.name) { [weak self] (data, _) in
                 guard let self = self else { return }
 
@@ -429,7 +252,7 @@ public actor SocketService {
     }
 
     private func cleanupEventListener(_ eventName: String, listenerID: UUID) {
-        socket?.off(id: listenerID)
+        socket.off(id: listenerID)
         eventListenerIDs.removeValue(forKey: eventName)
     }
 
@@ -454,10 +277,6 @@ public actor SocketService {
         _ eventType: Event.Type,
         _ payload: Event.Payload
     ) async throws where Event.Payload: SocketData {
-        guard let socket = socket else {
-            throw SocketError.notConnected
-        }
-
         guard currentStatus == .connected else {
             throw SocketError.notConnected
         }
@@ -496,10 +315,6 @@ public actor SocketService {
         _ payload: Event.Payload,
         timeout: TimeInterval = 10.0
     ) async throws -> Event.Response where Event.Payload: SocketData {
-        guard let socket = socket else {
-            throw SocketError.notConnected
-        }
-
         guard currentStatus == .connected else {
             throw SocketError.notConnected
         }
@@ -538,8 +353,6 @@ public actor SocketService {
     // MARK: - Private Helpers
 
     private nonisolated func setupEventHandlers() {
-        guard let socket = socket else { return }
-
         // Global event handler for logging
         _ = socket.on("") { [weak self] (data, ack) in
             self?.loggingService?.log(
@@ -549,10 +362,10 @@ public actor SocketService {
             )
         }
     }
-
+    
     private func cleanupEventListeners() {
         for (_, listenerID) in eventListenerIDs {
-            socket?.off(id: listenerID)
+            socket.off(id: listenerID)
         }
         eventListenerIDs.removeAll()
         statusContinuation?.finish()
