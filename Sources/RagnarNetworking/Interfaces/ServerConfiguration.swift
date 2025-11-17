@@ -12,7 +12,7 @@ import Foundation
 /// This configuration provides the base URL and optional authentication token that will be
 /// used across all requests made to the server. The token is automatically applied to requests
 /// based on their `AuthenticationType` (bearer or URL parameter).
-public struct ServerConfiguration {
+public struct ServerConfiguration: Sendable {
 
     /// The base URL for all API requests (e.g., "https://api.example.com")
     let url: URL
@@ -33,5 +33,3 @@ public struct ServerConfiguration {
     }
 
 }
-
-extension ServerConfiguration: Sendable {}

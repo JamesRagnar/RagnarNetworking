@@ -26,18 +26,27 @@ public enum RequestError: Error {
 // MARK: - URLRequest Construction
 
 public extension URLRequest {
-    
+
+    /// Convenience initializer that constructs a URLRequest from an Interface type.
+    ///
+    /// This is a type-safe wrapper around the `RequestParameters` initializer.
+    ///
+    /// - Parameters:
+    ///   - interface: The interface type (used for type inference)
+    ///   - parameters: The Interface parameters defining the request
+    ///   - configuration: The server configuration with base URL and auth token
+    /// - Throws: `RequestError` if the request cannot be constructed
     init<T: Interface>(
         _ interface: T.Type,
         _ parameters: T.Parameters,
         _ configuration: ServerConfiguration
-    ) throws (RequestError) {
+    ) throws(RequestError) {
         try self.init(
             requestParameters: parameters,
             serverConfiguration: configuration
         )
     }
-    
+
     /// Constructs a URLRequest from Interface parameters and server configuration.
     ///
     /// This initializer builds a complete URLRequest by combining the base server configuration
@@ -100,11 +109,13 @@ public extension URLRequest {
         var request = URLRequest(url: url)
         
         // MARK: Method
-        
+
         request.httpMethod = requestParameters.method.rawValue
-        
+
         // MARK: Headers
-        
+
+        // Set default Content-Type to application/json
+        // This can be overridden by requestParameters.headers if needed
         request.setValue(
             "application/json",
             forHTTPHeaderField: "Content-Type"

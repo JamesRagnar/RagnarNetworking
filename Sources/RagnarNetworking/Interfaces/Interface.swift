@@ -22,7 +22,7 @@ import Foundation
 ///         // ... other parameters
 ///     }
 ///
-///     struct Response: Codable {
+///     struct Response: Decodable {
 ///         let token: String
 ///         let userId: Int
 ///     }
