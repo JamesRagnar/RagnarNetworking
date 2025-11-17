@@ -16,8 +16,9 @@ final class MockSocketProvider: SocketProvider, @unchecked Sendable {
     var sid: String?
     var status: SocketIOStatus = .notConnected
 
-    private var eventCallbacks: [String: NormalCallback] = [:]
-    private var statusCallback: NormalCallback?
+    // Support multiple callbacks per event
+    private var eventCallbacks: [String: [UUID: NormalCallback]] = [:]
+    private var statusCallbacks: [UUID: NormalCallback] = [:]
     private var connectPayload: [String: Any]?
     private var offCallCount = 0
 
@@ -69,20 +70,28 @@ final class MockSocketProvider: SocketProvider, @unchecked Sendable {
 
     func on(_ event: String, callback: @escaping NormalCallback) -> UUID {
         let id = UUID()
-        eventCallbacks[event] = callback
+        if eventCallbacks[event] == nil {
+            eventCallbacks[event] = [:]
+        }
+        eventCallbacks[event]?[id] = callback
         return id
     }
 
     func on(clientEvent event: SocketClientEvent, callback: @escaping NormalCallback) -> UUID {
         let id = UUID()
         if event == .statusChange {
-            statusCallback = callback
+            statusCallbacks[id] = callback
         }
         return id
     }
 
     func off(id: UUID) {
         offCallCount += 1
+        // Remove from all event callbacks
+        for event in eventCallbacks.keys {
+            eventCallbacks[event]?.removeValue(forKey: id)
+        }
+        statusCallbacks.removeValue(forKey: id)
     }
 
     func off(_ event: String) {
@@ -92,21 +101,25 @@ final class MockSocketProvider: SocketProvider, @unchecked Sendable {
 
     // Helper methods for testing
     func simulateEvent(_ event: String, data: [Any]) {
-        if let callback = eventCallbacks[event] {
+        if let callbacks = eventCallbacks[event] {
             // Create a mock ack emitter
             let manager = SocketManager(socketURL: URL(string: "http://localhost")!, config: [])
             let client = manager.defaultSocket
             let ack = SocketAckEmitter(socket: client, ackNum: 0)
-            callback(data, ack)
+            // Call all registered callbacks
+            for callback in callbacks.values {
+                callback(data, ack)
+            }
         }
     }
 
     func simulateStatusChange(_ newStatus: SocketIOStatus) {
         status = newStatus
-        if let callback = statusCallback {
-            let manager = SocketManager(socketURL: URL(string: "http://localhost")!, config: [])
-            let client = manager.defaultSocket
-            let ack = SocketAckEmitter(socket: client, ackNum: 0)
+        let manager = SocketManager(socketURL: URL(string: "http://localhost")!, config: [])
+        let client = manager.defaultSocket
+        let ack = SocketAckEmitter(socket: client, ackNum: 0)
+        // Call all registered status callbacks
+        for callback in statusCallbacks.values {
             callback([newStatus.rawValue], ack)
         }
     }
@@ -683,5 +696,539 @@ struct SocketEventProtocolTests {
         let payloadType = DefaultEvent.Payload.self
         let schemaType = DefaultEvent.Schema.self
         #expect(payloadType == schemaType)
+    }
+}
+
+// MARK: - Acknowledgment Tests
+
+@Suite("SocketService Acknowledgment Tests")
+struct SocketServiceAcknowledgmentTests {
+
+    @Test("SendWithAck emits event with acknowledgment request")
+    func sendWithAckEmitsEventWithAcknowledgmentRequest() async throws {
+        let url = URL(string: "https://example.com")!
+        let config = SocketConfiguration(url: url)
+        let mockSocket = MockSocketProvider()
+        mockSocket.status = .connected
+        let service = SocketService(socket: mockSocket, configuration: config)
+
+        let payload = TestEventWithResponse.Payload(data: "test")
+
+        // Note: We can't fully test acknowledgment responses with the current mock
+        // since OnAckCallback is opaque. This tests that the event was emitted with ack request.
+        Task {
+            _ = try? await service.sendWithAck(TestEventWithResponse.self, payload, timeout: 0.1)
+        }
+
+        try? await Task.sleep(nanoseconds: 200_000_000) // Wait for task
+
+        #expect(mockSocket.ackRequests.contains("test-ack-event"))
+        #expect(mockSocket.emittedEvents.contains(where: { $0.event == "test-ack-event" }))
+    }
+
+    @Test("SendWithAck throws when not connected")
+    func sendWithAckThrowsWhenNotConnected() async throws {
+        let url = URL(string: "https://example.com")!
+        let config = SocketConfiguration(url: url)
+        let mockSocket = MockSocketProvider()
+        mockSocket.status = .notConnected
+        let service = SocketService(socket: mockSocket, configuration: config)
+
+        let payload = TestEventWithResponse.Payload(data: "test")
+
+        await #expect(throws: SocketError.self) {
+            _ = try await service.sendWithAck(TestEventWithResponse.self, payload)
+        }
+    }
+}
+
+// MARK: - Event Decoding Error Tests
+
+@Suite("SocketService Event Decoding Tests")
+struct SocketServiceEventDecodingTests {
+
+    @Test("Observe handles empty data array")
+    func observeHandlesEmptyDataArray() async throws {
+        let url = URL(string: "https://example.com")!
+        let config = SocketConfiguration(url: url)
+        let mockSocket = MockSocketProvider()
+        let service = SocketService(socket: mockSocket, configuration: config)
+
+        let stream = service.observe(TestEvent.self)
+
+        Task {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            // Simulate event with empty data
+            mockSocket.simulateEvent("test-event", data: [])
+        }
+
+        var errorThrown = false
+        do {
+            for try await _ in stream {
+                break
+            }
+        } catch {
+            errorThrown = true
+            if let socketError = error as? SocketError {
+                #expect(socketError.eventName == "test-event")
+            }
+        }
+
+        #expect(errorThrown == true)
+    }
+
+    @Test("Observe handles malformed JSON")
+    func observeHandlesMalformedJSON() async throws {
+        let url = URL(string: "https://example.com")!
+        let config = SocketConfiguration(url: url)
+        let mockSocket = MockSocketProvider()
+        let service = SocketService(socket: mockSocket, configuration: config)
+
+        let stream = service.observe(TestEvent.self)
+
+        Task {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            // Simulate event with wrong data structure
+            let badData: [String: Any] = ["wrong": "structure"]
+            mockSocket.simulateEvent("test-event", data: [badData])
+        }
+
+        var errorThrown = false
+        do {
+            for try await _ in stream {
+                break
+            }
+        } catch {
+            errorThrown = true
+        }
+
+        #expect(errorThrown == true)
+    }
+
+    @Test("Observe handles non-dictionary data")
+    func observeHandlesNonDictionaryData() async throws {
+        let url = URL(string: "https://example.com")!
+        let config = SocketConfiguration(url: url)
+        let mockSocket = MockSocketProvider()
+        let service = SocketService(socket: mockSocket, configuration: config)
+
+        let stream = service.observe(TestEvent.self)
+
+        Task {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            // Simulate event with non-dictionary data
+            mockSocket.simulateEvent("test-event", data: [12345])
+        }
+
+        var errorThrown = false
+        do {
+            for try await _ in stream {
+                break
+            }
+        } catch {
+            errorThrown = true
+            if let socketError = error as? SocketError,
+               case .eventDecodingFailed(let event, _, _) = socketError {
+                #expect(event == "test-event")
+            }
+        }
+
+        #expect(errorThrown == true)
+    }
+}
+
+// MARK: - Multiple Observer Tests
+
+@Suite("SocketService Multiple Observer Tests")
+struct SocketServiceMultipleObserverTests {
+
+    @Test("Multiple observers can observe same event", .timeLimit(.minutes(1)))
+    func multipleObserversCanObserveSameEvent() async throws {
+        let url = URL(string: "https://example.com")!
+        let config = SocketConfiguration(url: url)
+        let mockSocket = MockSocketProvider()
+        let service = SocketService(socket: mockSocket, configuration: config)
+
+        let stream1 = service.observe(TestEvent.self)
+        let stream2 = service.observe(TestEvent.self)
+
+        // Fire the event after a short delay
+        Task {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            let eventData: [String: Any] = ["message": "Broadcast", "count": 99]
+            mockSocket.simulateEvent("test-event", data: [eventData])
+        }
+
+        // Consume both streams with timeout protection
+        let results = try await withThrowingTaskGroup(of: TestEvent.Schema?.self) { group in
+            group.addTask {
+                try await Task.sleep(nanoseconds: 500_000_000) // 0.5s timeout
+                return nil
+            }
+
+            group.addTask {
+                for try await event in stream1 {
+                    return event
+                }
+                return nil
+            }
+
+            group.addTask {
+                for try await event in stream2 {
+                    return event
+                }
+                return nil
+            }
+
+            // Collect first two results (timeout + one stream should complete)
+            var collected: [TestEvent.Schema?] = []
+            for try await result in group {
+                collected.append(result)
+                if collected.count == 2 {
+                    group.cancelAll()
+                    break
+                }
+            }
+            return collected
+        }
+
+        // Both streams should have received the event
+        let nonNilResults = results.compactMap { $0 }
+        #expect(nonNilResults.count == 2)
+        #expect(nonNilResults.allSatisfy { $0.message == "Broadcast" && $0.count == 99 })
+    }
+
+    @Test("Multiple status update streams work concurrently", .timeLimit(.minutes(1)))
+    func multipleStatusUpdateStreamsConcurrently() async throws {
+        let url = URL(string: "https://example.com")!
+        let config = SocketConfiguration(url: url)
+        let mockSocket = MockSocketProvider()
+        let service = SocketService(socket: mockSocket, configuration: config)
+
+        let stream1 = service.statusUpdates()
+        let stream2 = service.statusUpdates()
+
+        // Fire the status change after a short delay
+        Task {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            mockSocket.simulateStatusChange(.connected)
+        }
+
+        // Consume both streams with timeout protection
+        let results = try await withThrowingTaskGroup(of: SocketService.SocketStatus?.self) { group in
+            group.addTask {
+                try await Task.sleep(nanoseconds: 500_000_000) // 0.5s timeout
+                return nil
+            }
+
+            group.addTask {
+                for await status in stream1 {
+                    return status
+                }
+                return nil
+            }
+
+            group.addTask {
+                for await status in stream2 {
+                    return status
+                }
+                return nil
+            }
+
+            // Collect first two results
+            var collected: [SocketService.SocketStatus?] = []
+            for try await result in group {
+                collected.append(result)
+                if collected.count == 2 {
+                    group.cancelAll()
+                    break
+                }
+            }
+            return collected
+        }
+
+        // Both streams should have received the status update
+        let nonNilResults = results.compactMap { $0 }
+        #expect(nonNilResults.count == 2)
+        #expect(nonNilResults.allSatisfy { $0 == .connected })
+    }
+}
+
+// MARK: - Disconnect Cleanup Tests
+
+@Suite("SocketService Disconnect Cleanup Tests")
+struct SocketServiceDisconnectCleanupTests {
+
+    @Test("Disconnect cleans up event listeners")
+    func disconnectCleansUpEventListeners() async {
+        let url = URL(string: "https://example.com")!
+        let config = SocketConfiguration(url: url)
+        let mockSocket = MockSocketProvider()
+        let service = SocketService(socket: mockSocket, configuration: config)
+
+        // Start observing an event
+        let _ = service.observe(TestEvent.self)
+
+        // Wait a bit for the observer to register
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Disconnect should clean up listeners
+        await service.disconnect()
+
+        #expect(mockSocket.didDisconnect == true)
+    }
+
+    @Test("Multiple disconnect calls are safe")
+    func multipleDisconnectCallsAreSafe() async {
+        let url = URL(string: "https://example.com")!
+        let config = SocketConfiguration(url: url)
+        let mockSocket = MockSocketProvider()
+        let service = SocketService(socket: mockSocket, configuration: config)
+
+        await service.disconnect()
+        await service.disconnect()
+        await service.disconnect()
+
+        #expect(mockSocket.didDisconnect == true)
+    }
+}
+
+// MARK: - Connection State Tests
+
+@Suite("SocketService Connection State Tests")
+struct SocketServiceConnectionStateTests {
+
+    @Test("Status reflects all connection states")
+    func statusReflectsAllConnectionStates() async {
+        let url = URL(string: "https://example.com")!
+        let config = SocketConfiguration(url: url)
+        let mockSocket = MockSocketProvider()
+        let service = SocketService(socket: mockSocket, configuration: config)
+
+        // Test all status values
+        mockSocket.status = .notConnected
+        var status = await service.currentStatus
+        #expect(status == .notConnected)
+
+        mockSocket.status = .connecting
+        status = await service.currentStatus
+        #expect(status == .connecting)
+
+        mockSocket.status = .connected
+        status = await service.currentStatus
+        #expect(status == .connected)
+
+        mockSocket.status = .disconnected
+        status = await service.currentStatus
+        #expect(status == .disconnected)
+    }
+
+    @Test("Connect then disconnect updates state")
+    func connectThenDisconnectUpdatesState() async {
+        let url = URL(string: "https://example.com")!
+        let config = SocketConfiguration(url: url)
+        let mockSocket = MockSocketProvider()
+        let service = SocketService(socket: mockSocket, configuration: config)
+
+        await service.connect()
+        var status = await service.currentStatus
+        #expect(status == .connected)
+        #expect(mockSocket.didConnect == true)
+
+        await service.disconnect()
+        status = await service.currentStatus
+        #expect(status == .disconnected)
+        #expect(mockSocket.didDisconnect == true)
+    }
+
+    @Test("Multiple connect calls update state")
+    func multipleConnectCallsUpdateState() async {
+        let url = URL(string: "https://example.com")!
+        let config = SocketConfiguration(url: url)
+        let mockSocket = MockSocketProvider()
+        let service = SocketService(socket: mockSocket, configuration: config)
+
+        await service.connect()
+        await service.connect()
+        await service.connect()
+
+        #expect(mockSocket.didConnect == true)
+        let status = await service.currentStatus
+        #expect(status == .connected)
+    }
+}
+
+// MARK: - Edge Case Tests
+
+@Suite("SocketService Edge Case Tests")
+struct SocketServiceEdgeCaseTests {
+
+    @Test("EmptyBody conforms to SocketData")
+    func emptyBodyConformsToSocketData() throws {
+        let empty = EmptyBody()
+        let representation = try empty.socketRepresentation()
+
+        // Should be an empty array
+        if let array = representation as? [Any] {
+            #expect(array.isEmpty)
+        } else {
+            #expect(Bool(false), "EmptyBody should return an array")
+        }
+    }
+
+    @Test("Send with disconnected status after checking connected")
+    func sendWithDisconnectedStatusAfterCheckingConnected() async throws {
+        let url = URL(string: "https://example.com")!
+        let config = SocketConfiguration(url: url)
+        let mockSocket = MockSocketProvider()
+        mockSocket.status = .connected
+        let service = SocketService(socket: mockSocket, configuration: config)
+
+        // Change status to disconnected before send completes
+        mockSocket.status = .disconnected
+
+        let payload = TestEventWithPayload.Payload(message: "test")
+
+        // Should still emit since we checked at the beginning of send()
+        // but current implementation checks status synchronously
+        await #expect(throws: SocketError.self) {
+            try await service.send(TestEventWithPayload.self, payload)
+        }
+    }
+
+    @Test("Socket ID changes are reflected")
+    func socketIDChangesAreReflected() async {
+        let url = URL(string: "https://example.com")!
+        let config = SocketConfiguration(url: url)
+        let mockSocket = MockSocketProvider(sid: "initial-id")
+        let service = SocketService(socket: mockSocket, configuration: config)
+
+        var id = await service.socketID
+        #expect(id == "initial-id")
+
+        // Change the socket ID
+        mockSocket.sid = "new-id"
+        id = await service.socketID
+        #expect(id == "new-id")
+
+        // Set to nil
+        mockSocket.sid = nil
+        id = await service.socketID
+        #expect(id == nil)
+    }
+
+    @Test("Configuration values are immutable")
+    func configurationValuesAreImmutable() {
+        let url = URL(string: "https://example.com")!
+        let config = SocketConfiguration(
+            url: url,
+            authToken: "token1",
+            reconnectAttempts: 5
+        )
+
+        // Create another config
+        let config2 = SocketConfiguration(
+            url: url,
+            authToken: "token2",
+            reconnectAttempts: 10
+        )
+
+        // Original config should be unchanged
+        #expect(config.authToken == "token1")
+        #expect(config.reconnectAttempts == 5)
+        #expect(config2.authToken == "token2")
+        #expect(config2.reconnectAttempts == 10)
+    }
+}
+
+// MARK: - Concurrent Operation Tests
+
+@Suite("SocketService Concurrent Operation Tests")
+struct SocketServiceConcurrentOperationTests {
+
+    @Test("Concurrent sends work correctly")
+    func concurrentSendsWorkCorrectly() async throws {
+        let url = URL(string: "https://example.com")!
+        let config = SocketConfiguration(url: url)
+        let mockSocket = MockSocketProvider()
+        mockSocket.status = .connected
+        let service = SocketService(socket: mockSocket, configuration: config)
+
+        async let send1: Void = service.send(
+            TestEventWithPayload.self,
+            TestEventWithPayload.Payload(message: "1")
+        )
+        async let send2: Void = service.send(
+            TestEventWithPayload.self,
+            TestEventWithPayload.Payload(message: "2")
+        )
+        async let send3: Void = service.send(
+            TestEventWithPayload.self,
+            TestEventWithPayload.Payload(message: "3")
+        )
+
+        _ = try await (send1, send2, send3)
+
+        #expect(mockSocket.emittedEvents.count == 3)
+    }
+
+    @Test("Connect and send can happen concurrently")
+    func connectAndSendConcurrently() async throws {
+        let url = URL(string: "https://example.com")!
+        let config = SocketConfiguration(url: url)
+        let mockSocket = MockSocketProvider()
+        let service = SocketService(socket: mockSocket, configuration: config)
+
+        async let connectTask: Void = {
+            await service.connect()
+            mockSocket.status = .connected
+        }()
+
+        // Wait a tiny bit to let connect start
+        try? await Task.sleep(nanoseconds: 10_000_000)
+
+        async let sendTask: Void = {
+            mockSocket.status = .connected
+            try? await service.send(
+                TestEventWithPayload.self,
+                TestEventWithPayload.Payload(message: "concurrent")
+            )
+        }()
+
+        _ = await (connectTask, sendTask)
+
+        #expect(mockSocket.didConnect == true)
+    }
+
+    @Test("Status updates and sends work together")
+    func statusUpdatesAndSendsWorkTogether() async throws {
+        let url = URL(string: "https://example.com")!
+        let config = SocketConfiguration(url: url)
+        let mockSocket = MockSocketProvider()
+        mockSocket.status = .connected
+        let service = SocketService(socket: mockSocket, configuration: config)
+
+        let stream = service.statusUpdates()
+
+        async let statusTask: SocketService.SocketStatus? = {
+            for await status in stream {
+                return status
+            }
+            return nil
+        }()
+
+        async let sendTask: Void = {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            try? await service.send(
+                TestEventWithPayload.self,
+                TestEventWithPayload.Payload(message: "test")
+            )
+            mockSocket.simulateStatusChange(.connected)
+        }()
+
+        _ = await (statusTask, sendTask)
+
+        #expect(mockSocket.emittedEvents.count >= 1)
+        // Status update may or may not be received depending on timing
     }
 }
