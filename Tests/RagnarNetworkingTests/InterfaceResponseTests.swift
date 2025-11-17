@@ -199,15 +199,13 @@ struct InterfaceResponseTests {
         do {
             _ = try TestInterface.handle((data: responseData, response: httpResponse))
             #expect(Bool(false), "Should have thrown")
-        } catch let error as ResponseError {
+        } catch let error {
             // Verify it's a generic error
             if case .generic(_, _, let underlyingError) = error {
                 #expect(underlyingError is TestError)
             } else {
                 #expect(Bool(false), "Expected .generic error case")
             }
-        } catch {
-            #expect(Bool(false), "Expected ResponseError")
         }
     }
 
@@ -224,7 +222,7 @@ struct InterfaceResponseTests {
         do {
             _ = try TestInterface.handle((data: responseData, response: httpResponse))
             #expect(Bool(false), "Should have thrown")
-        } catch let error as ResponseError {
+        } catch let error {
             // Verify it's a decoding error
             if case .decoding(_, _, let decodingError) = error {
                 if case .jsonDecoder = decodingError {
@@ -235,8 +233,6 @@ struct InterfaceResponseTests {
             } else {
                 #expect(Bool(false), "Expected .decoding error case")
             }
-        } catch {
-            #expect(Bool(false), "Expected ResponseError")
         }
     }
 
@@ -253,7 +249,7 @@ struct InterfaceResponseTests {
         do {
             _ = try StringInterface.handle((data: responseData, response: httpResponse))
             #expect(Bool(false), "Should have thrown")
-        } catch let error as ResponseError {
+        } catch let error {
             if case .decoding(_, _, let decodingError) = error {
                 if case .missingString = decodingError {
                     // Expected
@@ -263,8 +259,6 @@ struct InterfaceResponseTests {
             } else {
                 #expect(Bool(false), "Expected .decoding error case")
             }
-        } catch {
-            #expect(Bool(false), "Expected ResponseError")
         }
     }
 
