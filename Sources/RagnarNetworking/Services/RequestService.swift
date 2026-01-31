@@ -33,43 +33,6 @@ public extension RequestService {
             parameters,
             try serverConfiguration()
         )
-        
-        
-//        var interfaceRequest: URLRequest!
-//        do {
-//            interfaceRequest = try request(interface, parameters)
-//        } catch {
-//            loggingService?
-//                .log(
-//                    source: .requestService,
-//                    level: .error,
-//                    message: "Failed to create request - \(error.localizedDescription)"
-//                )
-//            
-//            throw error
-//        }
-//        
-//        loggingService?
-//            .log(
-//                source: .requestService,
-//                level: .debug,
-//                message: "\(interfaceRequest.httpMethod ?? "") - \(interfaceRequest.url?.description ?? "")"
-//            )
-//
-//        do {
-//            return try T.handle(
-//                try await dataTaskProvider.data(for: interfaceRequest)
-//            )
-//        } catch {
-//            loggingService?
-//                .log(
-//                    source: .requestService,
-//                    level: .error,
-//                    message: "Request error - \(error.localizedDescription)"
-//                )
-//            
-//            throw error
-//        }
     }
     
 }
