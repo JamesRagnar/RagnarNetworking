@@ -6,8 +6,6 @@
 //
 
 import Foundation
-import SocketIO
-
 public protocol SocketEvent: Sendable {
     
     static var name: String { get }
@@ -15,5 +13,3 @@ public protocol SocketEvent: Sendable {
     associatedtype Schema: Decodable & Sendable
     
 }
-
-public protocol SendableSocketEvent: SocketEvent where Schema: SocketData & Sendable {}

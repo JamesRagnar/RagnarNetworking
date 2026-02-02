@@ -1,5 +1,4 @@
 import Foundation
-import SocketIO
 import Testing
 @testable import RagnarNetworking
 
@@ -58,23 +57,18 @@ struct ChatEvent: SocketEvent {
     }
 }
 
-struct OutgoingEvent: SendableSocketEvent {
+struct OutgoingEvent: SocketEvent {
     static let name = "send"
 
-    struct Schema: Codable, Sendable, SocketData {
+    struct Schema: Codable, Sendable, SocketPayload {
         let text: String
-
-        func socketRepresentation() throws -> SocketData {
-            let data = try JSONEncoder().encode(self)
-            return try JSONSerialization.jsonObject(with: data) as! SocketData
-        }
     }
 }
 
 actor TestSocketClient: SocketClientProtocol {
     var sid: String? = nil
 
-    private var emitted: [(String, SocketData)] = []
+    private var emitted: [(String, SocketPayloadValue)] = []
     private var didSetEventHandler = false
     private var didSetStatusHandler = false
     private var eventHandler: (@Sendable (SocketEventSnapshot) -> Void)?
@@ -90,8 +84,8 @@ actor TestSocketClient: SocketClientProtocol {
         statusHandler = handler
     }
 
-    func emit(_ event: String, _ item: SocketData) {
-        emitted.append((event, item))
+    func emit(_ event: String, _ payload: SocketPayloadValue) throws {
+        emitted.append((event, payload))
     }
 
     func connect() {}

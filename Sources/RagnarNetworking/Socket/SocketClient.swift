@@ -12,7 +12,7 @@ protocol SocketClientProtocol: Actor {
     var sid: String? { get }
     func setEventHandler(_ handler: @Sendable @escaping (SocketEventSnapshot) -> Void)
     func setStatusHandler(_ handler: @Sendable @escaping (SocketService.SocketStatus) -> Void)
-    func emit(_ event: String, _ item: SocketData)
+    func emit(_ event: String, _ payload: SocketPayloadValue) throws
     func connect()
     func disconnect()
 }
@@ -43,8 +43,9 @@ actor SocketIOClientAdapter: SocketClientProtocol {
         statusHandler = handler
     }
 
-    func emit(_ event: String, _ item: SocketData) {
-        client.emit(event, item)
+    func emit(_ event: String, _ payload: SocketPayloadValue) throws {
+        let socketData = try SocketIOPayloadConverter.socketData(from: payload)
+        client.emit(event, socketData)
     }
 
     func connect() {
@@ -84,5 +85,97 @@ actor SocketIOClientAdapter: SocketClientProtocol {
 
     private func handleStatusChange(_ status: SocketService.SocketStatus) {
         statusHandler?(status)
+    }
+}
+
+private enum SocketIOPayloadConverter {
+    static func socketData(from payload: SocketPayloadValue) throws -> SocketData {
+        switch payload {
+        case .string(let value):
+            return value
+        case .int(let value):
+            return value
+        case .double(let value):
+            return value
+        case .bool(let value):
+            return value
+        case .data(let value):
+            return value
+        case .array(let values):
+            return try values.map { try socketData(from: $0) }
+        case .dictionary(let values):
+            var mapped: [String: SocketData] = [:]
+            mapped.reserveCapacity(values.count)
+            for (key, value) in values {
+                mapped[key] = try socketData(from: value)
+            }
+            return mapped
+        case .null:
+            throw SocketServiceError.invalidMessageType
+        }
+    }
+}
+
+private extension SocketServiceConfiguration {
+    func socketIOConfiguration() -> SocketIOClientConfiguration {
+        var config = SocketIOClientConfiguration()
+        for option in options {
+            config.insert(option.socketIOOption)
+        }
+        return config
+    }
+}
+
+private extension SocketServiceOption {
+    var socketIOOption: SocketIOClientOption {
+        switch self {
+        case .compress:
+            return .compress
+        case .connectParams(let params):
+            return .connectParams(params)
+        case .extraHeaders(let headers):
+            return .extraHeaders(headers)
+        case .forceNew(let value):
+            return .forceNew(value)
+        case .forcePolling(let value):
+            return .forcePolling(value)
+        case .forceWebsockets(let value):
+            return .forceWebsockets(value)
+        case .enableSOCKSProxy(let value):
+            return .enableSOCKSProxy(value)
+        case .log(let value):
+            return .log(value)
+        case .path(let value):
+            return .path(value)
+        case .reconnects(let value):
+            return .reconnects(value)
+        case .reconnectAttempts(let value):
+            return .reconnectAttempts(value)
+        case .reconnectWait(let value):
+            return .reconnectWait(value)
+        case .reconnectWaitMax(let value):
+            return .reconnectWaitMax(value)
+        case .randomizationFactor(let value):
+            return .randomizationFactor(value)
+        case .secure(let value):
+            return .secure(value)
+        case .selfSigned(let value):
+            return .selfSigned(value)
+        case .useCustomEngine(let value):
+            return .useCustomEngine(value)
+        case .version(let value):
+            return .version(value.socketIOVersion)
+        }
+    }
+}
+
+private extension SocketServiceVersion {
+    var socketIOVersion: SocketIOVersion {
+        switch self {
+        case .two:
+            return .two
+        case .three:
+            return .three
+        }
     }
 }

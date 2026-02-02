@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import SocketIO
 
 /// Represents a no-payload socket event body.
 ///
@@ -16,23 +15,16 @@ import SocketIO
 ///     let message: String
 /// }
 ///
-/// extension ChatMessage: SocketData {
-///     public func socketRepresentation() throws -> SocketData {
-///         let data = try JSONEncoder().encode(self)
-///         return try JSONSerialization.jsonObject(with: data) as! SocketData
-///     }
-/// }
+/// extension ChatMessage: SocketPayload {}
 /// ```
-public struct EmptyBody: Decodable, Sendable {
+public struct EmptyBody: Codable, Sendable, SocketPayload {
     
     public init() {}
 
 }
-
-extension EmptyBody: SocketData {
     
-    public func socketRepresentation() throws -> SocketData {
-        return []
+public extension EmptyBody {
+    func socketPayload() throws -> SocketPayloadValue {
+        .dictionary([:])
     }
-
 }

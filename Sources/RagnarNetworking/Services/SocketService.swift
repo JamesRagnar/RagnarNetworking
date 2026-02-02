@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import SocketIO
 
 public actor SocketService {
 
@@ -30,6 +29,7 @@ public actor SocketService {
         let id: UUID
         let eventName: String
         let handler: (SocketEventSnapshot) -> Void
+        let finish: () -> Void
 
         init<Event: SocketEvent>(
             id: UUID,
@@ -43,6 +43,9 @@ public actor SocketService {
                     return
                 }
                 continuation.yield(decoded)
+            }
+            self.finish = {
+                continuation.finish()
             }
         }
 
@@ -89,6 +92,10 @@ public actor SocketService {
         client = SocketIOClientAdapter(url: url, config: config)
     }
 
+    public func setLoggingService(_ loggingService: LoggingService?) {
+        self.loggingService = loggingService
+    }
+
     init(client: SocketClientProtocol) {
         self.client = client
     }
@@ -110,9 +117,9 @@ public actor SocketService {
         cleanupAllContinuations()
     }
 
-    public func sendEvent<Event: SendableSocketEvent>(
+    public func sendEvent<Event: SocketEvent, Payload: SocketPayload>(
         _ eventType: Event.Type,
-        _ message: Event.Schema
+        _ message: Payload
     ) async {
         loggingService?.log(
             source: .socketService,
@@ -120,7 +127,16 @@ public actor SocketService {
             message: "Sending Event - \(eventType.name)"
         )
 
-        await client.emit(eventType.name, message)
+        do {
+            let payload = try message.socketPayload()
+            try await client.emit(eventType.name, payload)
+        } catch {
+            loggingService?.log(
+                source: .socketService,
+                level: .error,
+                message: "Failed Sending Event - \(eventType.name) (\(error))"
+            )
+        }
     }
 
     public func observeAllEvents() async -> AsyncStream<SocketEventSnapshot> {
@@ -244,6 +260,8 @@ public actor SocketService {
     }
 
     private func removeTypedEventContinuation(_ id: UUID, eventName: String) {
+        let observer = typedEventObservers[eventName]?[id]
+        observer?.finish()
         typedEventObservers[eventName]?.removeValue(forKey: id)
         if typedEventObservers[eventName]?.isEmpty == true {
             typedEventObservers.removeValue(forKey: eventName)
@@ -261,6 +279,11 @@ public actor SocketService {
         }
         statusContinuations.removeAll()
 
+        for observers in typedEventObservers.values {
+            for observer in observers.values {
+                observer.finish()
+            }
+        }
         typedEventObservers.removeAll()
     }
 
