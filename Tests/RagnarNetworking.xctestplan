@@ -1,0 +1,33 @@
+{
+  "configurations" : [
+    {
+      "id" : "CE8ECB2D-BFFA-4ABB-A743-B3F963CB9907",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : {
+      "targets" : [
+        {
+          "containerPath" : "container:",
+          "identifier" : "RagnarNetworking",
+          "name" : "RagnarNetworking"
+        }
+      ]
+    },
+    "performanceAntipatternCheckerEnabled" : true
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "RagnarNetworkingTests",
+        "name" : "RagnarNetworkingTests"
+      }
+    }
+  ],
+  "version" : 1
+}
