@@ -75,9 +75,10 @@ public actor SocketService {
         }
     }
 
-    public weak var loggingService: LoggingService?
+    private weak var loggingService: LoggingService?
 
     private let client: SocketClientProtocol
+    private let configuration: SocketServiceConfiguration
     private var currentStatus: SocketStatus = .notConnected
     private var eventContinuations: [UUID: AsyncStream<SocketEventSnapshot>.Continuation] = [:]
     private var statusContinuations: [UUID: AsyncStream<SocketStatus>.Continuation] = [:]
@@ -89,6 +90,7 @@ public actor SocketService {
     }
 
     public init(url: URL, config: SocketServiceConfiguration = .init()) {
+        configuration = config
         client = SocketIOClientAdapter(url: url, config: config)
     }
 
@@ -96,7 +98,8 @@ public actor SocketService {
         self.loggingService = loggingService
     }
 
-    init(client: SocketClientProtocol) {
+    init(client: SocketClientProtocol, configuration: SocketServiceConfiguration = .init()) {
+        self.configuration = configuration
         self.client = client
     }
 
@@ -117,10 +120,10 @@ public actor SocketService {
         cleanupAllContinuations()
     }
 
-    public func sendEvent<Event: SocketEvent, Payload: SocketPayload>(
+    public func sendEvent<Event: SocketEvent>(
         _ eventType: Event.Type,
-        _ message: Payload
-    ) async {
+        _ message: Event.Schema
+    ) async throws where Event.Schema: SocketPayload {
         loggingService?.log(
             source: .socketService,
             level: .debug,
@@ -136,13 +139,14 @@ public actor SocketService {
                 level: .error,
                 message: "Failed Sending Event - \(eventType.name) (\(error))"
             )
+            throw error
         }
     }
 
     public func observeAllEvents() async -> AsyncStream<SocketEventSnapshot> {
         await ensureHandlersConfigured()
         let (stream, continuation) = AsyncStream<SocketEventSnapshot>.makeStream(
-            bufferingPolicy: .bufferingNewest(100)
+            bufferingPolicy: .bufferingNewest(configuration.eventBufferSize)
         )
         let id = UUID()
         eventContinuations[id] = continuation
@@ -173,7 +177,9 @@ public actor SocketService {
         _ eventType: Event.Type
     ) async -> AsyncStream<Event.Schema> {
         await ensureHandlersConfigured()
-        let (stream, continuation) = AsyncStream<Event.Schema>.makeStream()
+        let (stream, continuation) = AsyncStream<Event.Schema>.makeStream(
+            bufferingPolicy: .bufferingNewest(configuration.eventBufferSize)
+        )
         let id = UUID()
 
         let observer = TypedEventObserver(

@@ -7,9 +7,14 @@
 
 public struct SocketServiceConfiguration: Sendable {
     public var options: [SocketServiceOption]
+    public var eventBufferSize: Int
 
-    public init(_ options: [SocketServiceOption] = []) {
+    public init(
+        _ options: [SocketServiceOption] = [],
+        eventBufferSize: Int = 100
+    ) {
         self.options = options
+        self.eventBufferSize = eventBufferSize
     }
 }
 

@@ -250,11 +250,11 @@ struct SocketServiceTests {
     }
 
     @Test
-    func sendEventEmitsThroughClient() async {
+    func sendEventEmitsThroughClient() async throws {
         let client = TestSocketClient()
         let service = SocketService(client: client)
 
-        await service.sendEvent(OutgoingEvent.self, .init(text: "ping"))
+        try await service.sendEvent(OutgoingEvent.self, .init(text: "ping"))
         let count = await client.emittedCount()
         let name = await client.firstEmittedEventName()
         #expect(count == 1)
