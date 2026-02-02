@@ -124,43 +124,48 @@ struct SocketServiceTests {
     @Test
     func observeStatusImmediateValue() async throws {
         let client = TestSocketClient()
-        let service = SocketService(client: client)
+        let service = SocketService(config: .init(), clientFactory: { _, _ in client })
 
         let stream = await service.observeStatus()
         let value = try await firstValue(from: stream)
-        #expect(value == .notConnected)
+        #expect(value == .init(session: .idle, socket: .notConnected))
     }
 
     @Test
     func observeStatusReceivesUpdates() async throws {
         let client = TestSocketClient()
-        let service = SocketService(client: client)
+        let service = SocketService(config: .init(), clientFactory: { _, _ in client })
 
         let stream = await service.observeStatus()
         var iterator = stream.makeAsyncIterator()
 
-        let didConfigure = await waitForCondition {
+        let initial = await iterator.next()
+        #expect(initial == .init(session: .idle, socket: .notConnected))
+
+        await service.startSession(url: URL(string: "http://localhost")!)
+
+        let didConfigureAfterStart = await waitForCondition {
             let hasEvent = await client.hasEventHandler()
             let hasStatus = await client.hasStatusHandler()
             return hasEvent && hasStatus
         }
-        #expect(didConfigure)
+        #expect(didConfigureAfterStart)
 
-        let initial = await iterator.next()
-        #expect(initial == .notConnected)
+        let connecting = await iterator.next()
+        #expect(connecting?.socket == .connecting)
 
         await client.simulateStatus(.connected)
 
         let updated = await iterator.next()
-        #expect(updated == .connected)
+        #expect(updated?.socket == .connected)
     }
 
     @Test
     func statusUpdatesWithoutObservers() async {
         let client = TestSocketClient()
-        let service = SocketService(client: client)
+        let service = SocketService(config: .init(), clientFactory: { _, _ in client })
 
-        await service.connect()
+        await service.startSession(url: URL(string: "http://localhost")!)
 
         let didConfigure = await waitForCondition {
             let hasEvent = await client.hasEventHandler()
@@ -172,7 +177,7 @@ struct SocketServiceTests {
         await client.simulateStatus(.connected)
         let didUpdate = await waitForCondition {
             let status = await service.status()
-            return status == .connected
+            return status.socket == .connected
         }
         #expect(didUpdate)
     }
@@ -180,10 +185,12 @@ struct SocketServiceTests {
     @Test
     func observeAllEventsReceivesAnyEvent() async throws {
         let client = TestSocketClient()
-        let service = SocketService(client: client)
+        let service = SocketService(config: .init(), clientFactory: { _, _ in client })
 
         let stream = await service.observeAllEvents()
         let value = Task { try await firstValue(from: stream) }
+
+        await service.startSession(url: URL(string: "http://localhost")!)
 
         let didConfigure = await waitForCondition {
             await client.hasEventHandler()
@@ -202,10 +209,12 @@ struct SocketServiceTests {
     @Test
     func observeTypedEventDecodes() async throws {
         let client = TestSocketClient()
-        let service = SocketService(client: client)
+        let service = SocketService(config: .init(), clientFactory: { _, _ in client })
 
         let stream = await service.observeEvent(ChatEvent.self)
         let value = Task { try await firstValue(from: stream) }
+
+        await service.startSession(url: URL(string: "http://localhost")!)
 
         let didConfigure = await waitForCondition {
             await client.hasEventHandler()
@@ -224,13 +233,15 @@ struct SocketServiceTests {
     @Test
     func multipleObserversReceiveSameEvent() async throws {
         let client = TestSocketClient()
-        let service = SocketService(client: client)
+        let service = SocketService(config: .init(), clientFactory: { _, _ in client })
 
         let streamA = await service.observeEvent(ChatEvent.self)
         let streamB = await service.observeEvent(ChatEvent.self)
 
         let valueA = Task { try await firstValue(from: streamA) }
         let valueB = Task { try await firstValue(from: streamB) }
+
+        await service.startSession(url: URL(string: "http://localhost")!)
 
         let didConfigure = await waitForCondition {
             await client.hasEventHandler()
@@ -252,9 +263,9 @@ struct SocketServiceTests {
     @Test
     func sendEventEmitsThroughClient() async throws {
         let client = TestSocketClient()
-        let service = SocketService(client: client)
+        let service = SocketService(config: .init(), clientFactory: { _, _ in client })
 
-        await service.connect()
+        await service.startSession(url: URL(string: "http://localhost")!)
         await client.simulateStatus(.connected)
 
         try await service.sendEvent(OutgoingEvent.self, .init(text: "ping"))
@@ -267,7 +278,7 @@ struct SocketServiceTests {
     @Test
     func sendEventThrowsWhenDisconnected() async {
         let client = TestSocketClient()
-        let service = SocketService(client: client)
+        let service = SocketService(config: .init(), clientFactory: { _, _ in client })
 
         do {
             try await service.sendEvent(OutgoingEvent.self, .init(text: "ping"))
@@ -282,13 +293,15 @@ struct SocketServiceTests {
     @Test
     func cancelledObserverDoesNotBlockOthers() async throws {
         let client = TestSocketClient()
-        let service = SocketService(client: client)
+        let service = SocketService(config: .init(), clientFactory: { _, _ in client })
 
         let streamA = await service.observeAllEvents()
         let streamB = await service.observeAllEvents()
 
         let valueA = Task { try await firstValue(from: streamA, timeout: 500_000_000) }
         let valueB = Task { try await firstValue(from: streamB) }
+
+        await service.startSession(url: URL(string: "http://localhost")!)
 
         let didConfigure = await waitForCondition {
             await client.hasEventHandler()

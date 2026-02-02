@@ -25,6 +25,41 @@ public actor SocketService {
 
     }
 
+    public enum SessionState: Sendable, Equatable {
+        case idle
+        case starting(URL)
+        case active(URL)
+        case stopping(URL)
+
+        public var url: URL? {
+            switch self {
+            case .idle:
+                return nil
+            case .starting(let url),
+                 .active(let url),
+                 .stopping(let url):
+                return url
+            }
+        }
+
+        public var isActive: Bool {
+            if case .active = self {
+                return true
+            }
+            return false
+        }
+    }
+
+    public struct Status: Sendable, Equatable {
+        public let session: SessionState
+        public let socket: SocketStatus
+
+        public init(session: SessionState, socket: SocketStatus) {
+            self.session = session
+            self.socket = socket
+        }
+    }
+
     private struct TypedEventObserver {
         let id: UUID
         let eventName: String
@@ -90,54 +125,96 @@ public actor SocketService {
 
     private weak var loggingService: LoggingService?
 
-    private let client: SocketClientProtocol
     private let configuration: SocketServiceConfiguration
-    private var currentStatus: SocketStatus = .notConnected
+    private let clientFactory: @Sendable (URL, SocketServiceConfiguration) -> any SocketClientProtocol
+
+    private var client: (any SocketClientProtocol)?
+    private var clientID: UUID?
+
+    private var currentSocketStatus: SocketStatus = .notConnected
+    private var sessionState: SessionState = .idle
+
     private var eventContinuations: [UUID: AsyncStream<SocketEventSnapshot>.Continuation] = [:]
-    private var statusContinuations: [UUID: AsyncStream<SocketStatus>.Continuation] = [:]
+    private var statusContinuations: [UUID: AsyncStream<Status>.Continuation] = [:]
     private var typedEventObservers: [String: [UUID: TypedEventObserver]] = [:]
-    private var handlersConfigured = false
 
     public func socketID() async -> String? {
-        await client.sid
+        await client?.sid
     }
 
-    public init(url: URL, config: SocketServiceConfiguration = .init()) {
+    public init(config: SocketServiceConfiguration = .init()) {
+        self.init(
+            config: config,
+            clientFactory: { url, config in
+                SocketIOClientAdapter(url: url, config: config)
+            }
+        )
+    }
+
+    init(
+        config: SocketServiceConfiguration = .init(),
+        clientFactory: @escaping @Sendable (URL, SocketServiceConfiguration) -> any SocketClientProtocol
+    ) {
         configuration = config
-        client = SocketIOClientAdapter(url: url, config: config)
+        self.clientFactory = clientFactory
     }
 
     public func setLoggingService(_ loggingService: LoggingService?) {
         self.loggingService = loggingService
     }
 
-    init(client: SocketClientProtocol, configuration: SocketServiceConfiguration = .init()) {
-        self.configuration = configuration
-        self.client = client
+    public func status() -> Status {
+        Status(session: sessionState, socket: currentSocketStatus)
     }
 
-    public func status() -> SocketStatus {
-        currentStatus
+    public func startSession(url: URL) async {
+        await setSession(url: url)
     }
 
-    public func connect() async {
-        await ensureHandlersConfigured()
-        await client.connect()
+    public func stopSession() async {
+        await setSession(url: nil)
     }
 
-    public func disconnect() async {
-        await client.disconnect()
-        if currentStatus != .disconnected {
-            await handleStatusChange(.disconnected)
+    public func setSession(url: URL?) async {
+        if url == sessionState.url, client != nil {
+            if currentSocketStatus != .connected {
+                await client?.connect()
+            }
+            return
         }
-        cleanupAllContinuations()
+
+        if let currentURL = sessionState.url {
+            sessionState = .stopping(currentURL)
+            publishStatus()
+        }
+
+        await disconnectClient()
+
+        guard let url else {
+            sessionState = .idle
+            currentSocketStatus = .notConnected
+            publishStatus()
+            return
+        }
+
+        let newClient = clientFactory(url, configuration)
+        let newClientID = UUID()
+        client = newClient
+        clientID = newClientID
+
+        sessionState = .starting(url)
+        currentSocketStatus = .connecting
+        publishStatus()
+
+        await configureHandlers(for: newClient, clientID: newClientID)
+        await newClient.connect()
     }
 
     public func sendEvent<Event: SocketOutboundEvent>(
         _ eventType: Event.Type,
         _ message: Event.Payload
     ) async throws {
-        guard currentStatus == .connected else {
+        guard let client, currentSocketStatus == .connected else {
             loggingService?.log(
                 source: .socketService,
                 level: .error,
@@ -165,7 +242,6 @@ public actor SocketService {
     }
 
     public func observeAllEvents() async -> AsyncStream<SocketEventSnapshot> {
-        await ensureHandlersConfigured()
         let (stream, continuation) = AsyncStream<SocketEventSnapshot>.makeStream(
             bufferingPolicy: .bufferingNewest(configuration.eventBufferSize)
         )
@@ -179,15 +255,14 @@ public actor SocketService {
         return stream
     }
 
-    public func observeStatus() async -> AsyncStream<SocketStatus> {
-        await ensureHandlersConfigured()
-        let (stream, continuation) = AsyncStream<SocketStatus>.makeStream(
+    public func observeStatus() async -> AsyncStream<Status> {
+        let (stream, continuation) = AsyncStream<Status>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
         )
         let id = UUID()
         statusContinuations[id] = continuation
 
-        continuation.yield(currentStatus)
+        continuation.yield(status())
 
         continuation.onTermination = { [weak self] _ in
             Task { await self?.removeStatusContinuation(id) }
@@ -199,7 +274,6 @@ public actor SocketService {
     public func observeEvent<Event: SocketInboundEvent>(
         _ eventType: Event.Type
     ) async -> AsyncStream<Event.Payload> {
-        await ensureHandlersConfigured()
         let (stream, continuation) = AsyncStream<Event.Payload>.makeStream(
             bufferingPolicy: .bufferingNewest(configuration.eventBufferSize)
         )
@@ -223,22 +297,27 @@ public actor SocketService {
         return stream
     }
 
-    private func ensureHandlersConfigured() async {
-        guard !handlersConfigured else { return }
-        handlersConfigured = true
-
+    private func configureHandlers(
+        for client: any SocketClientProtocol,
+        clientID: UUID
+    ) async {
         await client.setEventHandler { [weak self] event in
             guard let self = self else { return }
-            await self.handleSocketEvent(event)
+            await self.handleSocketEvent(event, clientID: clientID)
         }
 
         await client.setStatusHandler { [weak self] status in
             guard let self = self else { return }
-            await self.handleStatusChange(status)
+            await self.handleStatusChange(status, clientID: clientID)
         }
     }
 
-    private func handleSocketEvent(_ event: SocketEventSnapshot) async {
+    private func handleSocketEvent(
+        _ event: SocketEventSnapshot,
+        clientID: UUID
+    ) async {
+        guard clientID == self.clientID else { return }
+
         loggingService?.log(
             source: .socketService,
             level: .debug,
@@ -263,8 +342,20 @@ public actor SocketService {
         }
     }
 
-    private func handleStatusChange(_ status: SocketStatus) async {
-        currentStatus = status
+    private func handleStatusChange(
+        _ status: SocketStatus,
+        clientID: UUID
+    ) async {
+        guard clientID == self.clientID else { return }
+
+        currentSocketStatus = status
+
+        if case .starting(let url) = sessionState, status == .connected {
+            sessionState = .active(url)
+        } else if case .stopping = sessionState, status == .disconnected {
+            sessionState = .idle
+            currentSocketStatus = .notConnected
+        }
 
         loggingService?.log(
             source: .socketService,
@@ -272,9 +363,21 @@ public actor SocketService {
             message: "Status Change - \(status)"
         )
 
+        publishStatus()
+    }
+
+    private func publishStatus() {
+        let status = status()
         for continuation in statusContinuations.values {
             continuation.yield(status)
         }
+    }
+
+    private func disconnectClient() async {
+        guard let client else { return }
+        clientID = nil
+        await client.disconnect()
+        self.client = nil
     }
 
     private func removeEventContinuation(_ id: UUID) {
@@ -294,25 +397,6 @@ public actor SocketService {
         if typedEventObservers[eventName]?.isEmpty == true {
             typedEventObservers.removeValue(forKey: eventName)
         }
-    }
-
-    private func cleanupAllContinuations() {
-        for continuation in eventContinuations.values {
-            continuation.finish()
-        }
-        eventContinuations.removeAll()
-
-        for continuation in statusContinuations.values {
-            continuation.finish()
-        }
-        statusContinuations.removeAll()
-
-        for observers in typedEventObservers.values {
-            for observer in observers.values {
-                observer.finish()
-            }
-        }
-        typedEventObservers.removeAll()
     }
 
 }
