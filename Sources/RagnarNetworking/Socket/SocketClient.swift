@@ -111,7 +111,7 @@ private enum SocketIOPayloadConverter {
             }
             return mapped
         case .null:
-            throw SocketServiceError.invalidMessageType
+            return NSNull()
         }
     }
 }

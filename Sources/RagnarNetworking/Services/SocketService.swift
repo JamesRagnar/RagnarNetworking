@@ -31,10 +31,10 @@ public actor SocketService {
         let handler: (SocketEventSnapshot) -> Void
         let finish: () -> Void
 
-        init<Event: SocketEvent>(
+        init<Event: SocketInboundEvent>(
             id: UUID,
             eventType: Event.Type,
-            continuation: AsyncStream<Event.Schema>.Continuation
+            continuation: AsyncStream<Event.Payload>.Continuation
         ) {
             self.id = id
             self.eventName = Event.name
@@ -49,15 +49,15 @@ public actor SocketService {
             }
         }
 
-        static func decodeEvent<Event: SocketEvent>(
+        static func decodeEvent<Event: SocketInboundEvent>(
             _ event: SocketEventSnapshot,
             as eventType: Event.Type
-        ) -> Event.Schema? {
+        ) -> Event.Payload? {
             guard let item = event.items.first else { return nil }
 
             let itemValue = item.asAny()
 
-            if let item = itemValue as? Event.Schema {
+            if let item = itemValue as? Event.Payload {
                 return item
             }
 
@@ -66,7 +66,7 @@ public actor SocketService {
                     withJSONObject: itemValue,
                     options: [.fragmentsAllowed]
                 ),
-                let decoded = try? JSONDecoder().decode(Event.Schema.self, from: jsonData)
+                let decoded = try? JSONDecoder().decode(Event.Payload.self, from: jsonData)
             {
                 return decoded
             }
@@ -120,10 +120,10 @@ public actor SocketService {
         cleanupAllContinuations()
     }
 
-    public func sendEvent<Event: SocketEvent>(
+    public func sendEvent<Event: SocketOutboundEvent>(
         _ eventType: Event.Type,
-        _ message: Event.Schema
-    ) async throws where Event.Schema: SocketPayload {
+        _ message: Event.Payload
+    ) async throws {
         loggingService?.log(
             source: .socketService,
             level: .debug,
@@ -173,11 +173,11 @@ public actor SocketService {
         return stream
     }
 
-    public func observeEvent<Event: SocketEvent>(
+    public func observeEvent<Event: SocketInboundEvent>(
         _ eventType: Event.Type
-    ) async -> AsyncStream<Event.Schema> {
+    ) async -> AsyncStream<Event.Payload> {
         await ensureHandlersConfigured()
-        let (stream, continuation) = AsyncStream<Event.Schema>.makeStream(
+        let (stream, continuation) = AsyncStream<Event.Payload>.makeStream(
             bufferingPolicy: .bufferingNewest(configuration.eventBufferSize)
         )
         let id = UUID()

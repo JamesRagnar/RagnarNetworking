@@ -6,10 +6,19 @@
 //
 
 import Foundation
-public protocol SocketEvent: Sendable {
-    
+
+public protocol SocketInboundEvent: Sendable {
+
     static var name: String { get }
-    
-    associatedtype Schema: Decodable & Sendable
-    
+
+    associatedtype Payload: Decodable & Sendable
+
+}
+
+public protocol SocketOutboundEvent: Sendable {
+
+    static var name: String { get }
+
+    associatedtype Payload: SocketPayload & Sendable
+
 }

@@ -49,18 +49,18 @@ private func waitForCondition(
     return await condition()
 }
 
-struct ChatEvent: SocketEvent {
+struct ChatEvent: SocketInboundEvent {
     static let name = "chat"
 
-    struct Schema: Codable, Sendable {
+    struct Payload: Codable, Sendable {
         let message: String
     }
 }
 
-struct OutgoingEvent: SocketEvent {
+struct OutgoingEvent: SocketOutboundEvent {
     static let name = "send"
 
-    struct Schema: Codable, Sendable, SocketPayload {
+    struct Payload: Codable, Sendable, SocketPayload {
         let text: String
     }
 }
