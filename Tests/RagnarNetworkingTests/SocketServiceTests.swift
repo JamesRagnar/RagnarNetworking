@@ -71,15 +71,15 @@ actor TestSocketClient: SocketClientProtocol {
     private var emitted: [(String, SocketPayloadValue)] = []
     private var didSetEventHandler = false
     private var didSetStatusHandler = false
-    private var eventHandler: (@Sendable (SocketEventSnapshot) -> Void)?
-    private var statusHandler: (@Sendable (SocketService.SocketStatus) -> Void)?
+    private var eventHandler: (@Sendable (SocketEventSnapshot) async -> Void)?
+    private var statusHandler: (@Sendable (SocketService.SocketStatus) async -> Void)?
 
-    func setEventHandler(_ handler: @Sendable @escaping (SocketEventSnapshot) -> Void) {
+    func setEventHandler(_ handler: @Sendable @escaping (SocketEventSnapshot) async -> Void) {
         didSetEventHandler = true
         eventHandler = handler
     }
 
-    func setStatusHandler(_ handler: @Sendable @escaping (SocketService.SocketStatus) -> Void) {
+    func setStatusHandler(_ handler: @Sendable @escaping (SocketService.SocketStatus) async -> Void) {
         didSetStatusHandler = true
         statusHandler = handler
     }
@@ -108,13 +108,13 @@ actor TestSocketClient: SocketClientProtocol {
         emitted.first?.0
     }
 
-    func simulateEvent(name: String, items: [Any]) {
+    func simulateEvent(name: String, items: [Any]) async {
         let snapshot = SocketEventSnapshot(event: name, items: items)
-        eventHandler?(snapshot)
+        await eventHandler?(snapshot)
     }
 
-    func simulateStatus(_ status: SocketService.SocketStatus) {
-        statusHandler?(status)
+    func simulateStatus(_ status: SocketService.SocketStatus) async {
+        await statusHandler?(status)
     }
 }
 

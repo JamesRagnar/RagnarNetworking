@@ -71,6 +71,19 @@ public actor SocketService {
                 return decoded
             }
 
+            if event.items.count > 1 {
+                let arrayValue = event.items.map { $0.asAny() }
+                if
+                    let jsonData = try? JSONSerialization.data(
+                        withJSONObject: arrayValue,
+                        options: [.fragmentsAllowed]
+                    ),
+                    let decoded = try? JSONDecoder().decode(Event.Payload.self, from: jsonData)
+                {
+                    return decoded
+                }
+            }
+
             return nil
         }
     }
@@ -115,7 +128,7 @@ public actor SocketService {
     public func disconnect() async {
         await client.disconnect()
         if currentStatus != .disconnected {
-            handleStatusChange(.disconnected)
+            await handleStatusChange(.disconnected)
         }
         cleanupAllContinuations()
     }
@@ -160,7 +173,9 @@ public actor SocketService {
 
     public func observeStatus() async -> AsyncStream<SocketStatus> {
         await ensureHandlersConfigured()
-        let (stream, continuation) = AsyncStream<SocketStatus>.makeStream()
+        let (stream, continuation) = AsyncStream<SocketStatus>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
         let id = UUID()
         statusContinuations[id] = continuation
 
@@ -206,17 +221,16 @@ public actor SocketService {
 
         await client.setEventHandler { [weak self] event in
             guard let self = self else { return }
-            Task { await self.handleSocketEvent(event) }
+            await self.handleSocketEvent(event)
         }
 
         await client.setStatusHandler { [weak self] status in
             guard let self = self else { return }
-
-            Task { await self.handleStatusChange(status) }
+            await self.handleStatusChange(status)
         }
     }
 
-    private func handleSocketEvent(_ event: SocketEventSnapshot) {
+    private func handleSocketEvent(_ event: SocketEventSnapshot) async {
         loggingService?.log(
             source: .socketService,
             level: .debug,
@@ -241,7 +255,7 @@ public actor SocketService {
         }
     }
 
-    private func handleStatusChange(_ status: SocketStatus) {
+    private func handleStatusChange(_ status: SocketStatus) async {
         currentStatus = status
 
         loggingService?.log(

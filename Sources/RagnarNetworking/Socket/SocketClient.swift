@@ -10,8 +10,8 @@ import SocketIO
 
 protocol SocketClientProtocol: Actor {
     var sid: String? { get }
-    func setEventHandler(_ handler: @Sendable @escaping (SocketEventSnapshot) -> Void)
-    func setStatusHandler(_ handler: @Sendable @escaping (SocketService.SocketStatus) -> Void)
+    func setEventHandler(_ handler: @Sendable @escaping (SocketEventSnapshot) async -> Void)
+    func setStatusHandler(_ handler: @Sendable @escaping (SocketService.SocketStatus) async -> Void)
     func emit(_ event: String, _ payload: SocketPayloadValue) throws
     func connect()
     func disconnect()
@@ -20,8 +20,8 @@ protocol SocketClientProtocol: Actor {
 actor SocketIOClientAdapter: SocketClientProtocol {
     private let manager: SocketManager
     private let client: SocketIOClient
-    private var eventHandler: (@Sendable (SocketEventSnapshot) -> Void)?
-    private var statusHandler: (@Sendable (SocketService.SocketStatus) -> Void)?
+    private var eventHandler: (@Sendable (SocketEventSnapshot) async -> Void)?
+    private var statusHandler: (@Sendable (SocketService.SocketStatus) async -> Void)?
     private var callbacksConfigured = false
 
     init(url: URL, config: SocketServiceConfiguration) {
@@ -33,12 +33,12 @@ actor SocketIOClientAdapter: SocketClientProtocol {
         client.sid
     }
 
-    func setEventHandler(_ handler: @Sendable @escaping (SocketEventSnapshot) -> Void) {
+    func setEventHandler(_ handler: @Sendable @escaping (SocketEventSnapshot) async -> Void) {
         configureCallbacksIfNeeded()
         eventHandler = handler
     }
 
-    func setStatusHandler(_ handler: @Sendable @escaping (SocketService.SocketStatus) -> Void) {
+    func setStatusHandler(_ handler: @Sendable @escaping (SocketService.SocketStatus) async -> Void) {
         configureCallbacksIfNeeded()
         statusHandler = handler
     }
@@ -68,23 +68,38 @@ actor SocketIOClientAdapter: SocketClientProtocol {
 
         client.on(clientEvent: .statusChange) { [weak self] (data, _) in
             guard let self = self else { return }
-            guard
-                let statusInt = data.last as? Int,
-                let status = SocketService.SocketStatus(rawValue: statusInt)
-            else {
-                return
-            }
-
+            guard let status = Self.socketStatus(from: data) else { return }
             Task { await self.handleStatusChange(status) }
         }
     }
 
-    private func handleAnySnapshot(_ snapshot: SocketEventSnapshot) {
-        eventHandler?(snapshot)
+    private func handleAnySnapshot(_ snapshot: SocketEventSnapshot) async {
+        guard let handler = eventHandler else { return }
+        await handler(snapshot)
     }
 
-    private func handleStatusChange(_ status: SocketService.SocketStatus) {
-        statusHandler?(status)
+    private func handleStatusChange(_ status: SocketService.SocketStatus) async {
+        guard let handler = statusHandler else { return }
+        await handler(status)
+    }
+
+    private nonisolated static func socketStatus(from data: [Any]) -> SocketService.SocketStatus? {
+        if let status = data.last as? SocketIOStatus {
+            switch status {
+            case .notConnected:
+                return .notConnected
+            case .disconnected:
+                return .disconnected
+            case .connecting:
+                return .connecting
+            case .connected:
+                return .connected
+            }
+        }
+        if let statusInt = data.last as? Int {
+            return SocketService.SocketStatus(rawValue: statusInt)
+        }
+        return nil
     }
 }
 

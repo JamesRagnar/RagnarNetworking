@@ -95,8 +95,8 @@ public enum SocketItem: Sendable {
             return values.mapValues { $0.asAny() }
         case .null:
             return NSNull()
-        case .unsupported:
-            return NSNull()
+        case .unsupported(let description):
+            return description
         }
     }
 }
