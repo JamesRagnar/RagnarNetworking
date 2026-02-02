@@ -6,18 +6,25 @@
 //
 
 import Foundation
-import SocketIO
 
-public struct EmptyBody: Decodable, Sendable {
+/// Represents a no-payload socket event body.
+///
+/// Example custom body conformance:
+/// ```swift
+/// struct ChatMessage: Codable, Sendable {
+///     let message: String
+/// }
+///
+/// extension ChatMessage: SocketPayload {}
+/// ```
+public struct EmptyBody: Codable, Sendable, SocketPayload {
     
     public init() {}
 
 }
-
-extension EmptyBody: SocketData {
     
-    public func socketRepresentation() throws -> SocketData {
-        return []
+public extension EmptyBody {
+    func socketPayload() throws -> SocketPayloadValue {
+        .dictionary([:])
     }
-
 }

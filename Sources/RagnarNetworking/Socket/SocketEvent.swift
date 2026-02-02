@@ -6,12 +6,10 @@
 //
 
 import Foundation
-import SocketIO
-
 public protocol SocketEvent: Sendable {
     
     static var name: String { get }
     
-    associatedtype Schema: Decodable
+    associatedtype Schema: Decodable & Sendable
     
 }
