@@ -137,6 +137,14 @@ public actor SocketService {
         _ eventType: Event.Type,
         _ message: Event.Payload
     ) async throws {
+        guard currentStatus == .connected else {
+            loggingService?.log(
+                source: .socketService,
+                level: .error,
+                message: "Failed Sending Event - \(eventType.name) (not connected)"
+            )
+            throw SocketServiceError.notConnected
+        }
         loggingService?.log(
             source: .socketService,
             level: .debug,

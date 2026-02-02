@@ -79,24 +79,16 @@ public enum SocketItem: Sendable {
 
     func asAny() -> Any {
         switch self {
-        case .string(let value):
-            return value
-        case .int(let value):
-            return value
-        case .double(let value):
-            return value
-        case .bool(let value):
-            return value
-        case .data(let value):
-            return value
-        case .array(let values):
-            return values.map { $0.asAny() }
-        case .dictionary(let values):
-            return values.mapValues { $0.asAny() }
-        case .null:
-            return NSNull()
-        case .unsupported(let description):
-            return description
+        case .string(let value): value
+        case .int(let value): value
+        case .double(let value): value
+        case .bool(let value): value
+        case .data(let value): value
+        case .array(let values): values.map { $0.asAny() }
+        case .dictionary(let values): values.mapValues { $0.asAny() }
+        case .null: NSNull()
+        case .unsupported: NSNull()
         }
     }
+
 }

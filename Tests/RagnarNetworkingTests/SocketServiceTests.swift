@@ -254,11 +254,29 @@ struct SocketServiceTests {
         let client = TestSocketClient()
         let service = SocketService(client: client)
 
+        await service.connect()
+        await client.simulateStatus(.connected)
+
         try await service.sendEvent(OutgoingEvent.self, .init(text: "ping"))
         let count = await client.emittedCount()
         let name = await client.firstEmittedEventName()
         #expect(count == 1)
         #expect(name == OutgoingEvent.name)
+    }
+
+    @Test
+    func sendEventThrowsWhenDisconnected() async {
+        let client = TestSocketClient()
+        let service = SocketService(client: client)
+
+        do {
+            try await service.sendEvent(OutgoingEvent.self, .init(text: "ping"))
+            #expect(Bool(false))
+        } catch let error as SocketServiceError {
+            #expect(error == .notConnected)
+        } catch {
+            #expect(Bool(false))
+        }
     }
 
     @Test

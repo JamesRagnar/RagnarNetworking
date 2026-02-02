@@ -5,7 +5,7 @@
 //  Created by James Harquail on 2025-02-08.
 //
 
-public enum SocketServiceError: Error, Sendable {
+public enum SocketServiceError: Error, Sendable, Equatable {
     case invalidMessageType
     case decodingFailed(eventName: String)
     case notConnected
