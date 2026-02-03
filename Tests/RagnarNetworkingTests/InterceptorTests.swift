@@ -15,9 +15,9 @@ struct MockInterface: Interface {
     struct Parameters: RequestParameters {
         let method: RequestMethod = .get
         let path: String = "/test"
-        let queryItems: [String: String]? = nil
+        let queryItems: [String: String?]? = nil
         let headers: [String: String]? = nil
-        let body: Data? = nil
+        let body: RequestBody? = nil
         let authentication: AuthenticationType = .bearer
     }
 

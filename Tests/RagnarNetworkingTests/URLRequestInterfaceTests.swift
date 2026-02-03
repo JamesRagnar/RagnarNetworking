@@ -17,27 +17,27 @@ struct URLRequestInterfaceTests {
     struct BasicParameters: RequestParameters {
         let method: RequestMethod = .get
         let path: String
-        let queryItems: [String: String]? = nil
+        let queryItems: [String: String?]? = nil
         let headers: [String: String]? = nil
-        let body: Data? = nil
+        let body: RequestBody? = nil
         let authentication: AuthenticationType = .none
     }
 
     struct AuthenticatedParameters: RequestParameters {
         let method: RequestMethod = .post
         let path: String = "/api/users"
-        let queryItems: [String: String]? = nil
+        let queryItems: [String: String?]? = nil
         let headers: [String: String]? = nil
-        let body: Data?
+        let body: RequestBody?
         let authentication: AuthenticationType
     }
 
     struct ComplexParameters: RequestParameters {
         let method: RequestMethod = .put
         let path: String = "/api/update"
-        let queryItems: [String: String]?
+        let queryItems: [String: String?]?
         let headers: [String: String]?
-        let body: Data?
+        let body: RequestBody?
         let authentication: AuthenticationType
     }
 
@@ -58,7 +58,7 @@ struct URLRequestInterfaceTests {
         let urlString = request.url?.absoluteString ?? ""
         #expect(urlString == "https://api.example.com/test" || urlString == "https://api.example.com/test?")
         #expect(request.httpMethod == "GET")
-        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == nil)
     }
 
     @Test("Constructs request with different HTTP methods")
@@ -72,9 +72,9 @@ struct URLRequestInterfaceTests {
             struct TestParams: RequestParameters {
                 let method: RequestMethod
                 let path = "/test"
-                let queryItems: [String: String]? = nil
+                let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: Data? = nil
+                let body: RequestBody? = nil
                 let authentication: AuthenticationType = .none
             }
 
@@ -230,18 +230,27 @@ struct URLRequestInterfaceTests {
 
     // MARK: - Headers
 
-    @Test("Sets default Content-Type header")
-    func testDefaultContentTypeHeader() throws {
+    @Test("Sets default Content-Type header for JSON body")
+    func testDefaultContentTypeHeaderForJSON() throws {
+        struct TestPayload: Codable, Sendable {
+            let name: String
+        }
+
         let url = URL(string: "https://api.example.com")!
         let config = ServerConfiguration(url: url)
-        let params = BasicParameters(path: "/test")
+        let params = ComplexParameters(
+            queryItems: nil,
+            headers: nil,
+            body: .json(TestPayload(name: "sample")),
+            authentication: .none
+        )
 
         let request = try URLRequest(
             requestParameters: params,
             serverConfiguration: config
         )
 
-        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json; charset=utf-8")
     }
 
     @Test("Adds custom headers")
@@ -266,12 +275,16 @@ struct URLRequestInterfaceTests {
 
     @Test("Custom headers override default headers")
     func testCustomHeadersOverrideDefaults() throws {
+        struct TestPayload: Codable, Sendable {
+            let name: String
+        }
+
         let url = URL(string: "https://api.example.com")!
         let config = ServerConfiguration(url: url)
         let params = ComplexParameters(
             queryItems: nil,
             headers: ["Content-Type": "application/xml"],
-            body: nil,
+            body: .json(TestPayload(name: "override")),
             authentication: .none
         )
 
@@ -313,7 +326,7 @@ struct URLRequestInterfaceTests {
         let params = ComplexParameters(
             queryItems: nil,
             headers: nil,
-            body: bodyData,
+            body: .data(bodyData),
             authentication: .none
         )
 
@@ -323,6 +336,7 @@ struct URLRequestInterfaceTests {
         )
 
         #expect(request.httpBody == bodyData)
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == nil)
     }
 
     @Test("Handles JSON body data")
@@ -335,11 +349,10 @@ struct URLRequestInterfaceTests {
         let url = URL(string: "https://api.example.com")!
         let config = ServerConfiguration(url: url)
         let payload = TestPayload(name: "test", value: 42)
-        let bodyData = try JSONEncoder().encode(payload)
         let params = ComplexParameters(
             queryItems: nil,
             headers: nil,
-            body: bodyData,
+            body: .json(payload),
             authentication: .none
         )
 
@@ -348,12 +361,100 @@ struct URLRequestInterfaceTests {
             serverConfiguration: config
         )
 
-        #expect(request.httpBody == bodyData)
-
         // Verify we can decode it back
+        #expect(request.httpBody != nil)
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json; charset=utf-8")
         let decoded = try JSONDecoder().decode(TestPayload.self, from: request.httpBody!)
         #expect(decoded.name == "test")
         #expect(decoded.value == 42)
+    }
+
+    @Test("Handles form URL encoded body")
+    func testFormURLEncodedBody() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = ComplexParameters(
+            queryItems: nil,
+            headers: nil,
+            body: .formURLEncoded(["alpha": "1", "beta": "two"]),
+            authentication: .none
+        )
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
+        let parts = Set(bodyString.split(separator: "&").map(String.init))
+        #expect(parts == Set(["alpha=1", "beta=two"]))
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/x-www-form-urlencoded; charset=utf-8")
+    }
+
+    @Test("Handles text body with encoding")
+    func testTextBody() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = ComplexParameters(
+            queryItems: nil,
+            headers: nil,
+            body: .text("hello", encoding: .utf8),
+            authentication: .none
+        )
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8)
+        #expect(bodyString == "hello")
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "text/plain; charset=utf-8")
+    }
+
+    @Test("Throws encoding error for invalid text encoding")
+    func testTextBodyEncodingError() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = ComplexParameters(
+            queryItems: nil,
+            headers: nil,
+            body: .text("🚀", encoding: .ascii),
+            authentication: .none
+        )
+
+        #expect(throws: RequestError.self) {
+            try URLRequest(
+                requestParameters: params,
+                serverConfiguration: config
+            )
+        }
+    }
+
+    @Test("Throws encoding error for JSON encoding failure")
+    func testJSONBodyEncodingError() throws {
+        struct FailingPayload: Encodable {
+            func encode(to encoder: Encoder) throws {
+                struct TestError: Error {}
+                throw TestError()
+            }
+        }
+
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = ComplexParameters(
+            queryItems: nil,
+            headers: nil,
+            body: .json(FailingPayload()),
+            authentication: .none
+        )
+
+        #expect(throws: RequestError.self) {
+            try URLRequest(
+                requestParameters: params,
+                serverConfiguration: config
+            )
+        }
     }
 
     // MARK: - Path Handling
@@ -417,7 +518,7 @@ struct URLRequestInterfaceTests {
         let params = ComplexParameters(
             queryItems: ["filter": "active", "sort": "name"],
             headers: ["X-API-Version": "2.0", "X-Client-ID": "ios-app"],
-            body: bodyData,
+            body: .data(bodyData),
             authentication: .bearer
         )
 
@@ -434,7 +535,6 @@ struct URLRequestInterfaceTests {
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer complex-token")
         #expect(request.value(forHTTPHeaderField: "X-API-Version") == "2.0")
         #expect(request.value(forHTTPHeaderField: "X-Client-ID") == "ios-app")
-        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
         #expect(request.httpBody == bodyData)
     }
 

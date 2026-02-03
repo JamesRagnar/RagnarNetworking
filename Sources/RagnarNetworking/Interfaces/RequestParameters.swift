@@ -21,16 +21,35 @@ public protocol RequestParameters: Sendable {
     var path: String { get }
 
     /// Optional query parameters to append to the URL
-    var queryItems: [String: String]? { get }
+    var queryItems: [String: String?]? { get }
 
     /// Optional HTTP headers to include in the request
     var headers: [String: String]? { get }
 
-    /// Optional request body data (typically JSON-encoded)
-    var body: Data? { get }
+    /// Optional request body data
+    var body: RequestBody? { get }
 
     /// The authentication strategy for this request
     var authentication: AuthenticationType { get }
+
+}
+
+// MARK: - Request Body
+
+/// Supported request body types.
+public enum RequestBody: Sendable {
+
+    /// JSON-encoded body
+    case json(any Encodable & Sendable)
+
+    /// Raw body data
+    case data(Data)
+
+    /// application/x-www-form-urlencoded body
+    case formURLEncoded([String: String])
+
+    /// Text body with explicit encoding
+    case text(String, encoding: String.Encoding)
 
 }
 
