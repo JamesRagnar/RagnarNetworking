@@ -295,7 +295,7 @@ struct URLRequestInterfaceTests {
             serverConfiguration: config
         )
 
-        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json; charset=utf-8")
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
     }
 
     @Test("Adds custom headers")
@@ -427,7 +427,7 @@ struct URLRequestInterfaceTests {
 
         // Verify we can decode it back
         #expect(request.httpBody != nil)
-        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json; charset=utf-8")
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
         let decoded = try JSONDecoder().decode(TestPayload.self, from: request.httpBody!)
         #expect(decoded.name == "test")
         #expect(decoded.value == 42)
@@ -452,17 +452,17 @@ struct URLRequestInterfaceTests {
         let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
         let parts = Set(bodyString.split(separator: "&").map(String.init))
         #expect(parts == Set(["alpha=1", "beta=two"]))
-        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/x-www-form-urlencoded; charset=utf-8")
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/x-www-form-urlencoded")
     }
 
-    @Test("Handles text body with encoding")
+    @Test("Handles text body")
     func testTextBody() throws {
         let url = URL(string: "https://api.example.com")!
         let config = ServerConfiguration(url: url)
         let params = ComplexParameters(
             queryItems: nil,
             headers: nil,
-            body: .text("hello", encoding: .utf8),
+            body: .text("hello"),
             authentication: .none
         )
 
@@ -474,25 +474,6 @@ struct URLRequestInterfaceTests {
         let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8)
         #expect(bodyString == "hello")
         #expect(request.value(forHTTPHeaderField: "Content-Type") == "text/plain; charset=utf-8")
-    }
-
-    @Test("Throws encoding error for invalid text encoding")
-    func testTextBodyEncodingError() throws {
-        let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
-        let params = ComplexParameters(
-            queryItems: nil,
-            headers: nil,
-            body: .text("🚀", encoding: .ascii),
-            authentication: .none
-        )
-
-        #expect(throws: RequestError.self) {
-            try URLRequest(
-                requestParameters: params,
-                serverConfiguration: config
-            )
-        }
     }
 
     @Test("Throws encoding error for JSON encoding failure")

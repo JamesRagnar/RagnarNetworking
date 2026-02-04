@@ -19,14 +19,14 @@ public protocol RequestParameters: Sendable {
 
 ## Request Body
 
-`RequestBody` provides explicit body types with built-in encoding and inferred `Content-Type` when a body exists and the header is not already set.
+`RequestBody` provides explicit body types with built-in encoding (UTF-8 for text) and inferred `Content-Type` when a body exists and the header is not already set.
 
 ```swift
 public enum RequestBody: Sendable {
     case json(any Encodable & Sendable)
     case data(Data)
     case formURLEncoded([String: String])
-    case text(String, encoding: String.Encoding)
+    case text(String)
 }
 ```
 
@@ -36,7 +36,7 @@ Examples:
 body = .json(["name": "Ragnar"])
 body = .data(rawData)
 body = .formURLEncoded(["grant_type": "client_credentials"])
-body = .text("hello", encoding: .utf8)
+body = .text("hello")
 ```
 
 ## Authentication

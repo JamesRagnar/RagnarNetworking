@@ -242,30 +242,19 @@ public extension InterfaceConstructor {
                 let data = try JSONEncoder().encode(encodable)
                 return (
                     data: data,
-                    contentType: "application/json; charset=utf-8"
+                    contentType: "application/json"
                 )
             } catch {
                 throw .encoding(underlying: error)
             }
         case .formURLEncoded(let fields):
             return (
-                data: formURLEncodedBody(fields),
-                contentType: "application/x-www-form-urlencoded; charset=utf-8"
+                data: fields.formURLEncodedBody(),
+                contentType: "application/x-www-form-urlencoded"
             )
-        case .text(let text, let encoding):
-            guard let data = text.data(using: encoding) else {
-                throw .encoding(
-                    underlying: EncodingError.invalidValue(
-                        text,
-                        EncodingError.Context(
-                            codingPath: [],
-                            debugDescription: "Unable to encode text with \(encoding)."
-                        )
-                    )
-                )
-            }
-            let charset = charsetName(for: encoding)
-            let contentType = charset.map { "text/plain; charset=\($0)" } ?? "text/plain"
+        case .text(let text):
+            let data = Data(text.utf8)
+            let contentType = "text/plain; charset=utf-8"
             return (
                 data: data,
                 contentType: contentType
@@ -297,33 +286,21 @@ public extension InterfaceConstructor {
 
 }
 
-private func charsetName(for encoding: String.Encoding) -> String? {
-    switch encoding {
-    case .utf8: "utf-8"
-    case .ascii: "us-ascii"
-    case .isoLatin1: "iso-8859-1"
-    case .utf16: "utf-16"
-    case .utf16LittleEndian: "utf-16le"
-    case .utf16BigEndian: "utf-16be"
-    case .utf32: "utf-32"
-    case .utf32LittleEndian: "utf-32le"
-    case .utf32BigEndian: "utf-32be"
-    default: nil
-    }
-}
-
 // MARK: - Form URL Encoding
 
-private func formURLEncodedBody(_ fields: [String: String]) -> Data {
-    guard !fields.isEmpty else {
-        return Data()
+private extension Dictionary where Key == String, Value == String {
+
+    func formURLEncodedBody() -> Data {
+        guard !isEmpty else {
+            return Data()
+        }
+
+        var components = URLComponents()
+        components.queryItems = map { URLQueryItem(name: $0.key, value: $0.value) }
+            .sorted { $0.name < $1.name }
+
+        let query = components.percentEncodedQuery ?? ""
+        return Data(query.utf8)
     }
 
-    var components = URLComponents()
-    components.queryItems = fields
-        .map { URLQueryItem(name: $0.key, value: $0.value) }
-        .sorted { $0.name < $1.name }
-
-    let query = components.percentEncodedQuery ?? ""
-    return Data(query.utf8)
 }
