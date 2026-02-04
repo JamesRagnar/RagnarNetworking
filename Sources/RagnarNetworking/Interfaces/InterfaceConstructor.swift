@@ -165,11 +165,20 @@ public extension InterfaceConstructor {
         to components: inout URLComponents
     ) throws(RequestError) {
         var currentQueryItems = components.queryItems ?? []
-        currentQueryItems.removeAll { $0.name == "token" }
 
-        let newQueryItems = queryItems?
-            .filter { $0.key != "token" }
-            .map { URLQueryItem(name: $0.key, value: $0.value) }
+        if case .url = authentication {
+            currentQueryItems.removeAll { $0.name == "token" }
+        }
+
+        let newQueryItems: [URLQueryItem]?
+        if case .url = authentication {
+            newQueryItems = queryItems?
+                .filter { $0.key != "token" }
+                .map { URLQueryItem(name: $0.key, value: $0.value) }
+        } else {
+            newQueryItems = queryItems?
+                .map { URLQueryItem(name: $0.key, value: $0.value) }
+        }
 
         if let newQueryItems {
             currentQueryItems.append(contentsOf: newQueryItems)

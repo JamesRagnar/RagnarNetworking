@@ -19,7 +19,7 @@ public protocol RequestParameters: Sendable {
 
 ## Request Body
 
-`RequestBody` provides explicit body types with built-in encoding (UTF-8 for text) and inferred `Content-Type` when a body exists and the header is not already set.
+`RequestBody` provides explicit body types with built-in encoding (UTF-8 for text) and inferred `Content-Type` for `.json` and `.text` when the header is not already set. `.data` does not infer a content type.
 
 ```swift
 public enum RequestBody: Sendable {
