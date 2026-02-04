@@ -149,13 +149,21 @@ public extension InterfaceConstructor {
     ) {
         let basePath = components.path
         if basePath.isEmpty || basePath == "/" {
-            components.path = path
+            if path.hasPrefix("/") {
+                components.path = path
+            } else {
+                components.path = "/" + path
+            }
             return
         }
 
         let trimmedBase = basePath.hasSuffix("/") ? String(basePath.dropLast()) : basePath
         let trimmedPath = path.hasPrefix("/") ? String(path.dropFirst()) : path
-        components.path = "\(trimmedBase)/\(trimmedPath)"
+        if trimmedPath.isEmpty {
+            components.path = trimmedBase
+        } else {
+            components.path = "\(trimmedBase)/\(trimmedPath)"
+        }
     }
 
     static func applyQueryItems(
@@ -167,13 +175,15 @@ public extension InterfaceConstructor {
         var currentQueryItems = components.queryItems ?? []
 
         if case .url = authentication {
-            currentQueryItems.removeAll { $0.name == "token" }
+            currentQueryItems.removeAll {
+                $0.name.caseInsensitiveCompare("token") == .orderedSame
+            }
         }
 
         let newQueryItems: [URLQueryItem]?
         if case .url = authentication {
             newQueryItems = queryItems?
-                .filter { $0.key != "token" }
+                .filter { $0.key.caseInsensitiveCompare("token") != .orderedSame }
                 .map { URLQueryItem(name: $0.key, value: $0.value) }
         } else {
             newQueryItems = queryItems?

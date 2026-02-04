@@ -64,6 +64,23 @@ open class InterceptableRequestService: RequestService {
         return try await executeWithRetry(request, for: interface, attemptNumber: 1)
     }
 
+    public func dataTask<T: Interface>(
+        _ interface: T.Type,
+        _ parameters: T.Parameters,
+        _ constructor: InterfaceConstructor.Type
+    ) async throws -> T.Response {
+        var request = try constructor.buildRequest(
+            requestParameters: parameters,
+            serverConfiguration: try serverConfiguration()
+        )
+
+        for interceptor in interceptors {
+            request = try await interceptor.adapt(request, for: interface)
+        }
+
+        return try await executeWithRetry(request, for: interface, attemptNumber: 1)
+    }
+
     /// Execute a request with retry support
     /// - Parameters:
     ///   - request: The URLRequest to execute

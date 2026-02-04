@@ -20,6 +20,12 @@ public protocol RequestService {
         _ parameters: T.Parameters
     ) async throws -> T.Response
 
+    func dataTask<T: Interface>(
+        _ interface: T.Type,
+        _ parameters: T.Parameters,
+        _ constructor: InterfaceConstructor.Type
+    ) async throws -> T.Response
+
 }
 
 public extension RequestService {
@@ -38,7 +44,7 @@ public extension RequestService {
     func dataTask<T: Interface>(
         _ interface: T.Type,
         _ parameters: T.Parameters,
-        constructor: InterfaceConstructor.Type
+        _ constructor: InterfaceConstructor.Type
     ) async throws -> T.Response {
         try await dataTaskProvider.dataTask(
             interface,

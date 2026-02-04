@@ -222,6 +222,54 @@ struct InterceptorTests {
         #expect(capturedRequest?.value(forHTTPHeaderField: "X-Constructor") == "used")
     }
 
+    @Test("Constructor overload preserves interceptors")
+    func testConstructorOverloadPreservesInterceptors() async throws {
+        struct CustomConstructor: InterfaceConstructor {
+            static func applyHeaders(
+                _ headers: [String: String]?,
+                authentication: AuthenticationType,
+                authToken: String?,
+                to request: inout URLRequest
+            ) throws(RequestError) {
+                try URLRequest.applyHeaders(
+                    headers,
+                    authentication: authentication,
+                    authToken: authToken,
+                    to: &request
+                )
+
+                var current = request.allHTTPHeaderFields ?? [:]
+                current["X-Constructor"] = "used"
+                request.allHTTPHeaderFields = current
+            }
+        }
+
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url, authToken: "test-token")
+        let provider = MockDataTaskProvider()
+        let counter = CountingInterceptor.Counter()
+
+        let service: RequestService = InterceptableRequestService(
+            dataTaskProvider: provider,
+            configurationProvider: { config },
+            interceptors: [CountingInterceptor(counter: counter)]
+        )
+
+        let responseData = try! JSONEncoder().encode(MockInterface.Response(message: "success"))
+        await provider.setResponse(responseData, statusCode: 200, url: url)
+
+        _ = try await service.dataTask(
+            MockInterface.self,
+            MockInterface.Parameters(),
+            CustomConstructor.self
+        )
+
+        let capturedRequest = await provider.lastRequest
+        #expect(capturedRequest?.value(forHTTPHeaderField: "X-Constructor") == "used")
+        let adaptCount = await counter.adaptCount
+        #expect(adaptCount == 1)
+    }
+
 }
 
 @Suite("TokenRefreshInterceptor Tests")

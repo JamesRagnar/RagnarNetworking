@@ -294,6 +294,30 @@ struct URLRequestInterfaceTests {
         #expect(tokenItems.first?.value == "auth-token")
     }
 
+    @Test("URL auth token overrides token case-insensitively")
+    func testURLAuthTokenOverridesTokenCaseInsensitive() throws {
+        let url = URL(string: "https://api.example.com?TOKEN=base-token")!
+        let config = ServerConfiguration(url: url, authToken: "auth-token")
+        let params = ComplexParameters(
+            queryItems: ["Token": "custom-token"],
+            headers: nil,
+            body: nil,
+            authentication: .url
+        )
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
+        let tokenItems = components?.queryItems?.filter {
+            $0.name.caseInsensitiveCompare("token") == .orderedSame
+        } ?? []
+        #expect(tokenItems.count == 1)
+        #expect(tokenItems.first?.value == "auth-token")
+    }
+
     // MARK: - Headers
 
     @Test("Sets default Content-Type header for JSON body")
@@ -609,6 +633,20 @@ struct URLRequestInterfaceTests {
         )
 
         #expect(request.url?.path == "/v1/users")
+    }
+
+    @Test("Normalizes missing leading slash in path")
+    func testNormalizesMissingLeadingSlash() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = BasicParameters(path: "users")
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        #expect(request.url?.path == "/users")
     }
 
     // MARK: - Error Cases
