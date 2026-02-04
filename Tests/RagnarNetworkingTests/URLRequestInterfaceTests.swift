@@ -341,6 +341,34 @@ struct URLRequestInterfaceTests {
         #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/xml")
     }
 
+    @Test("Custom Content-Type casing suppresses default")
+    func testCustomContentTypeCasingSuppressesDefault() throws {
+        struct TestPayload: Codable, Sendable {
+            let name: String
+        }
+
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = ComplexParameters(
+            queryItems: nil,
+            headers: ["content-type": "application/xml"],
+            body: .json(TestPayload(name: "override")),
+            authentication: .none
+        )
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/xml")
+
+        let contentTypeKeys = request.allHTTPHeaderFields?.keys.filter {
+            $0.caseInsensitiveCompare("Content-Type") == .orderedSame
+        } ?? []
+        #expect(contentTypeKeys.count == 1)
+    }
+
     @Test("Combines bearer auth with custom headers")
     func testBearerAuthWithCustomHeaders() throws {
         let url = URL(string: "https://api.example.com")!

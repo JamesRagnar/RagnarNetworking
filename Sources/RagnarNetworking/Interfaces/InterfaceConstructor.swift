@@ -273,7 +273,10 @@ public extension InterfaceConstructor {
         }
 
         var currentHeaderFields = request.allHTTPHeaderFields ?? [:]
-        if currentHeaderFields["Content-Type"] == nil {
+        let hasContentType = currentHeaderFields.keys.contains {
+            $0.caseInsensitiveCompare("Content-Type") == .orderedSame
+        }
+        if !hasContentType {
             currentHeaderFields["Content-Type"] = contentType
             request.allHTTPHeaderFields = currentHeaderFields
         }
