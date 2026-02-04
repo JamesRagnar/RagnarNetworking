@@ -34,5 +34,18 @@ public extension RequestService {
             try serverConfiguration()
         )
     }
+
+    func dataTask<T: Interface>(
+        _ interface: T.Type,
+        _ parameters: T.Parameters,
+        constructor: InterfaceConstructor.Type
+    ) async throws -> T.Response {
+        try await dataTaskProvider.dataTask(
+            interface,
+            parameters,
+            try serverConfiguration(),
+            constructor: constructor
+        )
+    }
     
 }

@@ -1,0 +1,61 @@
+# Interfaces
+
+This directory documents the Interfaces system: how requests are defined, constructed, executed, and decoded.
+
+## Overview
+
+An `Interface` pairs request parameters with response handling. Most usage follows this flow:
+1. Define `Interface` and nested `Parameters`.
+2. Create a `ServerConfiguration`.
+3. Execute via `DataTaskProvider` or `RequestService`.
+
+## Example
+
+```swift
+struct GetUserInterface: Interface {
+    struct Parameters: RequestParameters {
+        let method: RequestMethod = .get
+        let path: String
+        let queryItems: [String: String?]? = nil
+        let headers: [String: String]? = nil
+        let body: RequestBody? = nil
+        let authentication: AuthenticationType = .bearer
+
+        init(userId: Int) {
+            self.path = "/users/\(userId)"
+        }
+    }
+
+    typealias Response = User
+
+    static var responseCases: ResponseCases {
+        [
+            200: .success(User.self),
+            404: .failure(APIError.userNotFound)
+        ]
+    }
+}
+
+let user = try await URLSession.shared.dataTask(
+    GetUserInterface.self,
+    .init(userId: 123),
+    config
+)
+```
+
+`config` comes from:
+
+```swift
+let config = ServerConfiguration(
+    url: URL(string: "https://api.example.com")!,
+    authToken: token
+)
+```
+
+## Guides
+
+- [Request Parameters](request_parameters.md)
+- [Response Handling](response_handling.md)
+- [DataTaskProvider](data_task_provider.md)
+- [Server Configuration](server_configuration.md)
+- [Interface Constructor](interface_constructor.md)

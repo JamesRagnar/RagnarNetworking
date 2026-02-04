@@ -186,6 +186,28 @@ struct URLRequestInterfaceTests {
         #expect(urlString.contains("limit=10"))
     }
 
+    @Test("Supports nil-valued query items")
+    func testNilValuedQueryItems() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = ComplexParameters(
+            queryItems: ["flag": nil],
+            headers: nil,
+            body: nil,
+            authentication: .none
+        )
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
+        let item = components?.queryItems?.first(where: { $0.name == "flag" })
+        #expect(item != nil)
+        #expect(item?.value == nil)
+    }
+
     @Test("Preserves existing query parameters from base URL")
     func testPreservesBaseURLQueryParameters() throws {
         let url = URL(string: "https://api.example.com?existing=value")!
@@ -226,6 +248,29 @@ struct URLRequestInterfaceTests {
         let urlString = request.url?.absoluteString ?? ""
         #expect(urlString.contains("token=auth-token"))
         #expect(urlString.contains("filter=active"))
+    }
+
+    @Test("Appends URL auth token even when token query item is provided")
+    func testURLAuthTokenConflict() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url, authToken: "auth-token")
+        let params = ComplexParameters(
+            queryItems: ["token": "custom-token"],
+            headers: nil,
+            body: nil,
+            authentication: .url
+        )
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
+        let tokenItems = components?.queryItems?.filter { $0.name == "token" } ?? []
+        #expect(tokenItems.count == 2)
+        #expect(tokenItems.first?.value == "auth-token")
+        #expect(tokenItems.last?.value == "custom-token")
     }
 
     // MARK: - Headers
@@ -314,6 +359,25 @@ struct URLRequestInterfaceTests {
 
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer bearer-token")
         #expect(request.value(forHTTPHeaderField: "X-Request-ID") == "12345")
+    }
+
+    @Test("Custom Authorization header overrides bearer auth")
+    func testAuthorizationHeaderOverridesBearerToken() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url, authToken: "bearer-token")
+        let params = ComplexParameters(
+            queryItems: nil,
+            headers: ["Authorization": "Custom token"],
+            body: nil,
+            authentication: .bearer
+        )
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Custom token")
     }
 
     // MARK: - Body

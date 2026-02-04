@@ -1,0 +1,60 @@
+# Request Parameters
+
+`RequestParameters` defines everything needed to build a request.
+
+```swift
+public protocol RequestParameters: Sendable {
+    var method: RequestMethod { get }
+    var path: String { get }
+    var queryItems: [String: String?]? { get }
+    var headers: [String: String]? { get }
+    var body: RequestBody? { get }
+    var authentication: AuthenticationType { get }
+}
+```
+
+## Query Items
+
+`queryItems` is a dictionary of names to optional values. A `nil` value creates a name-only query item (e.g. `?flag`). If you want to omit a key, remove it from the dictionary instead of setting it to `nil`.
+
+## Request Body
+
+`RequestBody` provides explicit body types with built-in encoding and inferred `Content-Type` when a body exists and the header is not already set.
+
+```swift
+public enum RequestBody: Sendable {
+    case json(any Encodable & Sendable)
+    case data(Data)
+    case formURLEncoded([String: String])
+    case text(String, encoding: String.Encoding)
+}
+```
+
+Examples:
+
+```swift
+body = .json(["name": "Ragnar"])
+body = .data(rawData)
+body = .formURLEncoded(["grant_type": "client_credentials"])
+body = .text("hello", encoding: .utf8)
+```
+
+## Authentication
+
+`AuthenticationType` controls how the `ServerConfiguration.authToken` is applied:
+
+```swift
+public enum AuthenticationType: Sendable {
+    case none
+    case bearer  // Authorization: Bearer <token>
+    case url     // ?token=<token>
+}
+```
+
+Behavior notes:
+- `.url` always appends the auth token as a `token` query item, even if a `token` query item is already provided.
+- `.bearer` adds the `Authorization` header before merging custom headers, so a caller can still override it by explicitly setting `Authorization` in `headers`.
+
+## Methods
+
+`RequestMethod` includes standard HTTP verbs (`get`, `post`, `put`, `patch`, `delete`, `head`, `options`, `connect`, `trace`).

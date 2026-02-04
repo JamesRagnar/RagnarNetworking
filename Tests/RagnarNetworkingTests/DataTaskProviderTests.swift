@@ -194,6 +194,50 @@ struct DataTaskProviderTests {
         #expect(capturedRequest?.value(forHTTPHeaderField: "Authorization") == "Bearer test-token")
     }
 
+    @Test("Uses custom InterfaceConstructor when provided")
+    func testCustomConstructorIsUsed() async throws {
+        struct CustomConstructor: InterfaceConstructor {
+            static func applyHeaders(
+                _ headers: [String: String]?,
+                authentication: AuthenticationType,
+                authToken: String?,
+                to request: inout URLRequest
+            ) throws(RequestError) {
+                try URLRequest.applyHeaders(
+                    headers,
+                    authentication: authentication,
+                    authToken: authToken,
+                    to: &request
+                )
+
+                var current = request.allHTTPHeaderFields ?? [:]
+                current["X-Test-Constructor"] = "true"
+                request.allHTTPHeaderFields = current
+            }
+        }
+
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = TestInterface.Parameters(path: "/users/1")
+
+        let responseData = """
+        {"id": 1, "name": "John Doe"}
+        """.data(using: .utf8)!
+
+        let provider = MockDataTaskProvider()
+        await provider.setMockResponse(data: responseData, statusCode: 200, url: url)
+
+        _ = try await provider.dataTask(
+            TestInterface.self,
+            params,
+            config,
+            constructor: CustomConstructor.self
+        )
+
+        let capturedRequest = await provider.capturedRequest
+        #expect(capturedRequest?.value(forHTTPHeaderField: "X-Test-Constructor") == "true")
+    }
+
     // MARK: - URLSession Conformance Tests
 
     @Test("URLSession conforms to DataTaskProvider")

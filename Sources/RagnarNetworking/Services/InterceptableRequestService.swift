@@ -13,6 +13,7 @@ open class InterceptableRequestService: RequestService {
     public let loggingService: LoggingService?
     public let dataTaskProvider: any DataTaskProvider
     public let interceptors: [RequestInterceptor]
+    public let constructor: InterfaceConstructor.Type
 
     private let configurationProvider: @Sendable () throws -> ServerConfiguration
 
@@ -26,12 +27,14 @@ open class InterceptableRequestService: RequestService {
         dataTaskProvider: any DataTaskProvider = URLSession.shared,
         configurationProvider: @escaping @Sendable () throws -> ServerConfiguration,
         interceptors: [RequestInterceptor] = [],
-        loggingService: LoggingService? = nil
+        loggingService: LoggingService? = nil,
+        constructor: InterfaceConstructor.Type = URLRequest.self
     ) {
         self.dataTaskProvider = dataTaskProvider
         self.configurationProvider = configurationProvider
         self.interceptors = interceptors
         self.loggingService = loggingService
+        self.constructor = constructor
     }
 
     public func serverConfiguration() throws -> ServerConfiguration {
@@ -47,7 +50,7 @@ open class InterceptableRequestService: RequestService {
         _ interface: T.Type,
         _ parameters: T.Parameters
     ) async throws -> T.Response {
-        var request = try URLRequest(
+        var request = try constructor.buildRequest(
             requestParameters: parameters,
             serverConfiguration: try serverConfiguration()
         )
