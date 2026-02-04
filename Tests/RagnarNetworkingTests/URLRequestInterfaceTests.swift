@@ -433,28 +433,6 @@ struct URLRequestInterfaceTests {
         #expect(decoded.value == 42)
     }
 
-    @Test("Handles form URL encoded body")
-    func testFormURLEncodedBody() throws {
-        let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
-        let params = ComplexParameters(
-            queryItems: nil,
-            headers: nil,
-            body: .formURLEncoded(["alpha": "1", "beta": "two"]),
-            authentication: .none
-        )
-
-        let request = try URLRequest(
-            requestParameters: params,
-            serverConfiguration: config
-        )
-
-        let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
-        let parts = Set(bodyString.split(separator: "&").map(String.init))
-        #expect(parts == Set(["alpha=1", "beta=two"]))
-        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/x-www-form-urlencoded")
-    }
-
     @Test("Handles text body")
     func testTextBody() throws {
         let url = URL(string: "https://api.example.com")!

@@ -25,7 +25,6 @@ public protocol RequestParameters: Sendable {
 public enum RequestBody: Sendable {
     case json(any Encodable & Sendable)
     case data(Data)
-    case formURLEncoded([String: String])
     case text(String)
 }
 ```
@@ -35,7 +34,6 @@ Examples:
 ```swift
 body = .json(["name": "Ragnar"])
 body = .data(rawData)
-body = .formURLEncoded(["grant_type": "client_credentials"])
 body = .text("hello")
 ```
 

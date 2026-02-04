@@ -85,9 +85,6 @@ public enum RequestBody: Sendable {
     /// Raw body data
     case data(Data)
 
-    /// application/x-www-form-urlencoded body
-    case formURLEncoded([String: String])
-
     /// Text body encoded as UTF-8
     case text(String)
 

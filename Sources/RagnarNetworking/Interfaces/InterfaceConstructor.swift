@@ -247,11 +247,6 @@ public extension InterfaceConstructor {
             } catch {
                 throw .encoding(underlying: error)
             }
-        case .formURLEncoded(let fields):
-            return (
-                data: fields.formURLEncodedBody(),
-                contentType: "application/x-www-form-urlencoded"
-            )
         case .text(let text):
             let data = Data(text.utf8)
             let contentType = "text/plain; charset=utf-8"
@@ -282,25 +277,6 @@ public extension InterfaceConstructor {
             currentHeaderFields["Content-Type"] = contentType
             request.allHTTPHeaderFields = currentHeaderFields
         }
-    }
-
-}
-
-// MARK: - Form URL Encoding
-
-private extension Dictionary where Key == String, Value == String {
-
-    func formURLEncodedBody() -> Data {
-        guard !isEmpty else {
-            return Data()
-        }
-
-        var components = URLComponents()
-        components.queryItems = map { URLQueryItem(name: $0.key, value: $0.value) }
-            .sorted { $0.name < $1.name }
-
-        let query = components.percentEncodedQuery ?? ""
-        return Data(query.utf8)
     }
 
 }

@@ -49,7 +49,7 @@ let user = try await URLSession.shared.dataTask(
 - Type-safe endpoints with explicit status code handling
 - Automatic request construction from declarative parameters
 - Built-in auth strategies (`.none`, `.bearer`, `.url`)
-- Structured request bodies (`.json`, `.data`, `.formURLEncoded`, `.text`)
+- Structured request bodies (`.json`, `.data`, `.text`)
 - Testable, protocol-based networking
 - Customizable request construction via `InterfaceConstructor`
 
