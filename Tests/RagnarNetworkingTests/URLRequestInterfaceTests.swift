@@ -250,7 +250,7 @@ struct URLRequestInterfaceTests {
         #expect(urlString.contains("filter=active"))
     }
 
-    @Test("Appends URL auth token even when token query item is provided")
+    @Test("URL auth token overrides token query item")
     func testURLAuthTokenConflict() throws {
         let url = URL(string: "https://api.example.com")!
         let config = ServerConfiguration(url: url, authToken: "auth-token")
@@ -268,9 +268,30 @@ struct URLRequestInterfaceTests {
 
         let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
         let tokenItems = components?.queryItems?.filter { $0.name == "token" } ?? []
-        #expect(tokenItems.count == 2)
+        #expect(tokenItems.count == 1)
         #expect(tokenItems.first?.value == "auth-token")
-        #expect(tokenItems.last?.value == "custom-token")
+    }
+
+    @Test("URL auth token overrides token in base URL")
+    func testURLAuthTokenOverridesBaseURLToken() throws {
+        let url = URL(string: "https://api.example.com?token=base-token")!
+        let config = ServerConfiguration(url: url, authToken: "auth-token")
+        let params = ComplexParameters(
+            queryItems: nil,
+            headers: nil,
+            body: nil,
+            authentication: .url
+        )
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
+        let tokenItems = components?.queryItems?.filter { $0.name == "token" } ?? []
+        #expect(tokenItems.count == 1)
+        #expect(tokenItems.first?.value == "auth-token")
     }
 
     // MARK: - Headers
@@ -408,6 +429,29 @@ struct URLRequestInterfaceTests {
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Custom token")
     }
 
+    @Test("Authorization header override is case-insensitive")
+    func testAuthorizationHeaderOverrideIsCaseInsensitive() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url, authToken: "bearer-token")
+        let params = ComplexParameters(
+            queryItems: nil,
+            headers: ["authorization": "Custom token"],
+            body: nil,
+            authentication: .bearer
+        )
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Custom token")
+        let authKeys = request.allHTTPHeaderFields?.keys.filter {
+            $0.caseInsensitiveCompare("Authorization") == .orderedSame
+        } ?? []
+        #expect(authKeys.count == 1)
+    }
+
     // MARK: - Body
 
     @Test("Adds request body")
@@ -537,6 +581,34 @@ struct URLRequestInterfaceTests {
 
         #expect(request.url?.path == "/api/users")
         #expect(request.url?.absoluteString.contains("api/users") == true)
+    }
+
+    @Test("Appends path to base URL path")
+    func testAppendsPathToBaseURLPath() throws {
+        let url = URL(string: "https://api.example.com/v1")!
+        let config = ServerConfiguration(url: url)
+        let params = BasicParameters(path: "/users")
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        #expect(request.url?.path == "/v1/users")
+    }
+
+    @Test("Appends path to base URL path with trailing slash")
+    func testAppendsPathToBaseURLPathWithTrailingSlash() throws {
+        let url = URL(string: "https://api.example.com/v1/")!
+        let config = ServerConfiguration(url: url)
+        let params = BasicParameters(path: "/users")
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        #expect(request.url?.path == "/v1/users")
     }
 
     // MARK: - Error Cases

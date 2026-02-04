@@ -147,7 +147,15 @@ public extension InterfaceConstructor {
         _ path: String,
         to components: inout URLComponents
     ) {
-        components.path = path
+        let basePath = components.path
+        if basePath.isEmpty || basePath == "/" {
+            components.path = path
+            return
+        }
+
+        let trimmedBase = basePath.hasSuffix("/") ? String(basePath.dropLast()) : basePath
+        let trimmedPath = path.hasPrefix("/") ? String(path.dropFirst()) : path
+        components.path = "\(trimmedBase)/\(trimmedPath)"
     }
 
     static func applyQueryItems(
@@ -157,6 +165,15 @@ public extension InterfaceConstructor {
         to components: inout URLComponents
     ) throws(RequestError) {
         var currentQueryItems = components.queryItems ?? []
+        currentQueryItems.removeAll { $0.name == "token" }
+
+        let newQueryItems = queryItems?
+            .filter { $0.key != "token" }
+            .map { URLQueryItem(name: $0.key, value: $0.value) }
+
+        if let newQueryItems {
+            currentQueryItems.append(contentsOf: newQueryItems)
+        }
 
         if case .url = authentication {
             guard let token = authToken else {
@@ -169,17 +186,6 @@ public extension InterfaceConstructor {
                     value: token
                 )
             )
-        }
-
-        let newQueryItems = queryItems?.map {
-            URLQueryItem(
-                name: $0.key,
-                value: $0.value
-            )
-        }
-
-        if let newQueryItems {
-            currentQueryItems.append(contentsOf: newQueryItems)
         }
 
         components.queryItems = currentQueryItems
@@ -218,10 +224,14 @@ public extension InterfaceConstructor {
         }
 
         if let newHeaderFields = headers {
-            currentHeaderFields.merge(
-                newHeaderFields,
-                uniquingKeysWith: { $1 }
-            )
+            for (key, value) in newHeaderFields {
+                if key.caseInsensitiveCompare("Authorization") == .orderedSame {
+                    currentHeaderFields = currentHeaderFields.filter {
+                        $0.key.caseInsensitiveCompare("Authorization") != .orderedSame
+                    }
+                }
+                currentHeaderFields[key] = value
+            }
         }
 
         request.allHTTPHeaderFields = currentHeaderFields

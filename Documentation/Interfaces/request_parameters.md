@@ -50,8 +50,8 @@ public enum AuthenticationType: Sendable {
 ```
 
 Behavior notes:
-- `.url` always appends the auth token as a `token` query item, even if a `token` query item is already provided.
-- `.bearer` adds the `Authorization` header before merging custom headers, so a caller can still override it by explicitly setting `Authorization` in `headers`.
+- `.url` appends the auth token as a `token` query item and removes any existing `token` query item provided in `queryItems`.
+- `.bearer` adds the `Authorization` header before merging custom headers, and a caller can still override it by setting `Authorization` (case-insensitive) in `headers`.
 
 ## Methods
 
