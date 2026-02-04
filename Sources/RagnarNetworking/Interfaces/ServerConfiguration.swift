@@ -20,16 +20,23 @@ public struct ServerConfiguration: Sendable {
     /// Optional authentication token to be included in requests that require it
     let authToken: String?
 
+    /// Encoder configuration for request bodies. Uses a factory pattern
+    /// to maintain Sendable conformance in Swift 6.
+    let requestEncoder: RequestEncoder
+
     /// Creates a server configuration with the specified base URL and optional auth token.
     /// - Parameters:
     ///   - url: The base URL for the API server
     ///   - authToken: Optional authentication token; required if any requests use bearer or URL authentication
+    ///   - requestEncoder: Encoder configuration for request bodies
     public init(
         url: URL,
-        authToken: String? = nil
+        authToken: String? = nil,
+        requestEncoder: RequestEncoder = RequestEncoder()
     ) {
         self.url = url
         self.authToken = authToken
+        self.requestEncoder = requestEncoder
     }
 
 }

@@ -4,11 +4,13 @@
 
 ```swift
 public protocol RequestParameters: Sendable {
+    associatedtype Body: RequestBody
+
     var method: RequestMethod { get }
     var path: String { get }
     var queryItems: [String: String?]? { get }
     var headers: [String: String]? { get }
-    var body: RequestBody? { get }
+    var body: Body? { get }
     var authentication: AuthenticationType { get }
 }
 ```
@@ -19,22 +21,66 @@ public protocol RequestParameters: Sendable {
 
 ## Request Body
 
-`RequestBody` provides explicit body types with built-in encoding (UTF-8 for text) and inferred `Content-Type` for `.json` and `.text` when the header is not already set. `.data` does not infer a content type.
+All bodies must conform to `RequestBody`, which couples the encoded data with its content type.
 
 ```swift
-public enum RequestBody: Sendable {
-    case json(any Encodable & Sendable)
-    case data(Data)
-    case text(String)
+public protocol RequestBody: Sendable {
+    func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody
+}
+
+public struct EncodedBody: Sendable {
+    public let data: Data
+    public let contentType: String?
 }
 ```
 
-Examples:
+### JSON Body (Default)
+
+If your body is `Encodable`, you get a default `encodeBody(using:)` implementation that encodes JSON and sets `Content-Type: application/json`.
 
 ```swift
-body = .json(["name": "Ragnar"])
-body = .data(rawData)
-body = .text("hello")
+struct CreateUser: RequestBody, Encodable {
+    let name: String
+    let email: String
+}
+
+struct Parameters: RequestParameters {
+    typealias Body = CreateUser
+    let body: CreateUser?
+}
+```
+
+### No Body
+
+Use `EmptyBody` for requests without a body (body must be `nil`). `EmptyBody` is a type marker and cannot be instantiated.
+
+```swift
+struct Parameters: RequestParameters {
+    typealias Body = EmptyBody
+    let body: Body? = nil
+}
+```
+
+### Binary Data
+
+Use `BinaryBody` for raw data uploads.
+
+```swift
+let body = BinaryBody(data: imageData, contentType: "image/jpeg")
+```
+
+### Custom Content-Type
+
+Implement `encodeBody(using:)` for non-JSON payloads.
+
+```swift
+struct XmlBody: RequestBody {
+    let xml: String
+
+    func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody {
+        EncodedBody(data: Data(xml.utf8), contentType: "application/xml")
+    }
+}
 ```
 
 ## Authentication

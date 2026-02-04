@@ -37,6 +37,10 @@ public protocol Interface: Sendable {
 /// This protocol is typically implemented as a nested type within an `Interface` conformance.
 public protocol RequestParameters: Sendable {
 
+    /// The concrete body type for this request.
+    /// Use EmptyBody for requests with no body.
+    associatedtype Body: RequestBody
+
     /// The HTTP method for this request (GET, POST, etc.)
     var method: RequestMethod { get }
 
@@ -50,7 +54,7 @@ public protocol RequestParameters: Sendable {
     var headers: [String: String]? { get }
 
     /// Optional request body data
-    var body: RequestBody? { get }
+    var body: Body? { get }
 
     /// The authentication strategy for this request
     var authentication: AuthenticationType { get }
@@ -71,22 +75,6 @@ public enum RequestMethod: String, Sendable {
     case options = "OPTIONS"
     case connect = "CONNECT"
     case trace = "TRACE"
-
-}
-
-// MARK: Request Body
-
-/// Supported request body types.
-public enum RequestBody: Sendable {
-
-    /// JSON-encoded body
-    case json(any Encodable & Sendable)
-
-    /// Raw body data
-    case data(Data)
-
-    /// Text body encoded as UTF-8
-    case text(String)
 
 }
 

@@ -9,11 +9,13 @@ Define a typed interface and call it with shorthand parameter initialization:
 ```swift
 struct GetUserInterface: Interface {
     struct Parameters: RequestParameters {
+        typealias Body = EmptyBody
+
         let method: RequestMethod = .get
         let path: String
         let queryItems: [String: String?]? = nil
         let headers: [String: String]? = nil
-        let body: RequestBody? = nil
+        let body: Body? = nil
         let authentication: AuthenticationType = .bearer
 
         init(userId: Int) {
@@ -49,7 +51,7 @@ let user = try await URLSession.shared.dataTask(
 - Type-safe endpoints with explicit status code handling
 - Automatic request construction from declarative parameters
 - Built-in auth strategies (`.none`, `.bearer`, `.url`)
-- Structured request bodies (`.json`, `.data`, `.text`)
+- Strict request bodies via `RequestBody` with intrinsic content types
 - Testable, protocol-based networking
 - Customizable request construction via `InterfaceConstructor`
 

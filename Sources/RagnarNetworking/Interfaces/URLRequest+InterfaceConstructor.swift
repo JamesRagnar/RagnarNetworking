@@ -39,8 +39,8 @@ public extension URLRequest {
     ///   - requestParameters: The Interface parameters defining the request
     ///   - serverConfiguration: The server configuration with base URL and auth token
     /// - Throws: `RequestError` if the request cannot be constructed
-    init(
-        requestParameters: RequestParameters,
+    init<Parameters: RequestParameters>(
+        requestParameters: Parameters,
         serverConfiguration: ServerConfiguration
     ) throws(RequestError) {
         self = try Self.buildRequest(

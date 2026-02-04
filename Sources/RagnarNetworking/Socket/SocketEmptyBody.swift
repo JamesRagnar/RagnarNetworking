@@ -1,5 +1,5 @@
 //
-//  EmptyBody.swift
+//  SocketEmptyBody.swift
 //  RagnarNetworking
 //
 //  Created by James Harquail on 2024-12-12.
@@ -8,13 +8,13 @@
 import Foundation
 import SocketIO
 
-public struct EmptyBody: Decodable, Sendable {
+public struct SocketEmptyBody: Decodable, Sendable {
     
     public init() {}
 
 }
 
-extension EmptyBody: SocketData {
+extension SocketEmptyBody: SocketData {
     
     public func socketRepresentation() throws -> SocketData {
         return []

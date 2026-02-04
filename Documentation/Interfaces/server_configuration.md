@@ -1,11 +1,40 @@
 # Server Configuration
 
-`ServerConfiguration` defines the base URL and optional auth token used to build requests.
+`ServerConfiguration` defines the base URL, optional auth token, and request encoding configuration used to build requests.
 
 ```swift
 let config = ServerConfiguration(
     url: URL(string: "https://api.example.com")!,
     authToken: "token"
+)
+```
+
+## Request Encoder
+
+Request bodies are encoded using a `RequestEncoder` factory to keep Swift 6 Sendable conformance (JSONEncoder is not Sendable).
+
+```swift
+let config = ServerConfiguration(
+    url: URL(string: "https://api.example.com")!,
+    requestEncoder: RequestEncoder(
+        keyEncodingStrategy: .convertToSnakeCase,
+        dateEncodingStrategy: .iso8601
+    )
+)
+```
+
+You can also provide a custom factory for full control:
+
+```swift
+let config = ServerConfiguration(
+    url: URL(string: "https://api.example.com")!,
+    requestEncoder: RequestEncoder {
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
+        return encoder
+    }
 )
 ```
 

@@ -24,6 +24,9 @@ public enum RequestError: Error {
     /// The request body could not be encoded
     case encoding(underlying: Error)
 
+    /// The request could not be constructed due to invalid parameters.
+    case invalidRequest(description: String)
+
 }
 
 // MARK: - URLRequest Construction
@@ -32,8 +35,8 @@ public enum RequestError: Error {
 public protocol InterfaceConstructor {
 
     /// Builds a URLRequest using the provided parameters and configuration.
-    static func buildRequest(
-        requestParameters: RequestParameters,
+    static func buildRequest<Parameters: RequestParameters>(
+        requestParameters: Parameters,
         serverConfiguration: ServerConfiguration
     ) throws(RequestError) -> URLRequest
 
@@ -76,22 +79,12 @@ public protocol InterfaceConstructor {
         to request: inout URLRequest
     ) throws(RequestError)
 
-    /// Encodes the body and returns data plus inferred content type.
-    static func makeBody(
-        _ body: RequestBody?
-    ) throws(RequestError) -> (data: Data?, contentType: String?)
-
-    /// Applies the encoded body to the request.
-    static func applyBody(
-        _ bodyResult: (data: Data?, contentType: String?),
+    /// Encodes and applies the request body with its content type.
+    static func applyBody<B: RequestBody>(
+        _ body: B,
+        encoder: RequestEncoder,
         to request: inout URLRequest
-    )
-
-    /// Applies the inferred Content-Type header when appropriate.
-    static func applyContentType(
-        _ contentType: String?,
-        to request: inout URLRequest
-    )
+    ) throws(RequestError)
 
 }
 
@@ -99,8 +92,8 @@ public protocol InterfaceConstructor {
 
 public extension InterfaceConstructor {
 
-    static func buildRequest(
-        requestParameters: RequestParameters,
+    static func buildRequest<Parameters: RequestParameters>(
+        requestParameters: Parameters,
         serverConfiguration: ServerConfiguration
     ) throws(RequestError) -> URLRequest {
         var components = try makeComponents(serverConfiguration: serverConfiguration)
@@ -123,9 +116,9 @@ public extension InterfaceConstructor {
             to: &request
         )
 
-        let bodyResult = try makeBody(requestParameters.body)
-        applyBody(bodyResult, to: &request)
-        applyContentType(bodyResult.contentType, to: &request)
+        if let body = requestParameters.body {
+            try applyBody(body, encoder: serverConfiguration.requestEncoder, to: &request)
+        }
 
         return request
     }
@@ -256,59 +249,59 @@ public extension InterfaceConstructor {
         request.allHTTPHeaderFields = currentHeaderFields
     }
 
-    static func makeBody(
-        _ body: RequestBody?
-    ) throws(RequestError) -> (data: Data?, contentType: String?) {
-        guard let body else {
-            return (data: nil, contentType: nil)
-        }
-
-        switch body {
-        case .data(let data):
-            return (data: data, contentType: nil)
-        case .json(let encodable):
-            do {
-                let data = try JSONEncoder().encode(encodable)
-                return (
-                    data: data,
-                    contentType: "application/json"
-                )
-            } catch {
-                throw .encoding(underlying: error)
-            }
-        case .text(let text):
-            let data = Data(text.utf8)
-            let contentType = "text/plain; charset=utf-8"
-            return (
-                data: data,
-                contentType: contentType
-            )
-        }
-    }
-
-    static func applyBody(
-        _ bodyResult: (data: Data?, contentType: String?),
+    static func applyBody<B: RequestBody>(
+        _ body: B,
+        encoder: RequestEncoder,
         to request: inout URLRequest
-    ) {
-        request.httpBody = bodyResult.data
+    ) throws(RequestError) {
+        let jsonEncoder = encoder.makeJSONEncoder()
+
+        let encoded: EncodedBody
+        do {
+            encoded = try body.encodeBody(using: jsonEncoder)
+        } catch {
+            throw RequestError.encoding(underlying: error)
+        }
+
+        guard !encoded.data.isEmpty || encoded.contentType != nil else {
+            return
+        }
+
+        request.httpBody = encoded.data
+        try applyContentType(encoded.contentType, to: &request)
     }
 
     static func applyContentType(
         _ contentType: String?,
         to request: inout URLRequest
-    ) {
-        guard let contentType else {
+    ) throws(RequestError) {
+        guard let contentType else { return }
+
+        var currentHeaderFields = request.allHTTPHeaderFields ?? [:]
+
+        if let existingKey = currentHeaderFields.keys.first(where: {
+            $0.caseInsensitiveCompare("Content-Type") == .orderedSame
+        }) {
+            let existingValue = currentHeaderFields[existingKey] ?? ""
+            if !mediaTypesMatch(existingValue, contentType) {
+                throw RequestError.invalidRequest(
+                    description: "Content-Type mismatch: existing '\(existingValue)' conflicts with '\(contentType)'"
+                )
+            }
             return
         }
 
-        var currentHeaderFields = request.allHTTPHeaderFields ?? [:]
-        let hasContentType = currentHeaderFields.keys.contains {
-            $0.caseInsensitiveCompare("Content-Type") == .orderedSame
+        currentHeaderFields["Content-Type"] = contentType
+        request.allHTTPHeaderFields = currentHeaderFields
+    }
+
+    static func mediaTypesMatch(_ value1: String, _ value2: String) -> Bool {
+        func extractMediaType(_ value: String) -> String {
+            let mediaType = value.split(separator: ";").first ?? Substring(value)
+            return mediaType.trimmingCharacters(in: .whitespaces).lowercased()
         }
-        if !hasContentType {
-            currentHeaderFields["Content-Type"] = contentType
-            request.allHTTPHeaderFields = currentHeaderFields
-        }
+
+        return extractMediaType(value1) == extractMediaType(value2)
     }
 
 }

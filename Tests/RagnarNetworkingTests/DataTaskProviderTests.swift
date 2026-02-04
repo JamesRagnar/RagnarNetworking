@@ -21,11 +21,12 @@ struct DataTaskProviderTests {
 
     struct TestInterface: Interface {
         struct Parameters: RequestParameters {
+            typealias Body = EmptyBody
             let method: RequestMethod = .get
             let path: String
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: RequestBody? = nil
+            let body: EmptyBody? = nil
             let authentication: AuthenticationType = .none
         }
 
@@ -158,11 +159,12 @@ struct DataTaskProviderTests {
 
         struct AuthInterface: Interface {
             struct Parameters: RequestParameters {
+                typealias Body = EmptyBody
                 let method: RequestMethod = .get
                 let path = "/secure"
                 let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: RequestBody? = nil
+                let body: EmptyBody? = nil
                 let authentication: AuthenticationType = .bearer
             }
 
@@ -254,11 +256,12 @@ struct DataTaskProviderTests {
     func testStringResponseType() async throws {
         struct StringInterface: Interface {
             struct Parameters: RequestParameters {
+                typealias Body = EmptyBody
                 let method: RequestMethod = .get
                 let path = "/message"
                 let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: RequestBody? = nil
+                let body: EmptyBody? = nil
                 let authentication: AuthenticationType = .none
             }
 
@@ -291,11 +294,12 @@ struct DataTaskProviderTests {
     func testDataResponseType() async throws {
         struct DataInterface: Interface {
             struct Parameters: RequestParameters {
+                typealias Body = EmptyBody
                 let method: RequestMethod = .get
                 let path = "/binary"
                 let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: RequestBody? = nil
+                let body: EmptyBody? = nil
                 let authentication: AuthenticationType = .none
             }
 
@@ -337,11 +341,12 @@ struct DataTaskProviderTests {
 
         struct ComplexInterface: Interface {
             struct Parameters: RequestParameters {
+                typealias Body = EmptyBody
                 let method: RequestMethod = .post
                 let path = "/login"
                 let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: RequestBody?
+                let body: EmptyBody? = nil
                 let authentication: AuthenticationType = .none
             }
 
@@ -354,7 +359,7 @@ struct DataTaskProviderTests {
 
         let url = URL(string: "https://api.example.com")!
         let config = ServerConfiguration(url: url)
-        let params = ComplexInterface.Parameters(body: nil)
+        let params = ComplexInterface.Parameters()
 
         let responseData = """
         {
@@ -389,11 +394,12 @@ struct DataTaskProviderTests {
 
         struct ArrayInterface: Interface {
             struct Parameters: RequestParameters {
+                typealias Body = EmptyBody
                 let method: RequestMethod = .get
                 let path = "/items"
                 let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: RequestBody? = nil
+                let body: EmptyBody? = nil
                 let authentication: AuthenticationType = .none
             }
 
@@ -436,11 +442,12 @@ struct DataTaskProviderTests {
     @Test("Passes all request parameters correctly")
     func testRequestParametersPassed() async throws {
         struct CompleteParameters: RequestParameters {
+            typealias Body = BinaryBody
             let method: RequestMethod = .post
             let path = "/api/resource"
             let queryItems: [String: String?]? = ["page": "1"]
             let headers: [String: String]? = ["X-Custom": "value"]
-            let body: RequestBody?
+            let body: BinaryBody?
             let authentication: AuthenticationType = .bearer
         }
 
@@ -456,7 +463,7 @@ struct DataTaskProviderTests {
         let url = URL(string: "https://api.example.com")!
         let config = ServerConfiguration(url: url, authToken: "auth-token")
         let bodyData = "{\"test\":\"data\"}".data(using: .utf8)!
-        let params = CompleteParameters(body: .data(bodyData))
+        let params = CompleteParameters(body: BinaryBody(data: bodyData, contentType: "application/octet-stream"))
 
         let responseData = """
         {"id": 1, "name": "Test"}
@@ -488,11 +495,12 @@ struct DataTaskProviderTests {
 
         struct AuthRequiredInterface: Interface {
             struct Parameters: RequestParameters {
+                typealias Body = EmptyBody
                 let method: RequestMethod = .get
                 let path = "/secure"
                 let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: RequestBody? = nil
+                let body: EmptyBody? = nil
                 let authentication: AuthenticationType = .bearer // Requires token
             }
 

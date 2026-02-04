@@ -21,11 +21,12 @@ struct InterfaceResponseTests {
 
     struct TestInterface: Interface {
         struct Parameters: RequestParameters {
+            typealias Body = EmptyBody
             let method: RequestMethod = .get
             let path = "/test"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: RequestBody? = nil
+            let body: EmptyBody? = nil
             let authentication: AuthenticationType = .none
         }
 
@@ -44,11 +45,12 @@ struct InterfaceResponseTests {
 
     struct StringInterface: Interface {
         struct Parameters: RequestParameters {
+            typealias Body = EmptyBody
             let method: RequestMethod = .get
             let path = "/string"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: RequestBody? = nil
+            let body: EmptyBody? = nil
             let authentication: AuthenticationType = .none
         }
 
@@ -61,11 +63,12 @@ struct InterfaceResponseTests {
 
     struct DataInterface: Interface {
         struct Parameters: RequestParameters {
+            typealias Body = EmptyBody
             let method: RequestMethod = .get
             let path = "/data"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: RequestBody? = nil
+            let body: EmptyBody? = nil
             let authentication: AuthenticationType = .none
         }
 
@@ -318,11 +321,12 @@ struct InterfaceResponseTests {
 
         struct NestedInterface: Interface {
             struct Parameters: RequestParameters {
+                typealias Body = EmptyBody
                 let method: RequestMethod = .get
                 let path = "/nested"
                 let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: RequestBody? = nil
+                let body: EmptyBody? = nil
                 let authentication: AuthenticationType = .none
             }
 
@@ -361,11 +365,12 @@ struct InterfaceResponseTests {
     func testArrayResponse() throws {
         struct ArrayInterface: Interface {
             struct Parameters: RequestParameters {
+                typealias Body = EmptyBody
                 let method: RequestMethod = .get
                 let path = "/array"
                 let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: RequestBody? = nil
+                let body: EmptyBody? = nil
                 let authentication: AuthenticationType = .none
             }
 
@@ -403,11 +408,12 @@ struct InterfaceResponseTests {
 
         struct EmptyInterface: Interface {
             struct Parameters: RequestParameters {
+                typealias Body = EmptyBody
                 let method: RequestMethod = .get
                 let path = "/empty"
                 let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: RequestBody? = nil
+                let body: EmptyBody? = nil
                 let authentication: AuthenticationType = .none
             }
 

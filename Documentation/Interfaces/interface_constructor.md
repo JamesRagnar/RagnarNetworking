@@ -21,11 +21,9 @@ The default pipeline is:
 - `makeRequest`
 - `applyMethod`
 - `applyHeaders`
-- `makeBody`
 - `applyBody`
-- `applyContentType`
 
-Each step is a static function on the constructor type, and `buildRequest` orchestrates the flow.
+`applyBody` encodes the request body using the configured `RequestEncoder` and applies the inferred `Content-Type`. If a `Content-Type` header already exists, the media types must match (case-insensitive) or request construction will fail with `RequestError.invalidRequest`.
 
 ## Creating a Custom Constructor
 
@@ -93,4 +91,4 @@ let service = InterceptableRequestService(
 - You do not need to reimplement `buildRequest` unless you want to change the overall flow.
 - Overridden methods are used automatically by the default `buildRequest` implementation.
 - You can call `URLRequest` step methods to reuse the default behavior before adding custom logic.
-- If you override `applyContentType`, keep the rule that an explicit `Content-Type` header should win.
+- `applyBody` uses the `RequestEncoder` factory from `ServerConfiguration` to create a per-request encoder.
