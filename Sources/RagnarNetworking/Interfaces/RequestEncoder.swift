@@ -9,8 +9,8 @@ import Foundation
 
 /// Configuration for request body encoding.
 /// Uses a factory pattern to maintain Sendable conformance
-/// (JSONEncoder is not Sendable in Swift 6).
 public struct RequestEncoder: Sendable {
+
     /// Factory that creates a configured JSONEncoder.
     /// Called per-request to ensure thread safety.
     public let makeJSONEncoder: @Sendable () -> JSONEncoder
@@ -21,12 +21,14 @@ public struct RequestEncoder: Sendable {
     }
 
     /// Creates a RequestEncoder with custom encoder factory.
+    ///
     /// - Parameter makeJSONEncoder: Factory closure that creates configured encoders.
     public init(makeJSONEncoder: @escaping @Sendable () -> JSONEncoder) {
         self.makeJSONEncoder = makeJSONEncoder
     }
 
     /// Convenience initializer for common configurations.
+    ///
     /// - Parameters:
     ///   - keyEncodingStrategy: Key encoding strategy (default: .useDefaultKeys)
     ///   - dateEncodingStrategy: Date encoding strategy (default: .deferredToDate)
@@ -44,4 +46,5 @@ public struct RequestEncoder: Sendable {
             return encoder
         }
     }
+
 }
