@@ -1,0 +1,99 @@
+name: Test
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }} - ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Latest - iOS
+          - os: macos-15
+            platform: iOS
+            destination: 'platform=iOS Simulator,name=iPhone 16'
+
+          # Latest - macOS
+          - os: macos-15
+            platform: macOS
+            destination: 'platform=macOS'
+
+          # Previous version compatibility check
+          - os: macos-14
+            platform: iOS
+            destination: 'platform=iOS Simulator,name=iPhone 15 Pro'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode and Swift versions
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Cache Swift Package Manager
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            ~/Library/Developer/Xcode/DerivedData
+          key: ${{ runner.os }}-${{ matrix.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.os }}-spm-
+            ${{ runner.os }}-spm-
+
+      - name: Resolve Dependencies
+        run: swift package resolve
+
+      - name: Build
+        run: |
+          xcodebuild build \
+            -scheme RagnarNetworking \
+            -destination '${{ matrix.destination }}' \
+            -enableAddressSanitizer NO \
+            -enableThreadSanitizer NO \
+            -enableUndefinedBehaviorSanitizer NO
+
+      - name: Run Tests
+        run: |
+          xcodebuild test \
+            -scheme RagnarNetworking \
+            -destination '${{ matrix.destination }}' \
+            -enableCodeCoverage YES \
+            -enableAddressSanitizer NO \
+            -enableThreadSanitizer NO \
+            -enableUndefinedBehaviorSanitizer NO \
+            -resultBundlePath TestResults.xcresult
+
+      - name: Upload Test Results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}-${{ matrix.platform }}
+          path: TestResults.xcresult
+          retention-days: 7
+
+  # Swift package validation - ensures Package.swift is correct
+  validate-package:
+    name: Validate Swift Package
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Validate Package
+        run: swift package dump-package > /dev/null
