@@ -20,7 +20,7 @@ jobs:
         platform: [iOS, macOS]
         include:
           - platform: iOS
-            destination: 'platform=iOS Simulator'
+            destination: ''
           - platform: macOS
             destination: 'platform=macOS'
 
@@ -33,16 +33,63 @@ jobs:
         with:
           path: |
             .build
-            ~/Library/Developer/Xcode/DerivedData
           key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-spm-
 
+      - name: Select iOS Simulator
+        if: matrix.platform == 'iOS'
+        id: sim
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+
+          data = subprocess.check_output(
+              ["xcrun", "simctl", "list", "devices", "available", "-j"],
+              text=True
+          )
+          devices = json.loads(data)["devices"]
+
+          ios_runtimes = sorted(
+              key for key in devices.keys()
+              if key.startswith("com.apple.CoreSimulator.SimRuntime.iOS")
+          )
+          if not ios_runtimes:
+              raise SystemExit("No iOS runtimes found.")
+
+          runtime = ios_runtimes[-1]
+          candidates = [
+              d for d in devices[runtime]
+              if d.get("isAvailable") and "iPhone" in d["name"]
+          ]
+          if not candidates:
+              candidates = [d for d in devices[runtime] if d.get("isAvailable")]
+          if not candidates:
+              raise SystemExit("No available iOS devices found.")
+
+          device_name = candidates[-1]["name"]
+          destination = f"platform=iOS Simulator,OS=latest,name={device_name}"
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write(f"destination={destination}\n")
+          PY
+
       - name: Run Tests
         run: |
+          if [ "${{ matrix.platform }}" = "iOS" ]; then
+            DESTINATION="${{ steps.sim.outputs.destination }}"
+          else
+            DESTINATION="${{ matrix.destination }}"
+          fi
+
           xcodebuild test \
             -scheme RagnarNetworking \
-            -destination '${{ matrix.destination }}' \
+            -testPlan RagnarNetworking \
+            -destination "$DESTINATION" \
+            -derivedDataPath .build/derived \
+            -resultBundlePath "TestResults-${{ matrix.platform }}.xcresult" \
             -enableCodeCoverage YES
 
       - name: Upload Test Results
@@ -50,5 +97,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-results-${{ matrix.platform }}
-          path: TestResults.xcresult
+          path: TestResults-${{ matrix.platform }}.xcresult
           retention-days: 7
