@@ -14,13 +14,11 @@ An `Interface` pairs request parameters with response handling. Most usage follo
 ```swift
 struct GetUserInterface: Interface {
     struct Parameters: RequestParameters {
-        typealias Body = EmptyBody
-
         let method: RequestMethod = .get
         let path: String
         let queryItems: [String: String?]? = nil
         let headers: [String: String]? = nil
-        let body: Body? = nil
+        let body: EmptyBody? = nil
         let authentication: AuthenticationType = .bearer
 
         init(userId: Int) {

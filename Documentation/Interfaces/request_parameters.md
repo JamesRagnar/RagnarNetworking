@@ -4,7 +4,7 @@
 
 ```swift
 public protocol RequestParameters: Sendable {
-    associatedtype Body: RequestBody
+    associatedtype Body: RequestBody = EmptyBody
 
     var method: RequestMethod { get }
     var path: String { get }
@@ -56,8 +56,7 @@ Use `EmptyBody` for requests without a body (body must be `nil`). `EmptyBody` is
 
 ```swift
 struct Parameters: RequestParameters {
-    typealias Body = EmptyBody
-    let body: Body? = nil
+    let body: EmptyBody? = nil
 }
 ```
 

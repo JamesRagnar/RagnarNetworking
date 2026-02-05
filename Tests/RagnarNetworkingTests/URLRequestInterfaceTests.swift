@@ -15,7 +15,6 @@ struct URLRequestInterfaceTests {
     // MARK: - Test Fixtures
 
     struct BasicParameters: RequestParameters {
-        typealias Body = EmptyBody
         let method: RequestMethod = .get
         let path: String
         let queryItems: [String: String?]? = nil
@@ -25,7 +24,6 @@ struct URLRequestInterfaceTests {
     }
 
     struct AuthenticatedParameters: RequestParameters {
-        typealias Body = EmptyBody
         let method: RequestMethod = .post
         let path: String = "/api/users"
         let queryItems: [String: String?]? = nil
@@ -73,7 +71,6 @@ struct URLRequestInterfaceTests {
 
         for method in methods {
             struct TestParams: RequestParameters {
-                typealias Body = EmptyBody
                 let method: RequestMethod
                 let path = "/test"
                 let queryItems: [String: String?]? = nil
@@ -482,7 +479,6 @@ struct URLRequestInterfaceTests {
     @Test("Request with EmptyBody has no body or Content-Type")
     func testEmptyBodyRequest() throws {
         struct EmptyBodyParams: RequestParameters {
-            typealias Body = EmptyBody
             let method: RequestMethod = .get
             let path: String = "/test"
             let queryItems: [String: String?]? = nil

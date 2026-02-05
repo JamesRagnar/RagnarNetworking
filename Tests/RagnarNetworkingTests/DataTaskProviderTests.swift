@@ -21,7 +21,6 @@ struct DataTaskProviderTests {
 
     struct TestInterface: Interface {
         struct Parameters: RequestParameters {
-            typealias Body = EmptyBody
             let method: RequestMethod = .get
             let path: String
             let queryItems: [String: String?]? = nil
@@ -159,7 +158,6 @@ struct DataTaskProviderTests {
 
         struct AuthInterface: Interface {
             struct Parameters: RequestParameters {
-                typealias Body = EmptyBody
                 let method: RequestMethod = .get
                 let path = "/secure"
                 let queryItems: [String: String?]? = nil
@@ -256,7 +254,6 @@ struct DataTaskProviderTests {
     func testStringResponseType() async throws {
         struct StringInterface: Interface {
             struct Parameters: RequestParameters {
-                typealias Body = EmptyBody
                 let method: RequestMethod = .get
                 let path = "/message"
                 let queryItems: [String: String?]? = nil
@@ -294,7 +291,6 @@ struct DataTaskProviderTests {
     func testDataResponseType() async throws {
         struct DataInterface: Interface {
             struct Parameters: RequestParameters {
-                typealias Body = EmptyBody
                 let method: RequestMethod = .get
                 let path = "/binary"
                 let queryItems: [String: String?]? = nil
@@ -341,7 +337,6 @@ struct DataTaskProviderTests {
 
         struct ComplexInterface: Interface {
             struct Parameters: RequestParameters {
-                typealias Body = EmptyBody
                 let method: RequestMethod = .post
                 let path = "/login"
                 let queryItems: [String: String?]? = nil
@@ -394,7 +389,6 @@ struct DataTaskProviderTests {
 
         struct ArrayInterface: Interface {
             struct Parameters: RequestParameters {
-                typealias Body = EmptyBody
                 let method: RequestMethod = .get
                 let path = "/items"
                 let queryItems: [String: String?]? = nil
@@ -495,7 +489,6 @@ struct DataTaskProviderTests {
 
         struct AuthRequiredInterface: Interface {
             struct Parameters: RequestParameters {
-                typealias Body = EmptyBody
                 let method: RequestMethod = .get
                 let path = "/secure"
                 let queryItems: [String: String?]? = nil

@@ -37,10 +37,6 @@ public protocol Interface: Sendable {
 /// This protocol is typically implemented as a nested type within an `Interface` conformance.
 public protocol RequestParameters: Sendable {
 
-    /// The concrete body type for this request.
-    /// Use EmptyBody for requests with no body.
-    associatedtype Body: RequestBody
-
     /// The HTTP method for this request (GET, POST, etc.)
     var method: RequestMethod { get }
 
@@ -53,7 +49,11 @@ public protocol RequestParameters: Sendable {
     /// Optional HTTP headers to include in the request
     var headers: [String: String]? { get }
 
-    /// Optional request body data
+    /// The concrete body type for this request.
+    /// Defaults to EmptyBody for requests without a body.
+    associatedtype Body: RequestBody = EmptyBody
+
+    /// Optional request body data. Set to nil for requests without a body.
     var body: Body? { get }
 
     /// The authentication strategy for this request

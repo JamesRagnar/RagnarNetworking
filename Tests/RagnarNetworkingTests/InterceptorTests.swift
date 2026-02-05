@@ -13,7 +13,6 @@ import Foundation
 
 struct MockInterface: Interface {
     struct Parameters: RequestParameters {
-        typealias Body = EmptyBody
         let method: RequestMethod = .get
         let path: String = "/test"
         let queryItems: [String: String?]? = nil
