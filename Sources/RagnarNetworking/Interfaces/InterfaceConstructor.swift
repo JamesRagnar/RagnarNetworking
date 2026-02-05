@@ -200,7 +200,7 @@ public extension InterfaceConstructor {
             )
         }
 
-        components.queryItems = currentQueryItems
+        components.queryItems = currentQueryItems.isEmpty ? nil : currentQueryItems
     }
 
     static func makeURL(from components: URLComponents) throws(RequestError) -> URL {

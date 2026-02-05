@@ -56,8 +56,7 @@ struct URLRequestInterfaceTests {
         )
 
         // URLComponents may add a trailing ? even with no query items
-        let urlString = request.url?.absoluteString ?? ""
-        #expect(urlString == "https://api.example.com/test" || urlString == "https://api.example.com/test?")
+        #expect(request.url?.absoluteString == "https://api.example.com/test")
         #expect(request.httpMethod == "GET")
         #expect(request.value(forHTTPHeaderField: "Content-Type") == nil)
     }
@@ -698,6 +697,152 @@ struct URLRequestInterfaceTests {
         #expect(json["user_name"] as? String == "test")
         #expect(json["userName"] == nil)
         #expect(json["created_at"] as? String == "2026-02-03T12:00:00Z")
+    }
+
+    @Test("ArrayBody encodes top-level array")
+    func testArrayBody() throws {
+        struct TestParams: RequestParameters {
+            typealias Body = ArrayBody<Int>
+            let method: RequestMethod = .post
+            let path: String = "/test"
+            let queryItems: [String: String?]? = nil
+            let headers: [String: String]? = nil
+            let body: ArrayBody<Int>?
+            let authentication: AuthenticationType = .none
+        }
+
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = TestParams(body: ArrayBody([1, 2, 3]))
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        let decoded = try JSONDecoder().decode([Int].self, from: request.httpBody!)
+        #expect(decoded == [1, 2, 3])
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+    }
+
+    @Test("EncodableBody wraps existing Encodable type")
+    func testEncodableBody() throws {
+        struct LegacyPayload: Codable, Equatable, Sendable {
+            let id: Int
+            let name: String
+        }
+
+        struct TestParams: RequestParameters {
+            typealias Body = EncodableBody<LegacyPayload>
+            let method: RequestMethod = .post
+            let path: String = "/test"
+            let queryItems: [String: String?]? = nil
+            let headers: [String: String]? = nil
+            let body: EncodableBody<LegacyPayload>?
+            let authentication: AuthenticationType = .none
+        }
+
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let payload = LegacyPayload(id: 42, name: "test")
+        let params = TestParams(body: EncodableBody(payload))
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        let decoded = try JSONDecoder().decode(LegacyPayload.self, from: request.httpBody!)
+        #expect(decoded == payload)
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+    }
+
+    @Test("Nullable encodes explicit null")
+    func testNullableEncodesNull() throws {
+        struct PayloadWithNullable: RequestBody, Encodable, Sendable {
+            let nickname: Nullable<String>?
+        }
+
+        struct TestParams: RequestParameters {
+            typealias Body = PayloadWithNullable
+            let method: RequestMethod = .post
+            let path: String = "/test"
+            let queryItems: [String: String?]? = nil
+            let headers: [String: String]? = nil
+            let body: PayloadWithNullable?
+            let authentication: AuthenticationType = .none
+        }
+
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = TestParams(body: PayloadWithNullable(nickname: .null))
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        let json = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+        #expect(json.keys.contains("nickname"))
+        #expect(json["nickname"] is NSNull)
+    }
+
+    @Test("Nullable encodes value")
+    func testNullableEncodesValue() throws {
+        struct PayloadWithNullable: RequestBody, Encodable, Sendable {
+            let nickname: Nullable<String>?
+        }
+
+        struct TestParams: RequestParameters {
+            typealias Body = PayloadWithNullable
+            let method: RequestMethod = .post
+            let path: String = "/test"
+            let queryItems: [String: String?]? = nil
+            let headers: [String: String]? = nil
+            let body: PayloadWithNullable?
+            let authentication: AuthenticationType = .none
+        }
+
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = TestParams(body: PayloadWithNullable(nickname: .value("Bob")))
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        let json = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+        #expect(json["nickname"] as? String == "Bob")
+    }
+
+    @Test("Nullable omits field when property is nil")
+    func testNullableOmitsWhenNil() throws {
+        struct PayloadWithNullable: RequestBody, Encodable, Sendable {
+            let nickname: Nullable<String>?
+        }
+
+        struct TestParams: RequestParameters {
+            typealias Body = PayloadWithNullable
+            let method: RequestMethod = .post
+            let path: String = "/test"
+            let queryItems: [String: String?]? = nil
+            let headers: [String: String]? = nil
+            let body: PayloadWithNullable?
+            let authentication: AuthenticationType = .none
+        }
+
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = TestParams(body: PayloadWithNullable(nickname: nil))
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        let json = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+        #expect(!json.keys.contains("nickname"))
     }
 
     // MARK: - Path Handling

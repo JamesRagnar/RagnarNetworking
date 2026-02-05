@@ -40,7 +40,7 @@ let config = ServerConfiguration(
 
 ## Auth Token Behavior
 
-The token is applied based on the request’s `AuthenticationType`:
-- `.bearer` adds `Authorization: Bearer <token>`
-- `.url` appends `?token=<token>`
+The token is applied based on the request's `AuthenticationType`:
+- `.bearer` adds `Authorization: Bearer <token>` (can be overridden by custom `Authorization` header)
+- `.url` appends `?token=<token>` and removes any existing `token` query items (case-insensitive) from both the base URL and request parameters
 - `.none` ignores the token

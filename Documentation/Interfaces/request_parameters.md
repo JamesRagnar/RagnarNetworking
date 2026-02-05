@@ -39,7 +39,7 @@ public struct EncodedBody: Sendable {
 If your body is `Encodable`, you get a default `encodeBody(using:)` implementation that encodes JSON and sets `Content-Type: application/json`.
 
 ```swift
-struct CreateUser: RequestBody, Encodable {
+struct CreateUser: RequestBody, Encodable, Sendable {
     let name: String
     let email: String
 }
@@ -68,18 +68,66 @@ Use `BinaryBody` for raw data uploads.
 let body = BinaryBody(data: imageData, contentType: "image/jpeg")
 ```
 
+### Array Body
+
+Use `ArrayBody` for top-level JSON arrays.
+
+```swift
+struct Parameters: RequestParameters {
+    typealias Body = ArrayBody<Int>
+    let body: ArrayBody<Int>?
+}
+
+let params = Parameters(body: ArrayBody([1, 2, 3]))
+// Encodes as: [1, 2, 3]
+```
+
+### Wrapping Existing Encodables
+
+Use `EncodableBody` to wrap any existing `Encodable` type without adding `RequestBody` conformance.
+
+```swift
+struct LegacyPayload: Encodable, Sendable {
+    let id: Int
+}
+
+struct Parameters: RequestParameters {
+    typealias Body = EncodableBody<LegacyPayload>
+    let body: EncodableBody<LegacyPayload>?
+}
+
+let params = Parameters(body: EncodableBody(LegacyPayload(id: 1)))
+```
+
 ### Custom Content-Type
 
 Implement `encodeBody(using:)` for non-JSON payloads.
 
 ```swift
-struct XmlBody: RequestBody {
+struct XmlBody: RequestBody, Sendable {
     let xml: String
 
     func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody {
         EncodedBody(data: Data(xml.utf8), contentType: "application/xml")
     }
 }
+```
+
+### Nullable Fields
+
+Use `Nullable<T>` to encode an explicit JSON `null` (distinct from omitting the field). This is useful when an API distinguishes between "unset" and "set to null".
+
+```swift
+struct UpdateUser: RequestBody, Encodable, Sendable {
+    let nickname: Nullable<String>?  // nil = omit, .null = explicit null, .value = set
+}
+
+// Omit the field entirely
+UpdateUser(nickname: nil)
+// {"nickname": null}
+UpdateUser(nickname: .null)
+// {"nickname": "Bob"}
+UpdateUser(nickname: .value("Bob"))
 ```
 
 ## Authentication
@@ -95,7 +143,7 @@ public enum AuthenticationType: Sendable {
 ```
 
 Behavior notes:
-- `.url` appends the auth token as a `token` query item and removes any existing `token` query item provided in `queryItems`.
+- `.url` appends the auth token as a `token` query item and removes any existing `token` query item (case-insensitive) from both the base URL and `queryItems`.
 - `.bearer` adds the `Authorization` header before merging custom headers, and a caller can still override it by setting `Authorization` (case-insensitive) in `headers`.
 
 ## Methods
