@@ -15,9 +15,9 @@ struct MockInterface: Interface {
     struct Parameters: RequestParameters {
         let method: RequestMethod = .get
         let path: String = "/test"
-        let queryItems: [String: String]? = nil
+        let queryItems: [String: String?]? = nil
         let headers: [String: String]? = nil
-        let body: Data? = nil
+        let body: EmptyBody? = nil
         let authentication: AuthenticationType = .bearer
     }
 
@@ -41,9 +41,11 @@ enum TestError: Error {
 actor MockDataTaskProvider: DataTaskProvider {
     var responses: [(Data, URLResponse)] = []
     var requestCount = 0
+    var lastRequest: URLRequest?
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         requestCount += 1
+        lastRequest = request
 
         if responses.isEmpty {
             throw TestError.networkError
@@ -65,6 +67,7 @@ actor MockDataTaskProvider: DataTaskProvider {
     func reset() {
         responses = []
         requestCount = 0
+        lastRequest = nil
     }
 }
 
@@ -175,6 +178,96 @@ struct InterceptorTests {
         #expect(response.message == "success")
         let count = await provider.requestCount
         #expect(count == 1)
+    }
+
+    @Test("Uses custom InterfaceConstructor in InterceptableRequestService")
+    func testCustomConstructorIsUsed() async throws {
+        struct CustomConstructor: InterfaceConstructor {
+            static func applyHeaders(
+                _ headers: [String: String]?,
+                authentication: AuthenticationType,
+                authToken: String?,
+                to request: inout URLRequest
+            ) throws(RequestError) {
+                try URLRequest.applyHeaders(
+                    headers,
+                    authentication: authentication,
+                    authToken: authToken,
+                    to: &request
+                )
+
+                var current = request.allHTTPHeaderFields ?? [:]
+                current["X-Constructor"] = "used"
+                request.allHTTPHeaderFields = current
+            }
+        }
+
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url, authToken: "test-token")
+        let provider = MockDataTaskProvider()
+
+        let service = InterceptableRequestService(
+            dataTaskProvider: provider,
+            configurationProvider: { config },
+            interceptors: [],
+            constructor: CustomConstructor.self
+        )
+
+        let responseData = try! JSONEncoder().encode(MockInterface.Response(message: "success"))
+        await provider.setResponse(responseData, statusCode: 200, url: url)
+
+        _ = try await service.dataTask(MockInterface.self, MockInterface.Parameters())
+
+        let capturedRequest = await provider.lastRequest
+        #expect(capturedRequest?.value(forHTTPHeaderField: "X-Constructor") == "used")
+    }
+
+    @Test("Constructor overload preserves interceptors")
+    func testConstructorOverloadPreservesInterceptors() async throws {
+        struct CustomConstructor: InterfaceConstructor {
+            static func applyHeaders(
+                _ headers: [String: String]?,
+                authentication: AuthenticationType,
+                authToken: String?,
+                to request: inout URLRequest
+            ) throws(RequestError) {
+                try URLRequest.applyHeaders(
+                    headers,
+                    authentication: authentication,
+                    authToken: authToken,
+                    to: &request
+                )
+
+                var current = request.allHTTPHeaderFields ?? [:]
+                current["X-Constructor"] = "used"
+                request.allHTTPHeaderFields = current
+            }
+        }
+
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url, authToken: "test-token")
+        let provider = MockDataTaskProvider()
+        let counter = CountingInterceptor.Counter()
+
+        let service: RequestService = InterceptableRequestService(
+            dataTaskProvider: provider,
+            configurationProvider: { config },
+            interceptors: [CountingInterceptor(counter: counter)]
+        )
+
+        let responseData = try! JSONEncoder().encode(MockInterface.Response(message: "success"))
+        await provider.setResponse(responseData, statusCode: 200, url: url)
+
+        _ = try await service.dataTask(
+            MockInterface.self,
+            MockInterface.Parameters(),
+            CustomConstructor.self
+        )
+
+        let capturedRequest = await provider.lastRequest
+        #expect(capturedRequest?.value(forHTTPHeaderField: "X-Constructor") == "used")
+        let adaptCount = await counter.adaptCount
+        #expect(adaptCount == 1)
     }
 
 }

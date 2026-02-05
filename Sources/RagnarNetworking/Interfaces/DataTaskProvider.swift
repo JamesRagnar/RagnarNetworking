@@ -46,7 +46,22 @@ public extension DataTaskProvider {
         _ parameters: T.Parameters,
         _ configuration: ServerConfiguration
     ) async throws -> T.Response {
-        let request = try URLRequest(
+        try await dataTask(
+            interface,
+            parameters,
+            configuration,
+            constructor: URLRequest.self
+        )
+    }
+
+    /// Executes a type-safe network request using a custom InterfaceConstructor.
+    func dataTask<T: Interface>(
+        _ interface: T.Type,
+        _ parameters: T.Parameters,
+        _ configuration: ServerConfiguration,
+        constructor: InterfaceConstructor.Type
+    ) async throws -> T.Response {
+        let request = try constructor.buildRequest(
             requestParameters: parameters,
             serverConfiguration: configuration
         )
@@ -57,7 +72,3 @@ public extension DataTaskProvider {
     }
 
 }
-
-// MARK: - URLSession Conformance
-
-extension URLSession: DataTaskProvider {}

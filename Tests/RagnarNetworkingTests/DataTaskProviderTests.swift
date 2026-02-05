@@ -23,9 +23,9 @@ struct DataTaskProviderTests {
         struct Parameters: RequestParameters {
             let method: RequestMethod = .get
             let path: String
-            let queryItems: [String: String]? = nil
+            let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: Data? = nil
+            let body: EmptyBody? = nil
             let authentication: AuthenticationType = .none
         }
 
@@ -160,9 +160,9 @@ struct DataTaskProviderTests {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .get
                 let path = "/secure"
-                let queryItems: [String: String]? = nil
+                let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: Data? = nil
+                let body: EmptyBody? = nil
                 let authentication: AuthenticationType = .bearer
             }
 
@@ -194,6 +194,50 @@ struct DataTaskProviderTests {
         #expect(capturedRequest?.value(forHTTPHeaderField: "Authorization") == "Bearer test-token")
     }
 
+    @Test("Uses custom InterfaceConstructor when provided")
+    func testCustomConstructorIsUsed() async throws {
+        struct CustomConstructor: InterfaceConstructor {
+            static func applyHeaders(
+                _ headers: [String: String]?,
+                authentication: AuthenticationType,
+                authToken: String?,
+                to request: inout URLRequest
+            ) throws(RequestError) {
+                try URLRequest.applyHeaders(
+                    headers,
+                    authentication: authentication,
+                    authToken: authToken,
+                    to: &request
+                )
+
+                var current = request.allHTTPHeaderFields ?? [:]
+                current["X-Test-Constructor"] = "true"
+                request.allHTTPHeaderFields = current
+            }
+        }
+
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = TestInterface.Parameters(path: "/users/1")
+
+        let responseData = """
+        {"id": 1, "name": "John Doe"}
+        """.data(using: .utf8)!
+
+        let provider = MockDataTaskProvider()
+        await provider.setMockResponse(data: responseData, statusCode: 200, url: url)
+
+        _ = try await provider.dataTask(
+            TestInterface.self,
+            params,
+            config,
+            constructor: CustomConstructor.self
+        )
+
+        let capturedRequest = await provider.capturedRequest
+        #expect(capturedRequest?.value(forHTTPHeaderField: "X-Test-Constructor") == "true")
+    }
+
     // MARK: - URLSession Conformance Tests
 
     @Test("URLSession conforms to DataTaskProvider")
@@ -212,9 +256,9 @@ struct DataTaskProviderTests {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .get
                 let path = "/message"
-                let queryItems: [String: String]? = nil
+                let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: Data? = nil
+                let body: EmptyBody? = nil
                 let authentication: AuthenticationType = .none
             }
 
@@ -249,9 +293,9 @@ struct DataTaskProviderTests {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .get
                 let path = "/binary"
-                let queryItems: [String: String]? = nil
+                let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: Data? = nil
+                let body: EmptyBody? = nil
                 let authentication: AuthenticationType = .none
             }
 
@@ -295,9 +339,9 @@ struct DataTaskProviderTests {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .post
                 let path = "/login"
-                let queryItems: [String: String]? = nil
+                let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: Data?
+                let body: EmptyBody? = nil
                 let authentication: AuthenticationType = .none
             }
 
@@ -310,7 +354,7 @@ struct DataTaskProviderTests {
 
         let url = URL(string: "https://api.example.com")!
         let config = ServerConfiguration(url: url)
-        let params = ComplexInterface.Parameters(body: nil)
+        let params = ComplexInterface.Parameters()
 
         let responseData = """
         {
@@ -347,9 +391,9 @@ struct DataTaskProviderTests {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .get
                 let path = "/items"
-                let queryItems: [String: String]? = nil
+                let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: Data? = nil
+                let body: EmptyBody? = nil
                 let authentication: AuthenticationType = .none
             }
 
@@ -392,11 +436,12 @@ struct DataTaskProviderTests {
     @Test("Passes all request parameters correctly")
     func testRequestParametersPassed() async throws {
         struct CompleteParameters: RequestParameters {
+            typealias Body = BinaryBody
             let method: RequestMethod = .post
             let path = "/api/resource"
-            let queryItems: [String: String]? = ["page": "1"]
+            let queryItems: [String: String?]? = ["page": "1"]
             let headers: [String: String]? = ["X-Custom": "value"]
-            let body: Data?
+            let body: BinaryBody?
             let authentication: AuthenticationType = .bearer
         }
 
@@ -412,7 +457,7 @@ struct DataTaskProviderTests {
         let url = URL(string: "https://api.example.com")!
         let config = ServerConfiguration(url: url, authToken: "auth-token")
         let bodyData = "{\"test\":\"data\"}".data(using: .utf8)!
-        let params = CompleteParameters(body: bodyData)
+        let params = CompleteParameters(body: BinaryBody(data: bodyData, contentType: "application/octet-stream"))
 
         let responseData = """
         {"id": 1, "name": "Test"}
@@ -446,9 +491,9 @@ struct DataTaskProviderTests {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .get
                 let path = "/secure"
-                let queryItems: [String: String]? = nil
+                let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: Data? = nil
+                let body: EmptyBody? = nil
                 let authentication: AuthenticationType = .bearer // Requires token
             }
 

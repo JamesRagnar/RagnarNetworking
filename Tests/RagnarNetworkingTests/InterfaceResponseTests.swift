@@ -23,9 +23,9 @@ struct InterfaceResponseTests {
         struct Parameters: RequestParameters {
             let method: RequestMethod = .get
             let path = "/test"
-            let queryItems: [String: String]? = nil
+            let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: Data? = nil
+            let body: EmptyBody? = nil
             let authentication: AuthenticationType = .none
         }
 
@@ -46,9 +46,9 @@ struct InterfaceResponseTests {
         struct Parameters: RequestParameters {
             let method: RequestMethod = .get
             let path = "/string"
-            let queryItems: [String: String]? = nil
+            let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: Data? = nil
+            let body: EmptyBody? = nil
             let authentication: AuthenticationType = .none
         }
 
@@ -63,9 +63,9 @@ struct InterfaceResponseTests {
         struct Parameters: RequestParameters {
             let method: RequestMethod = .get
             let path = "/data"
-            let queryItems: [String: String]? = nil
+            let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: Data? = nil
+            let body: EmptyBody? = nil
             let authentication: AuthenticationType = .none
         }
 
@@ -320,9 +320,9 @@ struct InterfaceResponseTests {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .get
                 let path = "/nested"
-                let queryItems: [String: String]? = nil
+                let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: Data? = nil
+                let body: EmptyBody? = nil
                 let authentication: AuthenticationType = .none
             }
 
@@ -363,9 +363,9 @@ struct InterfaceResponseTests {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .get
                 let path = "/array"
-                let queryItems: [String: String]? = nil
+                let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: Data? = nil
+                let body: EmptyBody? = nil
                 let authentication: AuthenticationType = .none
             }
 
@@ -405,9 +405,9 @@ struct InterfaceResponseTests {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .get
                 let path = "/empty"
-                let queryItems: [String: String]? = nil
+                let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: Data? = nil
+                let body: EmptyBody? = nil
                 let authentication: AuthenticationType = .none
             }
 
