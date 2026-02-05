@@ -267,6 +267,12 @@ public extension InterfaceConstructor {
             return
         }
 
+        if !encoded.data.isEmpty && encoded.contentType == nil {
+            throw RequestError.invalidRequest(
+                description: "Request body produced data without a Content-Type"
+            )
+        }
+
         request.httpBody = encoded.data
         try applyContentType(encoded.contentType, to: &request)
     }

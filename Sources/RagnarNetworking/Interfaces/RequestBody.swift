@@ -15,8 +15,6 @@ public struct EncodedBody: Sendable {
     public let contentType: String?
 
     public init(data: Data, contentType: String?) {
-        precondition(data.isEmpty || contentType != nil,
-                     "EncodedBody with non-empty data must have a contentType")
         self.data = data
         self.contentType = contentType
     }
