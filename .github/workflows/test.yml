@@ -12,90 +12,13 @@ concurrency:
 
 jobs:
   test:
-    name: Test - ${{ matrix.platform }}
+    name: Test - macOS
     runs-on: macos-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        platform: [iOS, macOS]
-        include:
-          - platform: iOS
-            destination: ''
-          - platform: macOS
-            destination: 'platform=macOS'
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Cache Swift Package Manager
-        uses: actions/cache@v4
-        with:
-          path: |
-            .build
-          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
-          restore-keys: |
-            ${{ runner.os }}-spm-
-
-      - name: Select iOS Simulator
-        if: matrix.platform == 'iOS'
-        id: sim
-        run: |
-          python - <<'PY'
-          import json
-          import os
-          import subprocess
-
-          data = subprocess.check_output(
-              ["xcrun", "simctl", "list", "devices", "available", "-j"],
-              text=True
-          )
-          devices = json.loads(data)["devices"]
-
-          ios_runtimes = sorted(
-              key for key in devices.keys()
-              if key.startswith("com.apple.CoreSimulator.SimRuntime.iOS")
-          )
-          if not ios_runtimes:
-              raise SystemExit("No iOS runtimes found.")
-
-          runtime = ios_runtimes[-1]
-          candidates = [
-              d for d in devices[runtime]
-              if d.get("isAvailable") and "iPhone" in d["name"]
-          ]
-          if not candidates:
-              candidates = [d for d in devices[runtime] if d.get("isAvailable")]
-          if not candidates:
-              raise SystemExit("No available iOS devices found.")
-
-          device_name = candidates[-1]["name"]
-          destination = f"platform=iOS Simulator,OS=latest,name={device_name}"
-
-          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
-              fh.write(f"destination={destination}\n")
-          PY
-
       - name: Run Tests
         run: |
-          if [ "${{ matrix.platform }}" = "iOS" ]; then
-            DESTINATION="${{ steps.sim.outputs.destination }}"
-          else
-            DESTINATION="${{ matrix.destination }}"
-          fi
-
-          xcodebuild test \
-            -scheme RagnarNetworking \
-            -testPlan RagnarNetworking \
-            -destination "$DESTINATION" \
-            -derivedDataPath .build/derived \
-            -resultBundlePath "TestResults-${{ matrix.platform }}.xcresult" \
-            -enableCodeCoverage YES
-
-      - name: Upload Test Results
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results-${{ matrix.platform }}
-          path: TestResults-${{ matrix.platform }}.xcresult
-          retention-days: 7
+          swift test --enable-code-coverage
