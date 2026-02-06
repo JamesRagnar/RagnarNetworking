@@ -45,14 +45,8 @@ public struct ResponseMap: ExpressibleByArrayLiteral, Sendable {
             return exact
         }
 
-        for rangeCase in rangeCases {
-            if rangeCase.range.contains(statusCode) {
-                return rangeCase.outcome
-            }
-
-            if statusCode == Int.max, rangeCase.range.upperBound == Int.max {
-                return rangeCase.outcome
-            }
+        for rangeCase in rangeCases where rangeCase.range.contains(statusCode) {
+            return rangeCase.outcome
         }
 
         return nil
@@ -131,6 +125,7 @@ public struct ResponseCase: Sendable {
 
     /// Match any status code in the provided closed range.
     /// - Note: The upper bound is converted to an exclusive upper bound.
+    /// - Note: Closed ranges ending in Int.max will not match Int.max.
     public static func range(
         _ range: ClosedRange<Int>,
         _ outcome: ResponseOutcome

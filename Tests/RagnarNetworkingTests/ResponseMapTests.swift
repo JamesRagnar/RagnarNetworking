@@ -109,25 +109,14 @@ struct ResponseMapTests {
         #expect(map.match(300) == nil)
     }
 
-    @Test("Closed ranges include Int.max upper bound")
-    func testClosedRangeIntMaxUpperBound() {
+    @Test("Closed ranges with Int.max do not match Int.max")
+    func testClosedRangeIntMaxUpperBoundDoesNotMatch() {
         let lower = Int.max - 2
         let map: ResponseMap = [
             .range(lower...Int.max, .decode)
         ]
 
-        guard let outcome = map.match(Int.max) else {
-            #expect(Bool(false), "Expected a match at Int.max upper bound")
-            return
-        }
-
-        switch outcome {
-        case .decode:
-            break
-
-        default:
-            #expect(Bool(false), "Expected closed range to include Int.max")
-        }
+        #expect(map.match(Int.max) == nil)
     }
 
     @Test("Exact duplicates resolve to the last definition")

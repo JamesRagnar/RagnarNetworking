@@ -7,21 +7,6 @@
 
 import Foundation
 
-/// Represents an encoded request body with its content type.
-public struct EncodedBody: Sendable {
-
-    public let data: Data
-
-    /// Optional content type. Nil when no Content-Type should be set (e.g., EmptyBody).
-    /// - Warning: Must be non-nil when data is non-empty.
-    public let contentType: String?
-
-    public init(data: Data, contentType: String?) {
-        self.data = data
-        self.contentType = contentType
-    }
-}
-
 /// Protocol that all request bodies must conform to.
 /// Couples encoding strategy with content-type to prevent mismatches.
 public protocol RequestBody: Sendable {
@@ -40,6 +25,21 @@ public extension RequestBody where Self: Encodable {
         return EncodedBody(data: data, contentType: "application/json")
     }
 
+}
+
+/// Represents an encoded request body with its content type.
+public struct EncodedBody: Sendable {
+
+    public let data: Data
+
+    /// Optional content type. Nil when no Content-Type should be set (e.g., EmptyBody).
+    /// - Warning: Must be non-nil when data is non-empty.
+    public let contentType: String?
+
+    public init(data: Data, contentType: String?) {
+        self.data = data
+        self.contentType = contentType
+    }
 }
 
 /// Sentinel type for endpoints with no request body.

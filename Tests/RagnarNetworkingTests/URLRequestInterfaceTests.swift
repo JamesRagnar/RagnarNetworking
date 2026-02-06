@@ -652,11 +652,18 @@ struct URLRequestInterfaceTests {
             authentication: .none
         )
 
-        #expect(throws: RequestError.self) {
-            try URLRequest(
+        do {
+            _ = try URLRequest(
                 requestParameters: params,
                 serverConfiguration: config
             )
+            #expect(Bool(false), "Should have thrown")
+        } catch let error {
+            if case .encoding(let message) = error {
+                #expect(message.isEmpty == false)
+            } else {
+                #expect(Bool(false), "Expected .encoding error case")
+            }
         }
     }
 

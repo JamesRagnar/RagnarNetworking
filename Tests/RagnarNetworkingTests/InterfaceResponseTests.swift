@@ -342,7 +342,10 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        let result = try NoContentInterface.handleOutcome((data: responseData, response: httpResponse))
+        let result = try DefaultResponseHandler.handleOutcome(
+            (data: responseData, response: httpResponse),
+            for: NoContentInterface.self
+        )
 
         switch result {
         case .noContent:
@@ -561,7 +564,7 @@ struct InterfaceResponseTests {
         }
     }
 
-    @Test("decodeError surfaces jsonDecoder errors for malformed JSON")
+    @Test("decodeError surfaces custom decoding errors for malformed JSON")
     func testDecodeErrorInvalidJSON() {
         let responseData = "not json".data(using: .utf8)!
         let httpResponse = HTTPURLResponse(
@@ -576,10 +579,11 @@ struct InterfaceResponseTests {
             #expect(Bool(false), "Should have thrown")
         } catch let error {
             if case .decoding(_, _, let decodingError) = error {
-                if case .jsonDecoder = decodingError {
+                if case .custom(let message) = decodingError {
+                    #expect(message.isEmpty == false)
                     // Expected
                 } else {
-                    #expect(Bool(false), "Expected jsonDecoder error")
+                    #expect(Bool(false), "Expected custom decoding error")
                 }
             } else {
                 #expect(Bool(false), "Expected .decoding error case")
@@ -587,7 +591,7 @@ struct InterfaceResponseTests {
         }
     }
 
-    @Test("decodeError surfaces jsonDecoder errors for empty bodies")
+    @Test("decodeError surfaces custom decoding errors for empty bodies")
     func testDecodeErrorEmptyBody() {
         let responseData = Data()
         let httpResponse = HTTPURLResponse(
@@ -602,10 +606,11 @@ struct InterfaceResponseTests {
             #expect(Bool(false), "Should have thrown")
         } catch let error {
             if case .decoding(_, _, let decodingError) = error {
-                if case .jsonDecoder = decodingError {
+                if case .custom(let message) = decodingError {
+                    #expect(message.isEmpty == false)
                     // Expected
                 } else {
-                    #expect(Bool(false), "Expected jsonDecoder error")
+                    #expect(Bool(false), "Expected custom decoding error")
                 }
             } else {
                 #expect(Bool(false), "Expected .decoding error case")
@@ -613,7 +618,7 @@ struct InterfaceResponseTests {
         }
     }
 
-    @Test("decodeError surfaces jsonDecoder errors for HTML bodies")
+    @Test("decodeError surfaces custom decoding errors for HTML bodies")
     func testDecodeErrorHTMLBody() {
         let responseData = "<html><body>Error</body></html>".data(using: .utf8)!
         let httpResponse = HTTPURLResponse(
@@ -628,10 +633,11 @@ struct InterfaceResponseTests {
             #expect(Bool(false), "Should have thrown")
         } catch let error {
             if case .decoding(_, _, let decodingError) = error {
-                if case .jsonDecoder = decodingError {
+                if case .custom(let message) = decodingError {
+                    #expect(message.isEmpty == false)
                     // Expected
                 } else {
-                    #expect(Bool(false), "Expected jsonDecoder error")
+                    #expect(Bool(false), "Expected custom decoding error")
                 }
             } else {
                 #expect(Bool(false), "Expected .decoding error case")
@@ -724,7 +730,8 @@ struct InterfaceResponseTests {
         } catch let error {
             // Verify it's a decoding error
             if case .decoding(_, _, let decodingError) = error {
-                if case .jsonDecoder = decodingError {
+                if case .jsonDecoder(let diagnostics) = decodingError {
+                    #expect(diagnostics.debugDescription.isEmpty == false)
                     // Expected
                 } else {
                     #expect(Bool(false), "Expected jsonDecoder error")
@@ -761,7 +768,7 @@ struct InterfaceResponseTests {
         }
     }
 
-    // MARK: - Decode Function Tests
+    // MARK: - DefaultResponseHandler Decode Tests
 
     @Test("Decodes JSON response directly")
     func testDecodeJSONDirect() throws {
@@ -769,7 +776,7 @@ struct InterfaceResponseTests {
         {"message": "direct", "code": 100}
         """.data(using: .utf8)!
 
-        let result = try TestInterface.decode(response: responseData)
+        let result = try DefaultResponseHandler.decode(responseData, as: TestInterface.self)
 
         #expect(result.message == "direct")
         #expect(result.code == 100)
@@ -779,7 +786,7 @@ struct InterfaceResponseTests {
     func testDecodeStringDirect() throws {
         let responseData = "Test String".data(using: .utf8)!
 
-        let result = try StringInterface.decode(response: responseData)
+        let result = try DefaultResponseHandler.decode(responseData, as: StringInterface.self)
 
         #expect(result == "Test String")
     }
@@ -788,7 +795,7 @@ struct InterfaceResponseTests {
     func testDecodeDataDirect() throws {
         let responseData = Data([0x10, 0x20, 0x30])
 
-        let result = try DataInterface.decode(response: responseData)
+        let result = try DefaultResponseHandler.decode(responseData, as: DataInterface.self)
 
         #expect(result == responseData)
     }
@@ -798,7 +805,7 @@ struct InterfaceResponseTests {
         let responseData = "{invalid}".data(using: .utf8)!
 
         #expect(throws: InterfaceDecodingError.self) {
-            try TestInterface.decode(response: responseData)
+            try DefaultResponseHandler.decode(responseData, as: TestInterface.self)
         }
     }
 

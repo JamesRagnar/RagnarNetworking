@@ -7,44 +7,6 @@
 
 import Foundation
 
-// MARK: - Request Error
-
-private struct SendableErrorWrapper: Error, Sendable {
-
-    let message: String
-
-    init(_ error: Error) {
-        self.message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
-    }
-
-}
-
-private func coerceSendableError(_ error: Error) -> any Error & Sendable {
-    return SendableErrorWrapper(error)
-}
-
-/// Errors that can occur during URLRequest construction.
-public enum RequestError: Error, Sendable {
-
-    /// The server configuration could not be parsed or is malformed
-    case configuration
-
-    /// The request requires authentication but no token was provided
-    case authentication
-
-    /// The URL components could not be assembled into a valid URL
-    case componentsURL
-
-    /// The request body could not be encoded
-    case encoding(underlying: any Error & Sendable)
-
-    /// The request could not be constructed due to invalid parameters.
-    case invalidRequest(description: String)
-
-}
-
-// MARK: - URLRequest Construction
-
 /// Defines the steps required to construct a URLRequest from Interface parameters.
 public protocol InterfaceConstructor {
 
@@ -274,7 +236,7 @@ public extension InterfaceConstructor {
         do {
             encoded = try body.encodeBody(using: jsonEncoder)
         } catch {
-            throw RequestError.encoding(underlying: coerceSendableError(error))
+            throw RequestError.encoding(message: String(describing: error))
         }
 
         guard !encoded.data.isEmpty || encoded.contentType != nil else {

@@ -435,7 +435,11 @@ struct ResponseErrorHelpersTests {
     @Test("Debug description for decoding error includes decoding error type")
     func testDebugDescriptionDecodingError() {
         let decodingError = InterfaceDecodingError.jsonDecoder(
-            NSError(domain: "test", code: 1)
+            DecodingDiagnostics(
+                kind: .other,
+                codingPath: [],
+                debugDescription: "Test decode failure"
+            )
         )
         let error = ResponseError.decoding(
             Data(),

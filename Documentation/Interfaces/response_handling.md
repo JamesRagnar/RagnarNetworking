@@ -21,20 +21,9 @@ Response cases can either decode a body or indicate a successful response with n
 - `.decode` expects a response body that can be decoded as the Interface `Response`.
 - `.noContent` marks a success with no body (e.g., 204/205/304).
 
-Use `handleOutcome(_:)` when you need to differentiate:
-
-```swift
-switch try InterfaceType.handleOutcome(response) {
-case .decoded(let value):
-    // handle decoded response
-case .noContent:
-    // handle no-body success
-}
-```
-
-`handle(_:)` remains available for legacy call sites. If you map a status to `.noContent`,
-`handle(_:)` will attempt to decode an empty body, which will only succeed for `Data` or `String`
-responses.
+When `handle(_:)` encounters `.noContent`, the default handler decodes an empty body.
+This succeeds for `Data` or `String` responses. For custom no-content behavior, override
+the Interface `responseHandler`.
 
 ## Response Handlers
 
@@ -89,13 +78,13 @@ static var responseCases: ResponseMap {
 
 When decoding fails (empty body, non-JSON response, malformed JSON), the error is surfaced as:
 
-- `ResponseError.decoding(_, _, .jsonDecoder(underlying))`
+- `ResponseError.decoding(_, _, .custom(message: ...))`
 
 The raw response data is always preserved, so you can still inspect `responseBodyString`.
 
 ## Decoding Rules
 
-`Interface.decode(response:)` supports:
+`DefaultResponseHandler.decode(_:as:)` supports:
 - `String` responses (UTF-8)
 - `Data` responses (raw bytes)
 - `Decodable` responses (via `JSONDecoder`)
@@ -112,7 +101,8 @@ The raw response data is always preserved, so you can still inspect `responseBod
 `InterfaceDecodingError` indicates decoding specifics:
 - `.missingString`
 - `.missingData`
-- `.jsonDecoder`
+- `.jsonDecoder(DecodingDiagnostics)`
+- `.custom(message:)`
 
 ## Error Helpers
 
