@@ -905,8 +905,6 @@ struct InterfaceResponseTests {
 
     @Test("Handles empty JSON object")
     func testEmptyJSONObject() throws {
-        struct EmptyResponse: Codable, Sendable {}
-
         struct EmptyInterface: Interface {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .get
@@ -935,6 +933,37 @@ struct InterfaceResponseTests {
         let result = try EmptyInterface.handle((data: responseData, response: httpResponse))
 
         // Just verify it doesn't throw - result is always non-nil for struct types
+        _ = result
+    }
+
+    @Test("Handles no-content success with EmptyResponse")
+    func testNoContentEmptyResponse() throws {
+        struct EmptyInterface: Interface {
+            struct Parameters: RequestParameters {
+                let method: RequestMethod = .get
+                let path = "/no-content"
+                let queryItems: [String: String?]? = nil
+                let headers: [String: String]? = nil
+                let body: EmptyBody? = nil
+                let authentication: AuthenticationType = .none
+            }
+
+            typealias Response = EmptyResponse
+
+            static var responseCases: ResponseMap {
+                [.code(204, .noContent)]
+            }
+        }
+
+        let responseData = Data()
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 204,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        let result = try EmptyInterface.handle((data: responseData, response: httpResponse))
         _ = result
     }
 

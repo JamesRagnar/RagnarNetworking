@@ -57,7 +57,7 @@ let config = ServerConfiguration(
 - Use `.code` for exact status codes.
 - Use `.range` or `.success`/`.clientError`/`.serverError` for ranges.
 - `.decodeError(MyError.self)` decodes structured error bodies and throws `ResponseError.decoded`.
-- Use `.noContent` for no-body success (204/205/304), and override `responseHandler` if you need custom no-content behavior.
+- Use `.noContent` for no-body success (204/205/304). Prefer `EmptyResponse` as the response type.
 - Override `responseHandler` when an Interface needs custom response handling logic.
 
 ## Response Type Expectations
@@ -65,7 +65,8 @@ let config = ServerConfiguration(
 - `String`: expects UTF-8 response bodies.
 - `Data`: returns raw bytes (for downloads/streams or no-body fallbacks).
 - `Decodable`: decoded with `JSONDecoder` from the response body.
-- `.noContent`: use when the server returns no body (204/205/304). Override `responseHandler` when you need custom differentiation logic.
+- `EmptyResponse`: represents a successful response with no body.
+- `.noContent`: use when the server returns no body (204/205/304).
 
 ## Status Code Guidelines
 

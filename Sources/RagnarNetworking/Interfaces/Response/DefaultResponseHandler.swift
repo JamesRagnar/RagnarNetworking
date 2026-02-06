@@ -109,6 +109,10 @@ public struct DefaultResponseHandler: ResponseHandler {
         _ data: Data,
         as interface: T.Type
     ) throws(InterfaceDecodingError) -> T.Response {
+        if T.Response.self == EmptyResponse.self {
+            return EmptyResponse() as! T.Response
+        }
+
         if T.Response.self == String.self {
             guard let response = String(
                 data: data,

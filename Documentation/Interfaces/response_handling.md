@@ -21,9 +21,28 @@ Response cases can either decode a body or indicate a successful response with n
 - `.decode` expects a response body that can be decoded as the Interface `Response`.
 - `.noContent` marks a success with no body (e.g., 204/205/304).
 
-When `handle(_:)` encounters `.noContent`, the default handler decodes an empty body.
-This succeeds for `Data` or `String` responses. For custom no-content behavior, override
-the Interface `responseHandler`.
+When `handle(_:)` encounters `.noContent`, the default handler treats it as a success
+with an empty body. This succeeds for `Data`, `String`, or `EmptyResponse` responses.
+
+```swift
+struct DeleteUser: Interface {
+    struct Parameters: RequestParameters {
+        let method: RequestMethod = .delete
+        let path = "/users/123"
+        let queryItems: [String: String?]? = nil
+        let headers: [String: String]? = nil
+        let body: EmptyBody? = nil
+        let authentication: AuthenticationType = .bearer
+    }
+
+    typealias Response = EmptyResponse
+
+    static var responseCases: ResponseMap {
+        [.code(204, .noContent)]
+    }
+}
+```
+For custom no-content behavior, override the Interface `responseHandler`.
 
 ## Response Handlers
 
