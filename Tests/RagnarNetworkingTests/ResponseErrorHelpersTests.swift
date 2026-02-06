@@ -202,6 +202,26 @@ struct ResponseErrorHelpersTests {
         #expect(decodedError == nil)
     }
 
+    @Test("decodeError falls back to raw data when decoded type mismatches")
+    func testDecodeErrorFallbackToRawData() {
+        struct StoredError: Codable, Error {
+            let message: String
+        }
+
+        struct ExpectedError: Codable {
+            let code: Int
+        }
+
+        let data = #"{"code":123}"#.data(using: .utf8)!
+        let response = makeHTTPResponse(statusCode: 400)
+        let stored = StoredError(message: "stored")
+        let error = ResponseError.decoded(data, makeSnapshot(from: response), stored)
+
+        let decoded = error.decodeError(as: ExpectedError.self)
+
+        #expect(decoded?.code == 123)
+    }
+
     @Test("Decodes complex nested error structures")
     func testDecodeNestedErrorStructure() {
         struct DetailedError: Codable {
@@ -258,7 +278,7 @@ struct ResponseErrorHelpersTests {
         let response = makeURLResponse()
         let error = ResponseError.unknownResponse(data, makeSnapshot(from: response))
 
-        #expect(error.headers?.isEmpty == true)
+        #expect(error.headers == nil)
     }
 
     @Test("Returns empty dictionary for no headers")

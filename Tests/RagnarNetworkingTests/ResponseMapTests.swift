@@ -63,6 +63,30 @@ struct ResponseMapTests {
         }
     }
 
+    @Test("Multiple non-overlapping ranges match independently")
+    func testMultipleNonOverlappingRanges() {
+        let map: ResponseMap = [
+            .range(400..<500, .error(TestError.first)),
+            .range(500..<600, .error(TestError.second))
+        ]
+
+        switch map.match(450) {
+        case .error(let error as TestError):
+            #expect(error == .first)
+
+        default:
+            #expect(Bool(false), "Expected first range match")
+        }
+
+        switch map.match(550) {
+        case .error(let error as TestError):
+            #expect(error == .second)
+
+        default:
+            #expect(Bool(false), "Expected second range match")
+        }
+    }
+
     @Test("Closed ranges include their upper bound")
     func testClosedRangeUpperBound() {
         let map: ResponseMap = [
@@ -81,6 +105,16 @@ struct ResponseMapTests {
         default:
             #expect(Bool(false), "Expected closed range upper bound to match")
         }
+    }
+
+    @Test("Closed ranges exclude values outside bounds")
+    func testClosedRangeExcludesOutOfBounds() {
+        let map: ResponseMap = [
+            .range(200...204, .decode)
+        ]
+
+        #expect(map.match(199) == nil)
+        #expect(map.match(205) == nil)
     }
 
     @Test("Category helpers map to expected ranges")

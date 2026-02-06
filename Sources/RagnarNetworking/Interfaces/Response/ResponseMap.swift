@@ -40,7 +40,7 @@ public struct ResponseMap: ExpressibleByArrayLiteral, Sendable {
     }
 
     /// Returns the first matching outcome for the given status code.
-    func match(_ statusCode: Int) -> ResponseOutcome? {
+    public func match(_ statusCode: Int) -> ResponseOutcome? {
         if let exact = exactCases[statusCode] {
             return exact
         }
@@ -98,8 +98,8 @@ public enum StatusCodeMatcher: Sendable {
 /// Associates a status code matcher with a response outcome.
 public struct ResponseCase: Sendable {
 
-    let matcher: StatusCodeMatcher
-    let outcome: ResponseOutcome
+    public let matcher: StatusCodeMatcher
+    public let outcome: ResponseOutcome
 
     /// Exact status code match.
     public static func code(

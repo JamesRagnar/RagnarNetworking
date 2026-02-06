@@ -8,7 +8,7 @@
 import Foundation
 
 /// Default response handler using the Interface response map and decoding rules.
-public struct DefaultResponseHandler: ResponseHandler {
+public enum DefaultResponseHandler: ResponseHandler {
 
     public static func handle<T: Interface>(
         _ response: (data: Data, response: URLResponse),
@@ -23,13 +23,6 @@ public struct DefaultResponseHandler: ResponseHandler {
                 return try decode(Data(), as: interface)
             } catch {
                 let responseSnapshot = HTTPResponseSnapshot(response: response.response)
-                guard responseSnapshot.statusCode != nil else {
-                    throw .unknownResponse(
-                        response.data,
-                        responseSnapshot
-                    )
-                }
-
                 throw .decoding(
                     response.data,
                     responseSnapshot,
@@ -44,17 +37,14 @@ public struct DefaultResponseHandler: ResponseHandler {
         for interface: T.Type
     ) throws(ResponseError) -> ResponseOutcomeResult<T.Response> {
         let responseSnapshot = HTTPResponseSnapshot(response: response.response)
-        guard responseSnapshot.statusCode != nil else {
+        guard let statusCode = responseSnapshot.statusCode else {
             throw .unknownResponse(
                 response.data,
                 responseSnapshot
             )
         }
 
-        guard
-            let statusCode = responseSnapshot.statusCode,
-            let responseCase = interface.responseCases.match(statusCode)
-        else {
+        guard let responseCase = interface.responseCases.match(statusCode) else {
             throw .unknownResponseCase(
                 response.data,
                 responseSnapshot
@@ -110,7 +100,10 @@ public struct DefaultResponseHandler: ResponseHandler {
         as interface: T.Type
     ) throws(InterfaceDecodingError) -> T.Response {
         if T.Response.self == EmptyResponse.self {
-            return EmptyResponse() as! T.Response
+            guard let empty = EmptyResponse() as? T.Response else {
+                throw .custom(message: "EmptyResponse cast failed for \(T.Response.self)")
+            }
+            return empty
         }
 
         if T.Response.self == String.self {

@@ -236,7 +236,7 @@ public extension InterfaceConstructor {
         do {
             encoded = try body.encodeBody(using: jsonEncoder)
         } catch {
-            throw RequestError.encoding(message: String(describing: error))
+            throw RequestError.encoding(underlying: ErrorSnapshot(error))
         }
 
         guard !encoded.data.isEmpty || encoded.contentType != nil else {

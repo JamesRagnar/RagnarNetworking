@@ -114,6 +114,9 @@ public extension ResponseError {
              .decoding(_, let response, _),
              .generic(_, let response, _),
              .decoded(_, let response, _):
+            guard response.statusCode != nil else {
+                return nil
+            }
             return response.headers
         }
     }
@@ -184,6 +187,11 @@ public extension ResponseError {
         }
 
         return components.joined(separator: " | ")
+    }
+
+    /// A localized description for the error.
+    var errorDescription: String? {
+        debugDescription
     }
 
 }

@@ -93,6 +93,57 @@ struct InterfaceResponseTests {
         }
     }
 
+    struct NoContentStringInterface: Interface {
+        struct Parameters: RequestParameters {
+            let method: RequestMethod = .get
+            let path = "/no-content-string"
+            let queryItems: [String: String?]? = nil
+            let headers: [String: String]? = nil
+            let body: EmptyBody? = nil
+            let authentication: AuthenticationType = .none
+        }
+
+        typealias Response = String
+
+        static var responseCases: ResponseMap {
+            [.code(204, .noContent)]
+        }
+    }
+
+    struct NoContentJSONInterface: Interface {
+        struct Parameters: RequestParameters {
+            let method: RequestMethod = .get
+            let path = "/no-content-json"
+            let queryItems: [String: String?]? = nil
+            let headers: [String: String]? = nil
+            let body: EmptyBody? = nil
+            let authentication: AuthenticationType = .none
+        }
+
+        typealias Response = SuccessResponse
+
+        static var responseCases: ResponseMap {
+            [.code(204, .noContent)]
+        }
+    }
+
+    struct EmptyDecodeInterface: Interface {
+        struct Parameters: RequestParameters {
+            let method: RequestMethod = .get
+            let path = "/empty-decode"
+            let queryItems: [String: String?]? = nil
+            let headers: [String: String]? = nil
+            let body: EmptyBody? = nil
+            let authentication: AuthenticationType = .none
+        }
+
+        typealias Response = EmptyResponse
+
+        static var responseCases: ResponseMap {
+            [.code(200, .decode)]
+        }
+    }
+
     struct CustomHandlerInterface: Interface {
         struct Parameters: RequestParameters {
             let method: RequestMethod = .get
@@ -370,6 +421,49 @@ struct InterfaceResponseTests {
         let result = try NoContentInterface.handle((data: responseData, response: httpResponse))
 
         #expect(result.isEmpty)
+    }
+
+    @Test("no-content with Decodable response throws decoding error")
+    func testNoContentDecodableThrowsDecodingError() {
+        let responseData = Data()
+
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 204,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        do {
+            _ = try NoContentJSONInterface.handle((data: responseData, response: httpResponse))
+            #expect(Bool(false), "Should have thrown")
+        } catch let error {
+            if case .decoding(_, _, let decodingError) = error {
+                if case .jsonDecoder = decodingError {
+                    // Expected
+                } else {
+                    #expect(Bool(false), "Expected jsonDecoder error")
+                }
+            } else {
+                #expect(Bool(false), "Expected .decoding error case")
+            }
+        }
+    }
+
+    @Test("no-content with String response returns empty string")
+    func testNoContentStringReturnsEmptyString() throws {
+        let responseData = Data()
+
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 204,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        let result = try NoContentStringInterface.handle((data: responseData, response: httpResponse))
+
+        #expect(result == "")
     }
 
     @Test("Handles multiple success status codes")
@@ -933,6 +1027,21 @@ struct InterfaceResponseTests {
         let result = try EmptyInterface.handle((data: responseData, response: httpResponse))
 
         // Just verify it doesn't throw - result is always non-nil for struct types
+        _ = result
+    }
+
+    @Test("EmptyResponse decode ignores non-empty body")
+    func testEmptyResponseDecodeIgnoresBody() throws {
+        let responseData = "non-empty".data(using: .utf8)!
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        let result = try EmptyDecodeInterface.handle((data: responseData, response: httpResponse))
+
         _ = result
     }
 

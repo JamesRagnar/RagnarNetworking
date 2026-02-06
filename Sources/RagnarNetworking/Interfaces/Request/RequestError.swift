@@ -20,9 +20,30 @@ public enum RequestError: Error, Sendable {
     case componentsURL
 
     /// The request body could not be encoded
-    case encoding(message: String)
+    case encoding(underlying: ErrorSnapshot)
 
     /// The request could not be constructed due to invalid parameters.
     case invalidRequest(description: String)
+
+}
+
+/// A Sendable snapshot of an Error for safe propagation.
+public struct ErrorSnapshot: Sendable, Equatable, CustomStringConvertible {
+
+    public let typeName: String
+    public let description: String
+    public let localizedDescription: String
+
+    public init(typeName: String, description: String, localizedDescription: String) {
+        self.typeName = typeName
+        self.description = description
+        self.localizedDescription = localizedDescription
+    }
+
+    public init(_ error: Error) {
+        self.typeName = String(describing: type(of: error))
+        self.description = String(describing: error)
+        self.localizedDescription = (error as NSError).localizedDescription
+    }
 
 }

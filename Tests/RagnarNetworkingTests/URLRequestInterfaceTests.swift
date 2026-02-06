@@ -659,8 +659,8 @@ struct URLRequestInterfaceTests {
             )
             #expect(Bool(false), "Should have thrown")
         } catch let error {
-            if case .encoding(let message) = error {
-                #expect(message.isEmpty == false)
+            if case .encoding(let underlying) = error {
+                #expect(underlying.description.isEmpty == false)
             } else {
                 #expect(Bool(false), "Expected .encoding error case")
             }
