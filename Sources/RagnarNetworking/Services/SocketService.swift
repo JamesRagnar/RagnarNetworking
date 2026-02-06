@@ -10,25 +10,25 @@ import Foundation
 import SocketIO
 
 open class SocketService {
-    
+
     public enum SocketStatus: Int {
-        
+
         /// The client/manager has never been connected, or the client has been reset.
         case notConnected
-        
+
         /// The client/manager was once connected, but not anymore.
         case disconnected
-        
+
         /// The client/manager is in the process of connecting.
         case connecting
-        
+
         /// The client/manager is currently connected.
         case connected
-     
+
     }
-    
+
     public weak var loggingService: LoggingService?
-    
+
     public func sendEvent<Event: SocketEvent>(
         _ socketEvent: Event.Type,
         _ message: Event.Schema
@@ -36,13 +36,13 @@ open class SocketService {
         guard let message = message as? SocketData else {
             return
         }
-        
+
         loggingService?.log(
             source: .socketService,
             level: .debug,
             message: "Sending Event - \(socketEvent.name)"
         )
-        
+
         manager
             .defaultSocket
             .emit(
@@ -50,7 +50,7 @@ open class SocketService {
                 message
             )
     }
-    
+
     public func observeEvent<Event: SocketEvent>(
         _ socketEvent: Event.Type
     ) -> AnyPublisher<Event.Schema, Never> {
@@ -58,12 +58,12 @@ open class SocketService {
             .filter { $0.event == socketEvent.name }
             .compactMap { event -> Event.Schema? in
                 guard let item = event.items?.first else { return nil }
-                
+
                 // Raw types
                 if let item = item as? Event.Schema {
                     return item
                 }
-                
+
                 // Decodable
                 if
                     let item = item as? [String: Any],
@@ -74,40 +74,39 @@ open class SocketService {
                     let body = try? JSONDecoder().decode(
                         Event.Schema.self,
                         from: jsonData
-                    )
-                {
+                    ) {
                     return body
                 }
-                
+
                 return nil
             }
             .eraseToAnyPublisher()
     }
-    
+
     private var eventSubject = PassthroughSubject<SocketAnyEvent, Never>()
-    
+
     public var eventPublisher: AnyPublisher<SocketAnyEvent, Never> {
         eventSubject.eraseToAnyPublisher()
     }
-    
+
     private var statusSubject = CurrentValueSubject<SocketStatus, Never>(.notConnected)
-    
+
     public var statusPublisher: AnyPublisher<SocketStatus, Never> {
         statusSubject.eraseToAnyPublisher()
     }
-    
+
     private var manager: SocketManager
-    
+
     public var socketID: String? {
         manager.defaultSocket.sid
     }
-    
+
     public init(url: URL) {
         manager = SocketManager(
             socketURL: url,
             config: []
         )
-        
+
         manager
             .defaultSocket
             .onAny { [weak self] event in
@@ -118,10 +117,10 @@ open class SocketService {
                     level: .debug,
                     message: "Received Event - \(event.event)"
                 )
-                
+
                 self?.eventSubject.send(event)
             }
-        
+
         manager
             .defaultSocket
             .on(clientEvent: .statusChange) { [weak self] (status, _) in
@@ -129,7 +128,7 @@ open class SocketService {
                     let statusInt = status.last as? Int,
                     let status = SocketStatus(rawValue: statusInt)
                 else { return }
-                
+
                 self?
                     .loggingService?
                     .log(
@@ -137,13 +136,13 @@ open class SocketService {
                     level: .debug,
                     message: "Status Change - \(status)"
                 )
-                
+
                 self?.statusSubject.send(status)
             }
-        
+
         manager.defaultSocket.connect()
     }
-    
+
     public func disconnect() {
         manager.disconnect()
     }

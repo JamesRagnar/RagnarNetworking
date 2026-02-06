@@ -1,0 +1,10 @@
+disabled_rules:
+  - force_unwrapping
+  - force_try
+  - force_cast
+  - file_length
+  - type_body_length
+  - line_length
+  - empty_string
+  - non_optional_string_data_conversion
+  - identifier_name

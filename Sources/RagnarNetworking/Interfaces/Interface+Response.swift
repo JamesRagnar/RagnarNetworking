@@ -27,6 +27,10 @@ public enum ResponseError: LocalizedError {
     /// A predefined error was returned for this status code
     case generic(Data, HTTPURLResponse, Error)
 
+    /// A decoded error body was returned for this status code
+    /// - Note: The decoded error is stored for type-safe access without re-decoding.
+    case decoded(Data, HTTPURLResponse, any Error & Sendable)
+
 }
 
 /// Specific errors encountered during response decoding.
@@ -65,7 +69,7 @@ public extension Interface {
             )
         }
 
-        guard let responseCase = responseCases[httpResponse.statusCode] else {
+        guard let responseCase = responseCases.match(httpResponse.statusCode) else {
             throw .unknownResponseCase(
                 response.data,
                 httpResponse
@@ -73,7 +77,7 @@ public extension Interface {
         }
 
         switch responseCase {
-        case .success:
+        case .decode:
             do {
                 return try decode(response: response.data)
             } catch {
@@ -83,11 +87,30 @@ public extension Interface {
                     error
                 )
             }
-        case .failure(let error):
+
+        case .error(let error):
             throw .generic(
                 response.data,
                 httpResponse,
                 error
+            )
+
+        case .decodeError(body: let decodeBody):
+            // Decoding failures are surfaced as ResponseError.decoding(.jsonDecoder).
+            let decodedError: any Error & Sendable
+            do {
+                decodedError = try decodeBody(response.data)
+            } catch {
+                throw .decoding(
+                    response.data,
+                    httpResponse,
+                    .jsonDecoder(error)
+                )
+            }
+            throw .decoded(
+                response.data,
+                httpResponse,
+                decodedError
             )
         }
     }
@@ -150,9 +173,11 @@ public extension ResponseError {
         switch self {
         case .unknownResponse:
             return nil
+
         case .unknownResponseCase(_, let httpResponse),
              .decoding(_, let httpResponse, _),
-             .generic(_, let httpResponse, _):
+             .generic(_, let httpResponse, _),
+             .decoded(_, let httpResponse, _):
             return httpResponse.statusCode
         }
     }
@@ -167,7 +192,8 @@ public extension ResponseError {
         case .unknownResponse(let responseData, _),
              .unknownResponseCase(let responseData, _),
              .decoding(let responseData, _, _),
-             .generic(let responseData, _, _):
+             .generic(let responseData, _, _),
+             .decoded(let responseData, _, _):
             data = responseData
         }
 
@@ -176,18 +202,27 @@ public extension ResponseError {
 
     /// Attempts to decode the error response body as a structured error type.
     ///
+    /// If the error was created with `ResponseOutcome.decodeError`, this method will
+    /// return the already-decoded error when it matches the requested type.
+    ///
     /// Many APIs return structured error responses (e.g., `{"error": "message", "code": 123}`).
     /// This method attempts to decode the raw response data as your custom error type.
     ///
     /// - Parameter type: The Decodable type representing your API's error structure
     /// - Returns: The decoded error instance, or `nil` if decoding fails
     func decodeError<T: Decodable>(as type: T.Type) -> T? {
+        if case .decoded(_, _, let decodedError) = self,
+           let typed = decodedError as? T {
+            return typed
+        }
+
         let data: Data
         switch self {
         case .unknownResponse(let responseData, _),
              .unknownResponseCase(let responseData, _),
              .decoding(let responseData, _, _),
-             .generic(let responseData, _, _):
+             .generic(let responseData, _, _),
+             .decoded(let responseData, _, _):
             data = responseData
         }
 
@@ -203,9 +238,11 @@ public extension ResponseError {
         switch self {
         case .unknownResponse:
             httpResponse = nil
+
         case .unknownResponseCase(_, let response),
              .decoding(_, let response, _),
-             .generic(_, let response, _):
+             .generic(_, let response, _),
+             .decoded(_, let response, _):
             httpResponse = response
         }
 
@@ -245,12 +282,18 @@ public extension ResponseError {
         switch self {
         case .unknownResponse:
             components.append("ResponseError.unknownResponse")
+
         case .unknownResponseCase:
             components.append("ResponseError.unknownResponseCase")
+
         case .decoding(_, _, let decodingError):
             components.append("ResponseError.decoding(\(decodingError))")
+
         case .generic(_, _, let error):
             components.append("ResponseError.generic(\(error))")
+
+        case .decoded(_, _, let error):
+            components.append("ResponseError.decoded(\(error))")
         }
 
         // Status code
@@ -275,4 +318,3 @@ public extension ResponseError {
     }
 
 }
-

@@ -8,13 +8,13 @@
 import Foundation
 
 public protocol RequestService {
-        
+
     var loggingService: LoggingService? { get }
-    
+
     var dataTaskProvider: any DataTaskProvider { get }
-    
+
     func serverConfiguration() throws -> ServerConfiguration
-    
+
     func dataTask<T: Interface>(
         _ interface: T.Type,
         _ parameters: T.Parameters
@@ -29,7 +29,7 @@ public protocol RequestService {
 }
 
 public extension RequestService {
-    
+
     func dataTask<T: Interface>(
         _ interface: T.Type,
         _ parameters: T.Parameters
@@ -53,5 +53,5 @@ public extension RequestService {
             constructor: constructor
         )
     }
-    
+
 }

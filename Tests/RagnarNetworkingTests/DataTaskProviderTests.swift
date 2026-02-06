@@ -5,9 +5,9 @@
 //  Created by James Harquail on 2025-01-16.
 //
 
-import Testing
 import Foundation
 @testable import RagnarNetworking
+import Testing
 
 @Suite("DataTaskProvider Tests")
 struct DataTaskProviderTests {
@@ -31,10 +31,10 @@ struct DataTaskProviderTests {
 
         typealias Response = TestResponse
 
-        static var responseCases: ResponseCases {
+        static var responseCases: ResponseMap {
             [
-                200: .success(TestResponse.self),
-                404: .failure(TestError.notFound)
+                .code(200, .decode),
+                .code(404, .error(TestError.notFound))
             ]
         }
     }
@@ -168,8 +168,8 @@ struct DataTaskProviderTests {
 
             typealias Response = TestResponse
 
-            static var responseCases: ResponseCases {
-                [200: .success(TestResponse.self)]
+            static var responseCases: ResponseMap {
+                [.code(200, .decode)]
             }
         }
 
@@ -264,8 +264,8 @@ struct DataTaskProviderTests {
 
             typealias Response = String
 
-            static var responseCases: ResponseCases {
-                [200: .success(String.self)]
+            static var responseCases: ResponseMap {
+                [.code(200, .decode)]
             }
         }
 
@@ -301,8 +301,8 @@ struct DataTaskProviderTests {
 
             typealias Response = Data
 
-            static var responseCases: ResponseCases {
-                [200: .success(Data.self)]
+            static var responseCases: ResponseMap {
+                [.code(200, .decode)]
             }
         }
 
@@ -347,8 +347,8 @@ struct DataTaskProviderTests {
 
             typealias Response = ComplexResponse
 
-            static var responseCases: ResponseCases {
-                [200: .success(ComplexResponse.self)]
+            static var responseCases: ResponseMap {
+                [.code(200, .decode)]
             }
         }
 
@@ -399,8 +399,8 @@ struct DataTaskProviderTests {
 
             typealias Response = [Item]
 
-            static var responseCases: ResponseCases {
-                [200: .success([Item].self)]
+            static var responseCases: ResponseMap {
+                [.code(200, .decode)]
             }
         }
 
@@ -449,8 +449,8 @@ struct DataTaskProviderTests {
             typealias Parameters = CompleteParameters
             typealias Response = TestResponse
 
-            static var responseCases: ResponseCases {
-                [200: .success(TestResponse.self)]
+            static var responseCases: ResponseMap {
+                [.code(200, .decode)]
             }
         }
 
@@ -499,8 +499,8 @@ struct DataTaskProviderTests {
 
             typealias Response = TestResponse
 
-            static var responseCases: ResponseCases {
-                [200: .success(TestResponse.self)]
+            static var responseCases: ResponseMap {
+                [.code(200, .decode)]
             }
         }
 

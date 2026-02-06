@@ -1,17 +1,44 @@
 # Response Handling
 
-Interfaces map HTTP status codes to success or failure. The `handle(_:)` method applies this mapping and decodes the response.
+Interfaces map HTTP status codes to outcomes (decode success, throw a predefined error, or decode an error body). The `handle(_:)` method applies this mapping and decodes the response.
 
 ## Response Cases
 
 ```swift
-static var responseCases: ResponseCases {
+static var responseCases: ResponseMap {
     [
-        200: .success(User.self),
-        404: .failure(APIError.userNotFound)
+        .code(200, .decode),
+        .code(404, .error(APIError.userNotFound)),
+        .clientError(.decodeError(APIErrorBody.self))
     ]
 }
 ```
+
+### Matching Priority
+
+- Exact status codes match first.
+- Range matches are evaluated in the order they are defined.
+
+This means you can declare a fallback range and still override specific status codes later:
+
+```swift
+static var responseCases: ResponseMap {
+    [
+        .clientError(.error(APIError.genericClientError)),
+        .code(401, .error(APIError.unauthorized))
+    ]
+}
+```
+
+### decodeError Behavior
+
+`.decodeError` attempts to decode the response body into a typed `Error`. The decoded error is stored in `ResponseError.decoded`, and `ResponseError.decodeError(as:)` will return it without re-decoding when the types match.
+
+When decoding fails (empty body, non-JSON response, malformed JSON), the error is surfaced as:
+
+- `ResponseError.decoding(_, _, .jsonDecoder(underlying))`
+
+The raw response data is always preserved, so you can still inspect `responseBodyString`.
 
 ## Decoding Rules
 
@@ -27,6 +54,7 @@ static var responseCases: ResponseCases {
 - `.unknownResponseCase`
 - `.decoding`
 - `.generic`
+- `.decoded`
 
 `InterfaceDecodingError` indicates decoding specifics:
 - `.missingString`

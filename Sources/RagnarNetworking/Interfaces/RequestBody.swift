@@ -119,6 +119,7 @@ public enum Nullable<Value: Encodable & Sendable>: Encodable, Sendable {
         switch self {
         case .value(let value):
             try container.encode(value)
+
         case .null:
             try container.encodeNil()
         }

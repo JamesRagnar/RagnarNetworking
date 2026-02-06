@@ -28,10 +28,10 @@ struct GetUserInterface: Interface {
 
     typealias Response = User
 
-    static var responseCases: ResponseCases {
+    static var responseCases: ResponseMap {
         [
-            200: .success(User.self),
-            404: .failure(APIError.userNotFound)
+            .code(200, .decode),
+            .code(404, .error(APIError.userNotFound))
         ]
     }
 }
@@ -51,6 +51,12 @@ let config = ServerConfiguration(
     authToken: token
 )
 ```
+
+## Response Cases Notes
+
+- Use `.code` for exact status codes.
+- Use `.range` or `.success`/`.clientError`/`.serverError` for ranges.
+- `.decodeError(MyError.self)` decodes structured error bodies and throws `ResponseError.decoded`.
 
 ## Guides
 

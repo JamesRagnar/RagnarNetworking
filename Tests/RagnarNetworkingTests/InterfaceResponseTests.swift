@@ -5,9 +5,9 @@
 //  Created by James Harquail on 2025-01-16.
 //
 
-import Testing
 import Foundation
 @testable import RagnarNetworking
+import Testing
 
 @Suite("Interface Response Handling Tests")
 struct InterfaceResponseTests {
@@ -31,13 +31,13 @@ struct InterfaceResponseTests {
 
         typealias Response = SuccessResponse
 
-        static var responseCases: ResponseCases {
+        static var responseCases: ResponseMap {
             [
-                200: .success(SuccessResponse.self),
-                201: .success(SuccessResponse.self),
-                400: .failure(TestError.badRequest),
-                401: .failure(TestError.unauthorized),
-                500: .failure(TestError.serverError)
+                .code(200, .decode),
+                .code(201, .decode),
+                .code(400, .error(TestError.badRequest)),
+                .code(401, .error(TestError.unauthorized)),
+                .code(500, .error(TestError.serverError))
             ]
         }
     }
@@ -54,8 +54,8 @@ struct InterfaceResponseTests {
 
         typealias Response = String
 
-        static var responseCases: ResponseCases {
-            [200: .success(String.self)]
+        static var responseCases: ResponseMap {
+            [.code(200, .decode)]
         }
     }
 
@@ -71,8 +71,99 @@ struct InterfaceResponseTests {
 
         typealias Response = Data
 
-        static var responseCases: ResponseCases {
-            [200: .success(Data.self)]
+        static var responseCases: ResponseMap {
+            [.code(200, .decode)]
+        }
+    }
+
+    struct RangeInterface: Interface {
+        struct Parameters: RequestParameters {
+            let method: RequestMethod = .get
+            let path = "/range"
+            let queryItems: [String: String?]? = nil
+            let headers: [String: String]? = nil
+            let body: EmptyBody? = nil
+            let authentication: AuthenticationType = .none
+        }
+
+        typealias Response = SuccessResponse
+
+        static var responseCases: ResponseMap {
+            [.success(.decode)]
+        }
+    }
+
+    struct OverlapInterface: Interface {
+        struct Parameters: RequestParameters {
+            let method: RequestMethod = .get
+            let path = "/overlap"
+            let queryItems: [String: String?]? = nil
+            let headers: [String: String]? = nil
+            let body: EmptyBody? = nil
+            let authentication: AuthenticationType = .none
+        }
+
+        typealias Response = SuccessResponse
+
+        static var responseCases: ResponseMap {
+            [
+                .success(.decode),
+                .code(201, .error(TestError.unauthorized))
+            ]
+        }
+    }
+
+    struct DecodeErrorInterface: Interface {
+        struct Parameters: RequestParameters {
+            let method: RequestMethod = .get
+            let path = "/decode-error"
+            let queryItems: [String: String?]? = nil
+            let headers: [String: String]? = nil
+            let body: EmptyBody? = nil
+            let authentication: AuthenticationType = .none
+        }
+
+        typealias Response = SuccessResponse
+
+        struct APIError: Decodable, Sendable, Error {
+            let error: String
+        }
+
+        struct CustomError: Sendable, Error {
+            let message: String
+        }
+
+        static var responseCases: ResponseMap {
+            [
+                .code(200, .decode),
+                .code(400, .decodeError(APIError.self)),
+                .code(418, .decodeError(body: { data in
+                    guard let message = String(data: data, encoding: .utf8) else {
+                        return CustomError(message: "")
+                    }
+                    return CustomError(message: message)
+                }))
+            ]
+        }
+    }
+
+    struct RangeOrderInterface: Interface {
+        struct Parameters: RequestParameters {
+            let method: RequestMethod = .get
+            let path = "/range-order"
+            let queryItems: [String: String?]? = nil
+            let headers: [String: String]? = nil
+            let body: EmptyBody? = nil
+            let authentication: AuthenticationType = .none
+        }
+
+        typealias Response = SuccessResponse
+
+        static var responseCases: ResponseMap {
+            [
+                .range(200..<300, .error(TestError.badRequest)),
+                .range(200..<400, .error(TestError.unauthorized))
+            ]
         }
     }
 
@@ -154,6 +245,89 @@ struct InterfaceResponseTests {
         #expect(result.code == 201)
     }
 
+    @Test("Matches range-based success codes")
+    func testRangeBasedSuccess() throws {
+        let responseData = """
+        {"message": "range", "code": 201}
+        """.data(using: .utf8)!
+
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 201,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        let result = try RangeInterface.handle((data: responseData, response: httpResponse))
+
+        #expect(result.message == "range")
+        #expect(result.code == 201)
+    }
+
+    @Test("Exact status codes beat overlapping ranges")
+    func testExactBeatsRange() {
+        let responseData = """
+        {"message": "overlap", "code": 201}
+        """.data(using: .utf8)!
+
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 201,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        do {
+            _ = try OverlapInterface.handle((data: responseData, response: httpResponse))
+            #expect(Bool(false), "Should have thrown")
+        } catch let error {
+            if case .generic(_, _, let underlyingError) = error {
+                #expect(underlyingError is TestError)
+            } else {
+                #expect(Bool(false), "Expected .generic error case")
+            }
+        }
+    }
+
+    @Test("Matches HTTP category shortcuts")
+    func testCategoryShortcutMatching() {
+        struct CategoryInterface: Interface {
+            struct Parameters: RequestParameters {
+                let method: RequestMethod = .get
+                let path = "/category"
+                let queryItems: [String: String?]? = nil
+                let headers: [String: String]? = nil
+                let body: EmptyBody? = nil
+                let authentication: AuthenticationType = .none
+            }
+
+            typealias Response = SuccessResponse
+
+            static var responseCases: ResponseMap {
+                [.clientError(.error(TestError.badRequest))]
+            }
+        }
+
+        let responseData = Data()
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 418,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        do {
+            _ = try CategoryInterface.handle((data: responseData, response: httpResponse))
+            #expect(Bool(false), "Should have thrown")
+        } catch let error {
+            if case .generic(_, _, let underlyingError) = error {
+                #expect(underlyingError is TestError)
+            } else {
+                #expect(Bool(false), "Expected .generic error case")
+            }
+        }
+    }
+
     // MARK: - Error Response Handling
 
     @Test("Throws unknownResponse for non-HTTP response")
@@ -181,8 +355,15 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        #expect(throws: ResponseError.self) {
-            try TestInterface.handle((data: responseData, response: httpResponse))
+        do {
+            _ = try TestInterface.handle((data: responseData, response: httpResponse))
+            #expect(Bool(false), "Should have thrown")
+        } catch let error {
+            if case .unknownResponseCase = error {
+                // Expected
+            } else {
+                #expect(Bool(false), "Expected .unknownResponseCase error case")
+            }
         }
     }
 
@@ -203,6 +384,181 @@ struct InterfaceResponseTests {
             // Verify it's a generic error
             if case .generic(_, _, let underlyingError) = error {
                 #expect(underlyingError is TestError)
+            } else {
+                #expect(Bool(false), "Expected .generic error case")
+            }
+        }
+    }
+
+    @Test("Decodes error bodies with decodeError")
+    func testDecodeErrorResponse() {
+        let responseData = """
+        {"error": "Invalid request"}
+        """.data(using: .utf8)!
+
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 400,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        do {
+            _ = try DecodeErrorInterface.handle((data: responseData, response: httpResponse))
+            #expect(Bool(false), "Should have thrown")
+        } catch {
+            let responseError: ResponseError = error
+            if case .decoded(_, _, let decodedError) = responseError,
+               let apiError = decodedError as? DecodeErrorInterface.APIError {
+                #expect(apiError.error == "Invalid request")
+                #expect(responseError.decodeError(as: DecodeErrorInterface.APIError.self) != nil)
+            } else {
+                #expect(Bool(false), "Expected .decoded error case")
+            }
+        }
+    }
+
+    @Test("decodeError surfaces jsonDecoder errors for malformed JSON")
+    func testDecodeErrorInvalidJSON() {
+        let responseData = "not json".data(using: .utf8)!
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 400,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        do {
+            _ = try DecodeErrorInterface.handle((data: responseData, response: httpResponse))
+            #expect(Bool(false), "Should have thrown")
+        } catch let error {
+            if case .decoding(_, _, let decodingError) = error {
+                if case .jsonDecoder = decodingError {
+                    // Expected
+                } else {
+                    #expect(Bool(false), "Expected jsonDecoder error")
+                }
+            } else {
+                #expect(Bool(false), "Expected .decoding error case")
+            }
+        }
+    }
+
+    @Test("decodeError surfaces jsonDecoder errors for empty bodies")
+    func testDecodeErrorEmptyBody() {
+        let responseData = Data()
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 400,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        do {
+            _ = try DecodeErrorInterface.handle((data: responseData, response: httpResponse))
+            #expect(Bool(false), "Should have thrown")
+        } catch let error {
+            if case .decoding(_, _, let decodingError) = error {
+                if case .jsonDecoder = decodingError {
+                    // Expected
+                } else {
+                    #expect(Bool(false), "Expected jsonDecoder error")
+                }
+            } else {
+                #expect(Bool(false), "Expected .decoding error case")
+            }
+        }
+    }
+
+    @Test("decodeError surfaces jsonDecoder errors for HTML bodies")
+    func testDecodeErrorHTMLBody() {
+        let responseData = "<html><body>Error</body></html>".data(using: .utf8)!
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 400,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        do {
+            _ = try DecodeErrorInterface.handle((data: responseData, response: httpResponse))
+            #expect(Bool(false), "Should have thrown")
+        } catch let error {
+            if case .decoding(_, _, let decodingError) = error {
+                if case .jsonDecoder = decodingError {
+                    // Expected
+                } else {
+                    #expect(Bool(false), "Expected jsonDecoder error")
+                }
+            } else {
+                #expect(Bool(false), "Expected .decoding error case")
+            }
+        }
+    }
+
+    @Test("Decoded errors participate in error inspection helpers")
+    func testDecodedErrorInspectionHelpers() {
+        let responseData = """
+        {"error": "Inspect me"}
+        """.data(using: .utf8)!
+
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 400,
+            httpVersion: nil,
+            headerFields: ["X-Request-ID": "req-123"]
+        )!
+
+        do {
+            _ = try DecodeErrorInterface.handle((data: responseData, response: httpResponse))
+            #expect(Bool(false), "Should have thrown")
+        } catch {
+            #expect(error.statusCode == 400)
+            #expect(error.responseBodyString?.contains("Inspect me") == true)
+            #expect(error.header("X-Request-ID") == "req-123")
+        }
+    }
+
+    @Test("decodeError supports custom decoder closures")
+    func testDecodeErrorCustomClosure() {
+        let responseData = "teapot".data(using: .utf8)!
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 418,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        do {
+            _ = try DecodeErrorInterface.handle((data: responseData, response: httpResponse))
+            #expect(Bool(false), "Should have thrown")
+        } catch let error {
+            if case .decoded(_, _, let decodedError) = error,
+               let customError = decodedError as? DecodeErrorInterface.CustomError {
+                #expect(customError.message == "teapot")
+            } else {
+                #expect(Bool(false), "Expected .decoded error case")
+            }
+        }
+    }
+
+    @Test("Range matching respects definition order")
+    func testRangeOrderPriority() {
+        let responseData = Data()
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 201,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        do {
+            _ = try RangeOrderInterface.handle((data: responseData, response: httpResponse))
+            #expect(Bool(false), "Should have thrown")
+        } catch let error {
+            if case .generic(_, _, let underlyingError) = error,
+               let testError = underlyingError as? TestError {
+                #expect(testError == .badRequest)
             } else {
                 #expect(Bool(false), "Expected .generic error case")
             }
@@ -328,8 +684,8 @@ struct InterfaceResponseTests {
 
             typealias Response = NestedResponse
 
-            static var responseCases: ResponseCases {
-                [200: .success(NestedResponse.self)]
+            static var responseCases: ResponseMap {
+                [.code(200, .decode)]
             }
         }
 
@@ -371,8 +727,8 @@ struct InterfaceResponseTests {
 
             typealias Response = [String]
 
-            static var responseCases: ResponseCases {
-                [200: .success([String].self)]
+            static var responseCases: ResponseMap {
+                [.code(200, .decode)]
             }
         }
 
@@ -413,8 +769,8 @@ struct InterfaceResponseTests {
 
             typealias Response = EmptyResponse
 
-            static var responseCases: ResponseCases {
-                [204: .success(EmptyResponse.self)]
+            static var responseCases: ResponseMap {
+                [.code(204, .decode)]
             }
         }
 

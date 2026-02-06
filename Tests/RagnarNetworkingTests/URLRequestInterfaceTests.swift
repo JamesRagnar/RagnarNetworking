@@ -5,9 +5,9 @@
 //  Created by James Harquail on 2025-01-16.
 //
 
-import Testing
 import Foundation
 @testable import RagnarNetworking
+import Testing
 
 @Suite("URLRequest+Interface Tests")
 struct URLRequestInterfaceTests {
@@ -566,7 +566,7 @@ struct URLRequestInterfaceTests {
         let params = ComplexParameters<CustomBody>(
             queryItems: nil,
             headers: nil,
-            body: CustomBody(data: "<xml/>") ,
+            body: CustomBody(data: "<xml/>"),
             authentication: .none
         )
 

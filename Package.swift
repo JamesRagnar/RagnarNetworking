@@ -14,7 +14,7 @@ let package = Package(
         .library(
             name: "RagnarNetworking",
             targets: ["RagnarNetworking"]
-        ),
+        )
     ],
     dependencies: [
         .package(
@@ -37,6 +37,6 @@ let package = Package(
         .testTarget(
             name: "RagnarNetworkingTests",
             dependencies: ["RagnarNetworking"]
-        ),
+        )
     ]
 )

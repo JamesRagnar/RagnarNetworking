@@ -5,9 +5,9 @@
 //  Created by James Harquail on 2025-01-16.
 //
 
-import Testing
 import Foundation
 @testable import RagnarNetworking
+import Testing
 
 @Suite("ResponseError Helper Methods Tests")
 struct ResponseErrorHelpersTests {
