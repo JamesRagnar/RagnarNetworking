@@ -76,6 +76,23 @@ struct InterfaceResponseTests {
         }
     }
 
+    struct NoContentInterface: Interface {
+        struct Parameters: RequestParameters {
+            let method: RequestMethod = .get
+            let path = "/no-content"
+            let queryItems: [String: String?]? = nil
+            let headers: [String: String]? = nil
+            let body: EmptyBody? = nil
+            let authentication: AuthenticationType = .none
+        }
+
+        typealias Response = Data
+
+        static var responseCases: ResponseMap {
+            [.code(204, .noContent)]
+        }
+    }
+
     struct RangeInterface: Interface {
         struct Parameters: RequestParameters {
             let method: RequestMethod = .get
@@ -224,6 +241,44 @@ struct InterfaceResponseTests {
         let result = try DataInterface.handle((data: responseData, response: httpResponse))
 
         #expect(result == responseData)
+    }
+
+    @Test("Handles no-content outcome")
+    func testNoContentOutcome() throws {
+        let responseData = Data()
+
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 204,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        let result = try NoContentInterface.handleOutcome((data: responseData, response: httpResponse))
+
+        switch result {
+        case .noContent:
+            break
+
+        default:
+            #expect(Bool(false), "Expected noContent outcome")
+        }
+    }
+
+    @Test("handle returns empty data for no-content when Response is Data")
+    func testNoContentHandleReturnsEmptyData() throws {
+        let responseData = Data()
+
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 204,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        let result = try NoContentInterface.handle((data: responseData, response: httpResponse))
+
+        #expect(result.isEmpty)
     }
 
     @Test("Handles multiple success status codes")

@@ -174,6 +174,26 @@ struct ResponseMapTests {
         }
     }
 
+    @Test("noContent outcome is preserved")
+    func testNoContentOutcome() {
+        let map: ResponseMap = [
+            .code(204, .noContent)
+        ]
+
+        guard let outcome = map.match(204) else {
+            #expect(Bool(false), "Expected a match")
+            return
+        }
+
+        switch outcome {
+        case .noContent:
+            break
+
+        default:
+            #expect(Bool(false), "Expected noContent outcome")
+        }
+    }
+
     @Test("match returns nil when no cases apply")
     func testNoMatch() {
         let map: ResponseMap = [

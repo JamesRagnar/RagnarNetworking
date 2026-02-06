@@ -14,6 +14,28 @@ static var responseCases: ResponseMap {
 }
 ```
 
+## Success Outcomes
+
+Response cases can either decode a body or indicate a successful response with no body.
+
+- `.decode` expects a response body that can be decoded as the Interface `Response`.
+- `.noContent` marks a success with no body (e.g., 204/205/304).
+
+Use `handleOutcome(_:)` when you need to differentiate:
+
+```swift
+switch try InterfaceType.handleOutcome(response) {
+case .decoded(let value):
+    // handle decoded response
+case .noContent:
+    // handle no-body success
+}
+```
+
+`handle(_:)` remains available for legacy call sites. If you map a status to `.noContent`,
+`handle(_:)` will attempt to decode an empty body, which will only succeed for `Data` or `String`
+responses.
+
 ### Matching Priority
 
 - Exact status codes match first.

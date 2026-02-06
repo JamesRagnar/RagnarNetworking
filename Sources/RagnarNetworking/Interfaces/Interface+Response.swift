@@ -47,6 +47,19 @@ public enum InterfaceDecodingError: Error {
 
 }
 
+// MARK: - Response Outcome Result
+
+/// The result of a handled response, allowing non-decoding success cases.
+public enum ResponseOutcomeResult<Response: Sendable>: Sendable {
+
+    /// The response was decoded as the Interface's Response type.
+    case decoded(Response)
+
+    /// The response was a success with no body (e.g., 204/205/304).
+    case noContent
+
+}
+
 // MARK: - Response Handling
 
 public extension Interface {
@@ -62,6 +75,30 @@ public extension Interface {
     static func handle(
         _ response: (data: Data, response: URLResponse)
     ) throws(ResponseError) -> Response {
+        switch try handleOutcome(response) {
+        case .decoded(let value):
+            return value
+
+        case .noContent:
+            do {
+                return try decode(response: Data())
+            } catch {
+                let httpResponse = response.response as! HTTPURLResponse
+                throw .decoding(
+                    response.data,
+                    httpResponse,
+                    error
+                )
+            }
+        }
+    }
+
+    /// Processes a raw HTTP response and returns an explicit outcome.
+    ///
+    /// Use this when your Interface expects a success with no body (204/205/304).
+    static func handleOutcome(
+        _ response: (data: Data, response: URLResponse)
+    ) throws(ResponseError) -> ResponseOutcomeResult<Response> {
         guard let httpResponse = response.response as? HTTPURLResponse else {
             throw .unknownResponse(
                 response.data,
@@ -79,7 +116,7 @@ public extension Interface {
         switch responseCase {
         case .decode:
             do {
-                return try decode(response: response.data)
+                return .decoded(try decode(response: response.data))
             } catch {
                 throw .decoding(
                     response.data,
@@ -87,6 +124,9 @@ public extension Interface {
                     error
                 )
             }
+
+        case .noContent:
+            return .noContent
 
         case .error(let error):
             throw .generic(

@@ -15,6 +15,10 @@ public enum ResponseOutcome {
     /// Decode the response body as the Interface's Response type.
     case decode
 
+    /// Mark the response as a success with no body.
+    /// Use for 204/205/304-style responses where no decoding is expected.
+    case noContent
+
     /// Throw the given error (body available as raw data in ResponseError).
     case error(Error)
 
