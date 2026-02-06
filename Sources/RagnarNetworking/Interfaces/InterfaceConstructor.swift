@@ -9,8 +9,22 @@ import Foundation
 
 // MARK: - Request Error
 
+private struct SendableErrorWrapper: Error, Sendable {
+
+    let message: String
+
+    init(_ error: Error) {
+        self.message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+    }
+
+}
+
+private func coerceSendableError(_ error: Error) -> any Error & Sendable {
+    return SendableErrorWrapper(error)
+}
+
 /// Errors that can occur during URLRequest construction.
-public enum RequestError: Error {
+public enum RequestError: Error, Sendable {
 
     /// The server configuration could not be parsed or is malformed
     case configuration
@@ -22,7 +36,7 @@ public enum RequestError: Error {
     case componentsURL
 
     /// The request body could not be encoded
-    case encoding(underlying: Error)
+    case encoding(underlying: any Error & Sendable)
 
     /// The request could not be constructed due to invalid parameters.
     case invalidRequest(description: String)
@@ -260,7 +274,7 @@ public extension InterfaceConstructor {
         do {
             encoded = try body.encodeBody(using: jsonEncoder)
         } catch {
-            throw RequestError.encoding(underlying: error)
+            throw RequestError.encoding(underlying: coerceSendableError(error))
         }
 
         guard !encoded.data.isEmpty || encoded.contentType != nil else {

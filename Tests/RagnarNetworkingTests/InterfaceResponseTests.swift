@@ -93,6 +93,55 @@ struct InterfaceResponseTests {
         }
     }
 
+    struct CustomHandlerInterface: Interface {
+        struct Parameters: RequestParameters {
+            let method: RequestMethod = .get
+            let path = "/custom-handler"
+            let queryItems: [String: String?]? = nil
+            let headers: [String: String]? = nil
+            let body: EmptyBody? = nil
+            let authentication: AuthenticationType = .none
+        }
+
+        typealias Response = String
+
+        enum CustomHandlerError: Error, Sendable {
+            case notFound
+        }
+
+        static var responseCases: ResponseMap {
+            [
+                .code(200, .decode),
+                .code(404, .error(CustomHandlerError.notFound))
+            ]
+        }
+
+        static var responseHandler: ResponseHandler.Type {
+            CustomHandler.self
+        }
+
+        struct CustomHandler: ResponseHandler {
+            static func handle<T: Interface>(
+                _ response: (data: Data, response: URLResponse),
+                for interface: T.Type
+            ) throws(ResponseError) -> T.Response {
+                let snapshot = HTTPResponseSnapshot(response: response.response)
+                guard let statusCode = snapshot.statusCode else {
+                    throw ResponseError.unknownResponse(
+                        response.data,
+                        snapshot
+                    )
+                }
+
+                if statusCode == 200 {
+                    return "overridden" as! T.Response
+                }
+
+                return try DefaultResponseHandler.handle(response, for: interface)
+            }
+        }
+    }
+
     struct RangeInterface: Interface {
         struct Parameters: RequestParameters {
             let method: RequestMethod = .get
@@ -184,7 +233,7 @@ struct InterfaceResponseTests {
         }
     }
 
-    enum TestError: Error {
+    enum TestError: Error, Sendable {
         case badRequest
         case unauthorized
         case serverError
@@ -241,6 +290,45 @@ struct InterfaceResponseTests {
         let result = try DataInterface.handle((data: responseData, response: httpResponse))
 
         #expect(result == responseData)
+    }
+
+    @Test("Custom response handler overrides decoding")
+    func testCustomHandlerOverride() throws {
+        let responseData = "ignored".data(using: .utf8)!
+
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        let result = try CustomHandlerInterface.handle((data: responseData, response: httpResponse))
+
+        #expect(result == "overridden")
+    }
+
+    @Test("Custom response handler falls back to default handler")
+    func testCustomHandlerFallback() {
+        let responseData = Data()
+
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 404,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        do {
+            _ = try CustomHandlerInterface.handle((data: responseData, response: httpResponse))
+            #expect(Bool(false), "Should have thrown")
+        } catch let error {
+            if case .generic(_, _, let underlyingError) = error {
+                #expect(underlyingError is CustomHandlerInterface.CustomHandlerError)
+            } else {
+                #expect(Bool(false), "Expected .generic error case")
+            }
+        }
     }
 
     @Test("Handles no-content outcome")

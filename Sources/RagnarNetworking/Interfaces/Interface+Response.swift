@@ -7,34 +7,81 @@
 
 import Foundation
 
+private struct SendableErrorWrapper: Error, Sendable {
+
+    let message: String
+
+    init(_ error: Error) {
+        self.message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+    }
+
+}
+
+private func coerceSendableError(_ error: Error) -> any Error & Sendable {
+    return SendableErrorWrapper(error)
+}
+
 // MARK: - Response Errors
 
 /// Errors that can occur when processing HTTP responses.
 ///
 /// Each error case includes the raw response data and HTTP response for debugging purposes,
 /// allowing you to inspect the actual server response when something goes wrong.
-public enum ResponseError: LocalizedError {
+public enum ResponseError: LocalizedError, Sendable {
 
     /// The response could not be cast to HTTPURLResponse
-    case unknownResponse(Data, URLResponse)
+    case unknownResponse(Data, HTTPResponseSnapshot)
 
     /// The HTTP status code is not defined in the Interface's response cases
-    case unknownResponseCase(Data, HTTPURLResponse)
+    case unknownResponseCase(Data, HTTPResponseSnapshot)
 
     /// The response data could not be decoded to the expected type
-    case decoding(Data, HTTPURLResponse, InterfaceDecodingError)
+    case decoding(Data, HTTPResponseSnapshot, InterfaceDecodingError)
 
     /// A predefined error was returned for this status code
-    case generic(Data, HTTPURLResponse, Error)
+    case generic(Data, HTTPResponseSnapshot, any Error & Sendable)
 
     /// A decoded error body was returned for this status code
     /// - Note: The decoded error is stored for type-safe access without re-decoding.
-    case decoded(Data, HTTPURLResponse, any Error & Sendable)
+    case decoded(Data, HTTPResponseSnapshot, any Error & Sendable)
+
+}
+
+/// A Sendable snapshot of an HTTP response.
+public struct HTTPResponseSnapshot: Sendable {
+
+    public let statusCode: Int?
+
+    public let headers: [String: String]
+
+    public let url: URL?
+
+    public let mimeType: String?
+
+    public let expectedContentLength: Int64
+
+    public let textEncodingName: String?
+
+    public init(response: URLResponse) {
+        let httpResponse = response as? HTTPURLResponse
+        self.statusCode = httpResponse?.statusCode
+        let rawHeaders = httpResponse?.allHeaderFields ?? [:]
+        var coercedHeaders: [String: String] = [:]
+        coercedHeaders.reserveCapacity(rawHeaders.count)
+        for (key, value) in rawHeaders {
+            coercedHeaders[String(describing: key)] = String(describing: value)
+        }
+        self.headers = coercedHeaders
+        self.url = response.url
+        self.mimeType = response.mimeType
+        self.expectedContentLength = response.expectedContentLength
+        self.textEncodingName = response.textEncodingName
+    }
 
 }
 
 /// Specific errors encountered during response decoding.
-public enum InterfaceDecodingError: Error {
+public enum InterfaceDecodingError: Error, Sendable {
 
     /// Expected String response but UTF-8 decoding failed
     case missingString
@@ -43,7 +90,7 @@ public enum InterfaceDecodingError: Error {
     case missingData
 
     /// JSON decoding failed with the underlying error
-    case jsonDecoder(Error)
+    case jsonDecoder(any Error & Sendable)
 
 }
 
@@ -64,6 +111,11 @@ public enum ResponseOutcomeResult<Response: Sendable>: Sendable {
 
 public extension Interface {
 
+    /// Default response handler for Interfaces.
+    static var responseHandler: ResponseHandler.Type {
+        DefaultResponseHandler.self
+    }
+
     /// Processes a raw HTTP response according to the Interface's response cases.
     ///
     /// This method validates the response type, checks the status code against the Interface's
@@ -75,22 +127,7 @@ public extension Interface {
     static func handle(
         _ response: (data: Data, response: URLResponse)
     ) throws(ResponseError) -> Response {
-        switch try handleOutcome(response) {
-        case .decoded(let value):
-            return value
-
-        case .noContent:
-            do {
-                return try decode(response: Data())
-            } catch {
-                let httpResponse = response.response as! HTTPURLResponse
-                throw .decoding(
-                    response.data,
-                    httpResponse,
-                    error
-                )
-            }
-        }
+        return try responseHandler.handle(response, for: Self.self)
     }
 
     /// Processes a raw HTTP response and returns an explicit outcome.
@@ -99,17 +136,19 @@ public extension Interface {
     static func handleOutcome(
         _ response: (data: Data, response: URLResponse)
     ) throws(ResponseError) -> ResponseOutcomeResult<Response> {
-        guard let httpResponse = response.response as? HTTPURLResponse else {
+        let responseSnapshot = HTTPResponseSnapshot(response: response.response)
+        guard responseSnapshot.statusCode != nil else {
             throw .unknownResponse(
                 response.data,
-                response.response
+                responseSnapshot
             )
         }
 
-        guard let responseCase = responseCases.match(httpResponse.statusCode) else {
+        guard let statusCode = responseSnapshot.statusCode,
+              let responseCase = responseCases.match(statusCode) else {
             throw .unknownResponseCase(
                 response.data,
-                httpResponse
+                responseSnapshot
             )
         }
 
@@ -120,7 +159,7 @@ public extension Interface {
             } catch {
                 throw .decoding(
                     response.data,
-                    httpResponse,
+                    responseSnapshot,
                     error
                 )
             }
@@ -131,7 +170,7 @@ public extension Interface {
         case .error(let error):
             throw .generic(
                 response.data,
-                httpResponse,
+                responseSnapshot,
                 error
             )
 
@@ -143,13 +182,13 @@ public extension Interface {
             } catch {
                 throw .decoding(
                     response.data,
-                    httpResponse,
-                    .jsonDecoder(error)
+                    responseSnapshot,
+                    .jsonDecoder(coerceSendableError(error))
                 )
             }
             throw .decoded(
                 response.data,
-                httpResponse,
+                responseSnapshot,
                 decodedError
             )
         }
@@ -191,7 +230,7 @@ public extension Interface {
                 from: data
             )
         } catch {
-            throw .jsonDecoder(error)
+            throw .jsonDecoder(coerceSendableError(error))
         }
     }
 
@@ -207,18 +246,15 @@ public extension ResponseError {
 
     /// The HTTP status code from the response.
     ///
-    /// Returns `nil` for `unknownResponse` (non-HTTP responses), otherwise returns
-    /// the status code from the HTTPURLResponse.
+    /// Returns the status code when available, otherwise `nil`.
     var statusCode: Int? {
         switch self {
-        case .unknownResponse:
-            return nil
-
-        case .unknownResponseCase(_, let httpResponse),
-             .decoding(_, let httpResponse, _),
-             .generic(_, let httpResponse, _),
-             .decoded(_, let httpResponse, _):
-            return httpResponse.statusCode
+        case .unknownResponse(_, let snapshot),
+             .unknownResponseCase(_, let snapshot),
+             .decoding(_, let snapshot, _),
+             .generic(_, let snapshot, _),
+             .decoded(_, let snapshot, _):
+            return snapshot.statusCode
         }
     }
 
@@ -271,22 +307,16 @@ public extension ResponseError {
 
     /// All HTTP headers from the response.
     ///
-    /// Returns `nil` for `unknownResponse` (non-HTTP responses), otherwise returns
-    /// the header dictionary from the HTTPURLResponse.
+    /// Returns all HTTP headers for the response when available.
     var headers: [String: String]? {
-        let httpResponse: HTTPURLResponse?
         switch self {
-        case .unknownResponse:
-            httpResponse = nil
-
-        case .unknownResponseCase(_, let response),
+        case .unknownResponse(_, let response),
+             .unknownResponseCase(_, let response),
              .decoding(_, let response, _),
              .generic(_, let response, _),
              .decoded(_, let response, _):
-            httpResponse = response
+            return response.headers
         }
-
-        return httpResponse?.allHeaderFields as? [String: String]
     }
 
     /// Returns the value of a specific header field.

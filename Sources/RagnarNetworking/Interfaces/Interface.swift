@@ -24,6 +24,9 @@ public protocol Interface: Sendable {
     /// Defines how each HTTP status code should be handled for this interface
     static var responseCases: ResponseMap { get }
 
+    /// Defines how responses are decoded and mapped to the Interface Response.
+    static var responseHandler: ResponseHandler.Type { get }
+
 }
 
 // MARK: - Request Parameters

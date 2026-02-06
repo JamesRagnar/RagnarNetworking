@@ -36,6 +36,37 @@ case .noContent:
 `handle(_:)` will attempt to decode an empty body, which will only succeed for `Data` or `String`
 responses.
 
+## Response Handlers
+
+Interfaces can override response handling logic by providing a custom `responseHandler`.
+This allows per-interface decoding rules while keeping a shared default path.
+
+```swift
+public struct GetLibraryItemCover: Interface {
+    public static var responseHandler: ResponseHandler.Type {
+        CoverResponseHandler.self
+    }
+}
+
+public enum CoverResponseHandler: ResponseHandler {
+    public static func handle<T: Interface>(
+        _ response: (data: Data, response: URLResponse),
+        for interface: T.Type
+    ) throws -> T.Response {
+        let snapshot = HTTPResponseSnapshot(response: response.response)
+        guard let statusCode = snapshot.statusCode else {
+            throw ResponseError.unknownResponse(response.data, snapshot)
+        }
+
+        if statusCode == 204 {
+            return Data() as! T.Response
+        }
+
+        return try DefaultResponseHandler.handle(response, for: interface)
+    }
+}
+```
+
 ### Matching Priority
 
 - Exact status codes match first.
@@ -71,7 +102,7 @@ The raw response data is always preserved, so you can still inspect `responseBod
 
 ## Response Errors
 
-`ResponseError` captures failures with the raw response data:
+`ResponseError` captures failures with the raw response data and response metadata:
 - `.unknownResponse`
 - `.unknownResponseCase`
 - `.decoding`

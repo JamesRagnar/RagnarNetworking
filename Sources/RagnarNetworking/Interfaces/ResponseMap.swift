@@ -7,10 +7,63 @@
 
 import Foundation
 
+/// A status-code-to-outcome mapping with range support.
+///
+/// Matching priority:
+/// 1. Exact matches (O(1))
+/// 2. Range matches in the order they were defined
+public struct ResponseMap: ExpressibleByArrayLiteral, Sendable {
+
+    private let exactCases: [Int: ResponseOutcome]
+    private let rangeCases: [(range: Range<Int>, outcome: ResponseOutcome)]
+
+    public init(arrayLiteral elements: ResponseCase...) {
+        self.init(elements)
+    }
+
+    public init(_ cases: [ResponseCase]) {
+        var exact: [Int: ResponseOutcome] = [:]
+        var ranges: [(range: Range<Int>, outcome: ResponseOutcome)] = []
+
+        for responseCase in cases {
+            switch responseCase.matcher {
+            case .exact(let code):
+                exact[code] = responseCase.outcome
+
+            case .range(let range):
+                ranges.append((range: range, outcome: responseCase.outcome))
+            }
+        }
+
+        self.exactCases = exact
+        self.rangeCases = ranges
+    }
+
+    /// Returns the first matching outcome for the given status code.
+    func match(_ statusCode: Int) -> ResponseOutcome? {
+        if let exact = exactCases[statusCode] {
+            return exact
+        }
+
+        for rangeCase in rangeCases {
+            if rangeCase.range.contains(statusCode) {
+                return rangeCase.outcome
+            }
+
+            if statusCode == Int.max, rangeCase.range.upperBound == Int.max {
+                return rangeCase.outcome
+            }
+        }
+
+        return nil
+    }
+
+}
+
 // MARK: - Response Outcome
 
 /// The action to take when a response status code is matched.
-public enum ResponseOutcome {
+public enum ResponseOutcome: Sendable {
 
     /// Decode the response body as the Interface's Response type.
     case decode
@@ -20,7 +73,7 @@ public enum ResponseOutcome {
     case noContent
 
     /// Throw the given error (body available as raw data in ResponseError).
-    case error(Error)
+    case error(any Error & Sendable)
 
     /// Decode the response body as a typed error and throw it.
     /// The decoded error is accessible via ResponseError.decoded.
@@ -40,7 +93,7 @@ public enum ResponseOutcome {
 // MARK: - Status Code Matching
 
 /// Defines how a status code is matched for a response case.
-public enum StatusCodeMatcher {
+public enum StatusCodeMatcher: Sendable {
 
     case exact(Int)
 
@@ -49,7 +102,7 @@ public enum StatusCodeMatcher {
 }
 
 /// Associates a status code matcher with a response outcome.
-public struct ResponseCase {
+public struct ResponseCase: Sendable {
 
     let matcher: StatusCodeMatcher
     let outcome: ResponseOutcome
@@ -115,61 +168,6 @@ public struct ResponseCase {
     /// 500..<600
     public static func serverError(_ outcome: ResponseOutcome) -> ResponseCase {
         .range(500..<600, outcome)
-    }
-
-}
-
-// MARK: - Response Map
-
-/// A status-code-to-outcome mapping with range support.
-///
-/// Matching priority:
-/// 1. Exact matches (O(1))
-/// 2. Range matches in the order they were defined
-public struct ResponseMap: ExpressibleByArrayLiteral {
-
-    private let exactCases: [Int: ResponseOutcome]
-    private let rangeCases: [(range: Range<Int>, outcome: ResponseOutcome)]
-
-    public init(arrayLiteral elements: ResponseCase...) {
-        self.init(elements)
-    }
-
-    public init(_ cases: [ResponseCase]) {
-        var exact: [Int: ResponseOutcome] = [:]
-        var ranges: [(range: Range<Int>, outcome: ResponseOutcome)] = []
-
-        for responseCase in cases {
-            switch responseCase.matcher {
-            case .exact(let code):
-                exact[code] = responseCase.outcome
-
-            case .range(let range):
-                ranges.append((range: range, outcome: responseCase.outcome))
-            }
-        }
-
-        self.exactCases = exact
-        self.rangeCases = ranges
-    }
-
-    /// Returns the first matching outcome for the given status code.
-    func match(_ statusCode: Int) -> ResponseOutcome? {
-        if let exact = exactCases[statusCode] {
-            return exact
-        }
-
-        for rangeCase in rangeCases {
-            if rangeCase.range.contains(statusCode) {
-                return rangeCase.outcome
-            }
-
-            if statusCode == Int.max, rangeCase.range.upperBound == Int.max {
-                return rangeCase.outcome
-            }
-        }
-
-        return nil
     }
 
 }
