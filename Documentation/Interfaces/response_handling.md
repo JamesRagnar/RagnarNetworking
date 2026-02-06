@@ -67,7 +67,14 @@ public enum CoverResponseHandler: ResponseHandler {
         }
 
         if statusCode == 204 {
-            return Data() as! T.Response
+            guard let empty = Data() as? T.Response else {
+                throw ResponseError.decoding(
+                    response.data,
+                    snapshot,
+                    .custom(message: "Expected Data response type for 204")
+                )
+            }
+            return empty
         }
 
         return try DefaultResponseHandler.handle(response, for: interface)

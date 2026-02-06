@@ -75,11 +75,18 @@ public enum DefaultResponseHandler: ResponseHandler {
 
         case .decodeError(body: let decodeBody):
             // Decoding failures from custom closures are surfaced as
-            // ResponseError.decoding(.custom).
+            // ResponseError.decoding with structured diagnostics when possible.
             let decodedError: any Error & Sendable
             do {
                 decodedError = try decodeBody(response.data)
             } catch {
+                if let decodingError = error as? DecodingError {
+                    throw .decoding(
+                        response.data,
+                        responseSnapshot,
+                        .jsonDecoder(.init(decodingError))
+                    )
+                }
                 throw .decoding(
                     response.data,
                     responseSnapshot,

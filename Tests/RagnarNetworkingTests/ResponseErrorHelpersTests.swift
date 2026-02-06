@@ -313,7 +313,7 @@ struct ResponseErrorHelpersTests {
         #expect(error.header("X-Nonexistent") == nil)
     }
 
-    @Test("Header lookup is case-sensitive")
+    @Test("Header lookup is case-insensitive")
     func testHeaderCaseSensitivity() {
         let headers = ["Content-Type": "application/json"]
         let data = Data()
@@ -321,7 +321,8 @@ struct ResponseErrorHelpersTests {
         let error = ResponseError.unknownResponseCase(data, makeSnapshot(from: response))
 
         #expect(error.header("Content-Type") == "application/json")
-        // Note: HTTP headers are typically case-insensitive, but our helper does exact lookup
+        #expect(error.header("content-type") == "application/json")
+        #expect(error.header("CONTENT-TYPE") == "application/json")
     }
 
     // MARK: - Is Retryable Tests
@@ -533,6 +534,31 @@ struct ResponseErrorHelpersTests {
         #expect(description.contains("Headers:"))
         #expect(description.contains("Body:"))
         #expect(description.contains("|"))
+    }
+
+    // MARK: - Localized Description Tests
+
+    @Test("errorDescription is concise for unknownResponseCase")
+    func testErrorDescriptionUnknownResponseCase() {
+        let error = ResponseError.unknownResponseCase(
+            Data(),
+            makeSnapshot(from: makeHTTPResponse(statusCode: 404))
+        )
+
+        #expect(error.errorDescription?.contains("404") == true)
+        #expect(error.errorDescription?.contains("Headers:") == false)
+        #expect(error.errorDescription?.contains("Body:") == false)
+    }
+
+    @Test("errorDescription remains concise for decoding errors")
+    func testErrorDescriptionDecoding() {
+        let error = ResponseError.decoding(
+            Data("oops".utf8),
+            makeSnapshot(from: makeHTTPResponse(statusCode: 200)),
+            .missingString
+        )
+
+        #expect(error.errorDescription == "Failed to decode the server response.")
     }
 
 }

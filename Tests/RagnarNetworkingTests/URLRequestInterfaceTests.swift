@@ -636,7 +636,11 @@ struct URLRequestInterfaceTests {
     @Test("Throws encoding error for body encoding failure")
     func testBodyEncodingError() throws {
         struct FailingBody: RequestBody, Sendable {
-            struct TestError: Error {}
+            struct TestError: LocalizedError, Sendable {
+                var errorDescription: String? {
+                    "Intentional encoding failure"
+                }
+            }
 
             func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody {
                 throw TestError()
@@ -661,6 +665,8 @@ struct URLRequestInterfaceTests {
         } catch let error {
             if case .encoding(let underlying) = error {
                 #expect(underlying.description.isEmpty == false)
+                #expect(underlying.typeName.contains("TestError"))
+                #expect(underlying.localizedDescription == "Intentional encoding failure")
             } else {
                 #expect(Bool(false), "Expected .encoding error case")
             }
@@ -927,16 +933,12 @@ struct URLRequestInterfaceTests {
 
     // MARK: - Error Cases
 
-    @Test("Throws configuration error for invalid URL")
-    func testInvalidURLConfiguration() throws {
-        // This is hard to trigger since ServerConfiguration takes a URL
-        // But we can test with a configuration that can't build URLComponents
-        // In practice, this is rare but the error exists for edge cases
+    @Test("Valid configuration builds request successfully")
+    func testValidURLConfiguration() throws {
         let url = URL(string: "https://api.example.com")!
         let config = ServerConfiguration(url: url)
         let params = BasicParameters(path: "/test")
 
-        // This should succeed
         let request = try URLRequest(
             requestParameters: params,
             serverConfiguration: config

@@ -52,13 +52,9 @@ file_length:
   warning: 500
   error: 700
 
-# Avoid force-unwrap/try in production code; allow in tests.
+# Avoid force-unwrap/try in production code.
 force_unwrapping:
   severity: error
-  excluded:
-    - Tests
 
 force_try:
   severity: error
-  excluded:
-    - Tests

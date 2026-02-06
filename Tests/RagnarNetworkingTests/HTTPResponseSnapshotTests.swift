@@ -24,6 +24,7 @@ struct HTTPResponseSnapshotTests {
 
         let snapshot = HTTPResponseSnapshot(response: response)
 
+        #expect(snapshot.isHTTPResponse == false)
         #expect(snapshot.statusCode == nil)
         #expect(snapshot.headers.isEmpty == true)
         #expect(snapshot.url == url)
@@ -45,9 +46,21 @@ struct HTTPResponseSnapshotTests {
 
         let snapshot = HTTPResponseSnapshot(response: response)
 
+        #expect(snapshot.isHTTPResponse == true)
         #expect(snapshot.statusCode == 204)
         #expect(snapshot.headers["X-Request-ID"] == "req-123")
         #expect(snapshot.url == url)
+    }
+
+    @Test("Coerces unusual raw header key/value types to strings")
+    func testCoerceHeadersFromAnyHashableTypes() {
+        let coerced = HTTPResponseSnapshot.coerceHeaders([
+            AnyHashable(NSNumber(value: 1)): NSNumber(value: 2),
+            AnyHashable("X-Token"): UUID(uuidString: "123E4567-E89B-12D3-A456-426614174000")!
+        ])
+
+        #expect(coerced["1"] == "2")
+        #expect(coerced["X-Token"]?.contains("123E4567-E89B-12D3-A456-426614174000") == true)
     }
 
 }
