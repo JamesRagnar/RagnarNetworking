@@ -1,0 +1,14 @@
+name: Swift Package Test (swiftlang)
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  swift_package_test:
+    uses: swiftlang/github-workflows/.github/workflows/swift_package_test.yml@0.0.6
+    with:
+      linux_exclude_swift_versions: "5.9"
+      windows_exclude_swift_versions: "5.9"
