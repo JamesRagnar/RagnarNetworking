@@ -6,12 +6,23 @@
 //
 
 import Foundation
+import os.log
+
+private let responseMapLogger = OSLog(
+    subsystem: "RagnarNetworking",
+    category: "ResponseMap"
+)
 
 /// A status-code-to-outcome mapping with range support.
 ///
 /// Matching priority:
 /// 1. Exact matches (O(1))
 /// 2. Range matches in the order they were defined
+///
+/// Duplicate exact-code behavior:
+/// - The first exact case wins.
+/// - Later duplicates are ignored.
+/// - In DEBUG builds, duplicates emit a warning.
 public struct ResponseMap: ExpressibleByArrayLiteral, Sendable {
 
     private let exactCases: [Int: ResponseOutcome]
@@ -28,7 +39,18 @@ public struct ResponseMap: ExpressibleByArrayLiteral, Sendable {
         for responseCase in cases {
             switch responseCase.matcher {
             case .exact(let code):
-                exact[code] = responseCase.outcome
+                if exact[code] == nil {
+                    exact[code] = responseCase.outcome
+                } else {
+                    #if DEBUG
+                    os_log(
+                        "Duplicate exact response case for status code %{public}d. Keeping first and ignoring duplicates.",
+                        log: responseMapLogger,
+                        type: .error,
+                        code
+                    )
+                    #endif
+                }
 
             case .range(let range):
                 ranges.append((range: range, outcome: responseCase.outcome))

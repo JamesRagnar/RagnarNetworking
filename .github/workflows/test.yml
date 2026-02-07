@@ -11,6 +11,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  swiftlint:
+    name: SwiftLint
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run SwiftLint
+        uses: cirruslabs/swiftlint-action@v1
+        with:
+          version: latest
+
   test:
     name: Test - macOS (Swift ${{ matrix.swift }})
     runs-on: macos-latest

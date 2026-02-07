@@ -153,8 +153,8 @@ struct ResponseMapTests {
         #expect(map.match(Int.max) == nil)
     }
 
-    @Test("Exact duplicates resolve to the last definition")
-    func testExactDuplicateOverrides() {
+    @Test("Exact duplicates resolve to the first definition")
+    func testExactDuplicateKeepsFirst() {
         let map: ResponseMap = [
             .code(200, .error(TestError.first)),
             .code(200, .error(TestError.second))
@@ -167,10 +167,10 @@ struct ResponseMapTests {
 
         switch outcome {
         case .error(let error as TestError):
-            #expect(error == .second)
+            #expect(error == .first)
 
         default:
-            #expect(Bool(false), "Expected last exact case to win")
+            #expect(Bool(false), "Expected first exact case to win")
         }
     }
 

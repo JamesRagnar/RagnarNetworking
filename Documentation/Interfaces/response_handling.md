@@ -86,6 +86,8 @@ public enum CoverResponseHandler: ResponseHandler {
 
 - Exact status codes match first.
 - Range matches are evaluated in the order they are defined.
+- Duplicate exact codes keep the first declaration. Later duplicates are ignored.
+- In DEBUG builds, duplicate exact codes emit a warning.
 
 This means you can declare a fallback range and still override specific status codes later:
 
@@ -94,6 +96,46 @@ static var responseCases: ResponseMap {
     [
         .clientError(.error(APIError.genericClientError)),
         .code(401, .error(APIError.unauthorized))
+    ]
+}
+```
+
+### Resolution Rules (Quick Reference)
+
+Given a status code, `ResponseMap` resolves outcomes in this order:
+1. Exact code lookup (O(1))
+2. First matching range (in declaration order)
+3. No match -> `ResponseError.unknownResponseCase`
+
+Examples:
+
+```swift
+// Exact beats range
+static var responseCases: ResponseMap {
+    [
+        .success(.error(APIError.genericSuccess)),
+        .code(200, .decode) // wins for 200
+    ]
+}
+```
+
+```swift
+// Range order matters
+static var responseCases: ResponseMap {
+    [
+        .range(400..<500, .error(APIError.client)),
+        .range(400..<600, .error(APIError.clientOrServer))
+        // 404 resolves to APIError.client (first matching range)
+    ]
+}
+```
+
+```swift
+// Duplicate exact codes: first wins
+static var responseCases: ResponseMap {
+    [
+        .code(401, .error(APIError.unauthorized)),
+        .code(401, .error(APIError.sessionExpired)) // ignored, DEBUG warning
     ]
 }
 ```

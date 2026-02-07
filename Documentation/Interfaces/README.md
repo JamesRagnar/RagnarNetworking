@@ -56,9 +56,26 @@ let config = ServerConfiguration(
 
 - Use `.code` for exact status codes.
 - Use `.range` or `.success`/`.clientError`/`.serverError` for ranges.
+- Matching resolution is deterministic:
+  - Exact code matches are checked first.
+  - Then ranges are checked in declaration order.
+  - Duplicate exact codes keep the first declaration.
+  - In DEBUG builds, duplicate exact codes emit a warning.
 - `.decodeError(MyError.self)` decodes structured error bodies and throws `ResponseError.decoded`.
 - Use `.noContent` for no-body success (204/205/304). Prefer `EmptyResponse` as the response type.
 - Override `responseHandler` when an Interface needs custom response handling logic.
+
+Example:
+
+```swift
+static var responseCases: ResponseMap {
+    [
+        .success(.error(APIError.fallbackSuccess)),
+        .code(200, .decode), // exact overrides success range
+        .code(200, .error(APIError.duplicate)) // ignored, DEBUG warning
+    ]
+}
+```
 
 ## Response Type Expectations
 
