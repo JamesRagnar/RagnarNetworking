@@ -1,135 +1,71 @@
 //
-//  Interface+Response.swift
+//  ResponseError.swift
 //  RagnarNetworking
 //
-//  Created by James Harquail on 2024-11-18.
+//  Created by James Harquail on 2026-02-06.
 //
 
 import Foundation
-
-// MARK: - Response Errors
 
 /// Errors that can occur when processing HTTP responses.
 ///
 /// Each error case includes the raw response data and HTTP response for debugging purposes,
 /// allowing you to inspect the actual server response when something goes wrong.
-public enum ResponseError: LocalizedError {
+public enum ResponseError: LocalizedError, Sendable {
 
     /// The response could not be cast to HTTPURLResponse
-    case unknownResponse(Data, URLResponse)
+    case unknownResponse(Data, HTTPResponseSnapshot)
 
     /// The HTTP status code is not defined in the Interface's response cases
-    case unknownResponseCase(Data, HTTPURLResponse)
+    case unknownResponseCase(Data, HTTPResponseSnapshot)
 
     /// The response data could not be decoded to the expected type
-    case decoding(Data, HTTPURLResponse, InterfaceDecodingError)
+    case decoding(Data, HTTPResponseSnapshot, InterfaceDecodingError)
 
     /// A predefined error was returned for this status code
-    case generic(Data, HTTPURLResponse, Error)
+    case generic(Data, HTTPResponseSnapshot, any Error & Sendable)
+
+    /// A decoded error body was returned for this status code
+    /// - Note: The decoded error is stored for type-safe access without re-decoding.
+    case decoded(Data, HTTPResponseSnapshot, any Error & Sendable)
 
 }
 
-/// Specific errors encountered during response decoding.
-public enum InterfaceDecodingError: Error {
+/// A Sendable snapshot of an HTTP response.
+public struct HTTPResponseSnapshot: Sendable {
 
-    /// Expected String response but UTF-8 decoding failed
-    case missingString
+    public let isHTTPResponse: Bool
 
-    /// Expected Data response but type casting failed
-    case missingData
+    public let statusCode: Int?
 
-    /// JSON decoding failed with the underlying error
-    case jsonDecoder(Error)
+    public let headers: [String: String]
 
-}
+    public let url: URL?
 
-// MARK: - Response Handling
+    public let mimeType: String?
 
-public extension Interface {
+    public let expectedContentLength: Int64
 
-    /// Processes a raw HTTP response according to the Interface's response cases.
-    ///
-    /// This method validates the response type, checks the status code against the Interface's
-    /// defined response cases, and either decodes a success response or throws the appropriate error.
-    ///
-    /// - Parameter response: Tuple containing the response data and URLResponse
-    /// - Returns: The decoded Response type
-    /// - Throws: `ResponseError` if the response cannot be processed
-    static func handle(
-        _ response: (data: Data, response: URLResponse)
-    ) throws(ResponseError) -> Response {
-        guard let httpResponse = response.response as? HTTPURLResponse else {
-            throw .unknownResponse(
-                response.data,
-                response.response
-            )
-        }
+    public let textEncodingName: String?
 
-        guard let responseCase = responseCases[httpResponse.statusCode] else {
-            throw .unknownResponseCase(
-                response.data,
-                httpResponse
-            )
-        }
-
-        switch responseCase {
-        case .success:
-            do {
-                return try decode(response: response.data)
-            } catch {
-                throw .decoding(
-                    response.data,
-                    httpResponse,
-                    error
-                )
-            }
-        case .failure(let error):
-            throw .generic(
-                response.data,
-                httpResponse,
-                error
-            )
-        }
+    public init(response: URLResponse) {
+        let httpResponse = response as? HTTPURLResponse
+        self.isHTTPResponse = httpResponse != nil
+        self.statusCode = httpResponse?.statusCode
+        self.headers = Self.coerceHeaders(httpResponse?.allHeaderFields ?? [:])
+        self.url = response.url
+        self.mimeType = response.mimeType
+        self.expectedContentLength = response.expectedContentLength
+        self.textEncodingName = response.textEncodingName
     }
 
-    /// Decodes response data to the Interface's Response type.
-    ///
-    /// Supports three response types:
-    /// - String: Decodes data as UTF-8 string
-    /// - Data: Returns raw data
-    /// - Decodable: Uses JSONDecoder to decode the type
-    ///
-    /// - Parameter data: The raw response data
-    /// - Returns: The decoded Response instance
-    /// - Throws: `InterfaceDecodingError` if decoding fails
-    static func decode(response data: Data) throws(InterfaceDecodingError) -> Response {
-        if Response.self == String.self {
-            guard let response = String(
-                data: data,
-                encoding: .utf8
-            ) as? Response else {
-                throw .missingString
-            }
-
-            return response
+    static func coerceHeaders(_ rawHeaders: [AnyHashable: Any]) -> [String: String] {
+        var coercedHeaders: [String: String] = [:]
+        coercedHeaders.reserveCapacity(rawHeaders.count)
+        for (key, value) in rawHeaders {
+            coercedHeaders[String(describing: key)] = String(describing: value)
         }
-
-        if Response.self == Data.self {
-            guard let responseData = data as? Response else {
-                throw .missingData
-            }
-
-            return responseData
-        }
-
-        do {
-            return try JSONDecoder().decode(
-                Response.self,
-                from: data
-            )
-        } catch {
-            throw .jsonDecoder(error)
-        }
+        return coercedHeaders
     }
 
 }
@@ -144,16 +80,15 @@ public extension ResponseError {
 
     /// The HTTP status code from the response.
     ///
-    /// Returns `nil` for `unknownResponse` (non-HTTP responses), otherwise returns
-    /// the status code from the HTTPURLResponse.
+    /// Returns the status code when available, otherwise `nil`.
     var statusCode: Int? {
         switch self {
-        case .unknownResponse:
-            return nil
-        case .unknownResponseCase(_, let httpResponse),
-             .decoding(_, let httpResponse, _),
-             .generic(_, let httpResponse, _):
-            return httpResponse.statusCode
+        case .unknownResponse(_, let snapshot),
+             .unknownResponseCase(_, let snapshot),
+             .decoding(_, let snapshot, _),
+             .generic(_, let snapshot, _),
+             .decoded(_, let snapshot, _):
+            return snapshot.statusCode
         }
     }
 
@@ -167,14 +102,21 @@ public extension ResponseError {
         case .unknownResponse(let responseData, _),
              .unknownResponseCase(let responseData, _),
              .decoding(let responseData, _, _),
-             .generic(let responseData, _, _):
+             .generic(let responseData, _, _),
+             .decoded(let responseData, _, _):
             data = responseData
         }
 
-        return String(data: data, encoding: .utf8)
+        return .init(
+            data: data,
+            encoding: .utf8
+        )
     }
 
     /// Attempts to decode the error response body as a structured error type.
+    ///
+    /// If the error was created with `ResponseOutcome.decodeError`, this method will
+    /// return the already-decoded error when it matches the requested type.
     ///
     /// Many APIs return structured error responses (e.g., `{"error": "message", "code": 123}`).
     /// This method attempts to decode the raw response data as your custom error type.
@@ -182,12 +124,18 @@ public extension ResponseError {
     /// - Parameter type: The Decodable type representing your API's error structure
     /// - Returns: The decoded error instance, or `nil` if decoding fails
     func decodeError<T: Decodable>(as type: T.Type) -> T? {
+        if case .decoded(_, _, let decodedError) = self,
+           let typed = decodedError as? T {
+            return typed
+        }
+
         let data: Data
         switch self {
         case .unknownResponse(let responseData, _),
              .unknownResponseCase(let responseData, _),
              .decoding(let responseData, _, _),
-             .generic(let responseData, _, _):
+             .generic(let responseData, _, _),
+             .decoded(let responseData, _, _):
             data = responseData
         }
 
@@ -196,30 +144,29 @@ public extension ResponseError {
 
     /// All HTTP headers from the response.
     ///
-    /// Returns `nil` for `unknownResponse` (non-HTTP responses), otherwise returns
-    /// the header dictionary from the HTTPURLResponse.
+    /// Returns `nil` when the response was not an HTTP response.
     var headers: [String: String]? {
-        let httpResponse: HTTPURLResponse?
         switch self {
-        case .unknownResponse:
-            httpResponse = nil
-        case .unknownResponseCase(_, let response),
+        case .unknownResponse(_, let response),
+             .unknownResponseCase(_, let response),
              .decoding(_, let response, _),
-             .generic(_, let response, _):
-            httpResponse = response
+             .generic(_, let response, _),
+             .decoded(_, let response, _):
+            return response.isHTTPResponse ? response.headers : nil
         }
-
-        return httpResponse?.allHeaderFields as? [String: String]
     }
 
     /// Returns the value of a specific header field.
     ///
-    /// Useful for extracting specific headers like "X-Request-ID" or "Retry-After".
+    /// Lookup is case-insensitive per HTTP semantics.
     ///
-    /// - Parameter key: The header field name (case-sensitive)
+    /// - Parameter key: The header field name
     /// - Returns: The header value, or `nil` if the header is not present
     func header(_ key: String) -> String? {
-        return headers?[key]
+        guard let headers else { return nil }
+        return headers.first(where: {
+            $0.key.caseInsensitiveCompare(key) == .orderedSame
+        })?.value
     }
 
     /// Indicates whether this error represents a retryable failure.
@@ -245,12 +192,18 @@ public extension ResponseError {
         switch self {
         case .unknownResponse:
             components.append("ResponseError.unknownResponse")
+
         case .unknownResponseCase:
             components.append("ResponseError.unknownResponseCase")
+
         case .decoding(_, _, let decodingError):
             components.append("ResponseError.decoding(\(decodingError))")
+
         case .generic(_, _, let error):
             components.append("ResponseError.generic(\(error))")
+
+        case .decoded(_, _, let error):
+            components.append("ResponseError.decoded(\(error))")
         }
 
         // Status code
@@ -274,5 +227,25 @@ public extension ResponseError {
         return components.joined(separator: " | ")
     }
 
-}
+    /// A concise localized description intended for user-facing display.
+    var errorDescription: String? {
+        switch self {
+        case .unknownResponse:
+            return "Received a non-HTTP response."
 
+        case .unknownResponseCase(_, let snapshot):
+            if let statusCode = snapshot.statusCode {
+                return "Received an unhandled HTTP status code (\(statusCode))."
+            }
+            return "Received an unhandled response."
+
+        case .decoding:
+            return "Failed to decode the server response."
+
+        case .generic(_, _, let error),
+             .decoded(_, _, let error):
+            return String(describing: error)
+        }
+    }
+
+}

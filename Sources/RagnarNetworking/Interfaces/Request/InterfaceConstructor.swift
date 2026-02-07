@@ -7,30 +7,6 @@
 
 import Foundation
 
-// MARK: - Request Error
-
-/// Errors that can occur during URLRequest construction.
-public enum RequestError: Error {
-
-    /// The server configuration could not be parsed or is malformed
-    case configuration
-
-    /// The request requires authentication but no token was provided
-    case authentication
-
-    /// The URL components could not be assembled into a valid URL
-    case componentsURL
-
-    /// The request body could not be encoded
-    case encoding(underlying: Error)
-
-    /// The request could not be constructed due to invalid parameters.
-    case invalidRequest(description: String)
-
-}
-
-// MARK: - URLRequest Construction
-
 /// Defines the steps required to construct a URLRequest from Interface parameters.
 public protocol InterfaceConstructor {
 
@@ -260,7 +236,7 @@ public extension InterfaceConstructor {
         do {
             encoded = try body.encodeBody(using: jsonEncoder)
         } catch {
-            throw RequestError.encoding(underlying: error)
+            throw RequestError.encoding(underlying: ErrorSnapshot(error))
         }
 
         guard !encoded.data.isEmpty || encoded.contentType != nil else {

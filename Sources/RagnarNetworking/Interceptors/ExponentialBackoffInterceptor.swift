@@ -73,17 +73,20 @@ public struct ExponentialBackoffInterceptor: RequestInterceptor {
         switch retryCondition {
         case .networkErrors:
             return error is URLError
+
         case .httpStatusCodes(let statusCodes):
             guard let responseError = error as? ResponseError,
                   let statusCode = responseError.statusCode else {
                 return false
             }
             return statusCodes.contains(statusCode)
+
         case .serverErrors:
             guard let responseError = error as? ResponseError else {
                 return false
             }
             return responseError.isRetryable
+
         case .custom(let condition):
             return condition(error)
         }

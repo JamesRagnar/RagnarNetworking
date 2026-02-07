@@ -23,11 +23,11 @@ struct GetUserInterface: Interface {
 
     typealias Response = User
 
-    static var responseCases: ResponseCases {
+    static var responseCases: ResponseMap {
         [
-            200: .success(User.self),
-            404: .failure(APIError.userNotFound),
-            401: .failure(APIError.unauthorized)
+            .code(200, .decode),
+            .code(404, .error(APIError.userNotFound)),
+            .code(401, .error(APIError.unauthorized))
         ]
     }
 }
@@ -46,7 +46,7 @@ let user = try await URLSession.shared.dataTask(
 
 ## Features
 
-- Type-safe endpoints with explicit status code handling
+- Type-safe endpoints with explicit status code handling (exact codes + ranges)
 - Automatic request construction from declarative parameters
 - Built-in auth strategies (`.none`, `.bearer`, `.url`)
 - Strict request bodies via `RequestBody` with intrinsic content types

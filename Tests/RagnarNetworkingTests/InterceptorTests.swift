@@ -5,9 +5,9 @@
 //  Created by James Harquail on 2025-01-15.
 //
 
-import Testing
 import Foundation
 @testable import RagnarNetworking
+import Testing
 
 // MARK: - Test Doubles
 
@@ -25,9 +25,9 @@ struct MockInterface: Interface {
         let message: String
     }
 
-    static var responseCases: ResponseCases {
+    static var responseCases: ResponseMap {
         return [
-            200: .success(Response.self)
+            .code(200, .decode)
         ]
     }
 }

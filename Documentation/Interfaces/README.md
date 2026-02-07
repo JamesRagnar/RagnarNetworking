@@ -28,10 +28,10 @@ struct GetUserInterface: Interface {
 
     typealias Response = User
 
-    static var responseCases: ResponseCases {
+    static var responseCases: ResponseMap {
         [
-            200: .success(User.self),
-            404: .failure(APIError.userNotFound)
+            .code(200, .decode),
+            .code(404, .error(APIError.userNotFound))
         ]
     }
 }
@@ -51,6 +51,53 @@ let config = ServerConfiguration(
     authToken: token
 )
 ```
+
+## Response Cases Notes
+
+- Use `.code` for exact status codes.
+- Use `.range` or `.success`/`.clientError`/`.serverError` for ranges.
+- Matching resolution is deterministic:
+  - Exact code matches are checked first.
+  - Then ranges are checked in declaration order.
+  - Duplicate exact codes keep the first declaration.
+  - In DEBUG builds, duplicate exact codes emit a warning.
+- `.decodeError(MyError.self)` decodes structured error bodies and throws `ResponseError.decoded`.
+- Use `.noContent` for no-body success (204/205/304). Prefer `EmptyResponse` as the response type.
+- Override `responseHandler` when an Interface needs custom response handling logic.
+
+Example:
+
+```swift
+static var responseCases: ResponseMap {
+    [
+        .success(.error(APIError.fallbackSuccess)),
+        .code(200, .decode), // exact overrides success range
+        .code(200, .error(APIError.duplicate)) // ignored, DEBUG warning
+    ]
+}
+```
+
+## Response Type Expectations
+
+- `String`: expects UTF-8 response bodies.
+- `Data`: returns raw bytes (for downloads/streams or no-body fallbacks).
+- `Decodable`: decoded with `JSONDecoder` from the response body.
+- `EmptyResponse`: represents a successful response with no body.
+- `.noContent`: use when the server returns no body (204/205/304).
+
+## Status Code Guidelines
+
+Recommended defaults for Interface definitions:
+
+- `200 OK`: `.code(200, .decode)`
+- `201 Created`: `.code(201, .decode)` when the server returns the created resource
+- `202 Accepted`: use `.code(202, .noContent)` or map to a custom response type if the server returns status info
+- `204 No Content`: `.code(204, .noContent)`
+- `205 Reset Content`: `.code(205, .noContent)`
+- `206 Partial Content`: `.code(206, .decode)` with `Response = Data`
+- `304 Not Modified`: `.code(304, .noContent)` if you opt into conditional requests
+
+Prefer explicit success codes. Use success ranges only when the endpoint truly varies and your `Response` can safely handle empty bodies.
 
 ## Guides
 

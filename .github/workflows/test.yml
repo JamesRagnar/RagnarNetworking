@@ -11,13 +11,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: Test - macOS
+  swiftlint:
+    name: SwiftLint
     runs-on: macos-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Run SwiftLint
+        uses: cirruslabs/swiftlint-action@v1
+        with:
+          version: latest
+
+  test:
+    name: Test - macOS (Swift ${{ matrix.swift }})
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        swift: ["6.0", "6.1", "6.2"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "${{ matrix.swift }}"
 
       - name: Run Tests
         run: |
