@@ -1,57 +1,53 @@
 import Foundation
 
-/// App-agnostic actor that owns auth state and handles 401 retry.
+/// App-agnostic actor that owns auth state and handles 401 retry using Swift Concurrency primitives.
 ///
-/// Unauthenticated requests (`.none` auth) never invoke the token closure.
-/// Concurrent 401s coalesce into a single refresh — only one `refresh` call fires
-/// regardless of how many requests fail simultaneously.
+/// Takes two closures and nothing else — no knowledge of any app-specific auth type.
+/// Concurrent 401s coalesce into a single refresh via Task value reuse.
 public actor APIClient {
 
-    private let baseURL: URL
+    public struct Credentials: Sendable {
+        public let baseURL: URL
+        public let accessToken: String?
+
+        public init(baseURL: URL, accessToken: String? = nil) {
+            self.baseURL = baseURL
+            self.accessToken = accessToken
+        }
+    }
+
     private let session: any DataTaskProvider
-    private let token: @Sendable () async throws -> String?
+    private let credentials: @Sendable () async throws -> Credentials
     private let refresh: @Sendable () async throws -> Void
     private var ongoingRefresh: Task<Void, Error>?
 
-    /// Creates an `APIClient`.
-    ///
-    /// - Parameters:
-    ///   - baseURL: Base URL for all requests. Stable for the client's lifetime — recreate if the server URL changes.
-    ///   - session: The underlying transport. Defaults to `URLSession.shared`.
-    ///   - token: Called before each authenticated request. Evaluated lazily to always return the post-refresh value.
-    ///   - refresh: Called on 401. Must update whatever state `token` reads from.
     public init(
-        baseURL: URL,
         session: any DataTaskProvider = URLSession.shared,
-        token: @escaping @Sendable () async throws -> String?,
+        credentials: @escaping @Sendable () async throws -> Credentials,
         refresh: @escaping @Sendable () async throws -> Void
     ) {
-        self.baseURL = baseURL
         self.session = session
-        self.token = token
+        self.credentials = credentials
         self.refresh = refresh
     }
 
-    /// Sends a typed request.
-    ///
-    /// Authenticated requests (`.bearer` or `.url`) are retried once after a 401 —
-    /// the `refresh` closure fires first, then `token` is re-evaluated for the retry.
     public func send<T: Interface>(
         _ type: T.Type,
         _ params: T.Parameters
     ) async throws -> T.Response {
         switch params.authentication {
         case .none:
-            return try await execute(type, params, token: nil)
+            let creds = try await credentials()
+            return try await execute(type, params, creds: creds)
 
         case .bearer, .url:
-            let currentToken = try await token()
+            let creds = try await credentials()
             do {
-                return try await execute(type, params, token: currentToken)
-            } catch let err as ResponseError where err.statusCode == 401 {
+                return try await execute(type, params, creds: creds)
+            } catch let e as ResponseError where e.statusCode == 401 {
                 try await coalesceRefresh()
-                let freshToken = try await token()
-                return try await execute(type, params, token: freshToken)
+                let fresh = try await credentials()
+                return try await execute(type, params, creds: fresh)
             }
         }
     }
@@ -61,11 +57,11 @@ public actor APIClient {
     private func execute<T: Interface>(
         _ type: T.Type,
         _ params: T.Parameters,
-        token: String?
+        creds: Credentials
     ) async throws -> T.Response {
         let config = ServerConfiguration(
-            url: baseURL,
-            authToken: token
+            url: creds.baseURL,
+            authToken: creds.accessToken
         )
         return try await session.dataTask(type, params, config)
     }
