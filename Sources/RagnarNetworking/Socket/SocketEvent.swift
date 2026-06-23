@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import SocketIO
 
 public protocol SocketEvent: Sendable {
 

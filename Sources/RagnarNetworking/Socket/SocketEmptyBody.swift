@@ -6,18 +6,9 @@
 //
 
 import Foundation
-import SocketIO
 
 public struct SocketEmptyBody: Decodable, Sendable {
 
     public init() {}
-
-}
-
-extension SocketEmptyBody: SocketData {
-
-    public func socketRepresentation() throws -> SocketData {
-        return []
-    }
 
 }
