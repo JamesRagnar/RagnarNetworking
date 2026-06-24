@@ -290,7 +290,7 @@ public actor SocketIOClient {
         else { return nil }
 
         let payload: Data? = array.count > 1
-            ? try? JSONSerialization.data(withJSONObject: array[1])
+            ? try? JSONSerialization.data(withJSONObject: array[1], options: .fragmentsAllowed)
             : nil
 
         return (name, payload)
