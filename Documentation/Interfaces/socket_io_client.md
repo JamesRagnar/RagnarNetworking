@@ -86,3 +86,5 @@ let socket = SocketIOClient(url: url, reconnect: ReconnectPolicy(
     multiplier: 1.5
 ))
 ```
+
+> **Note:** `initialDelay` must be ≥ 1 second. Sub-second values will result in a fixed delay rather than backoff growth.

@@ -42,7 +42,7 @@ public actor SocketIOClient {
     public struct ReconnectPolicy: Sendable {
         /// Whether reconnection is attempted at all.
         public var enabled: Bool
-        /// Delay before the first reconnection attempt.
+        /// Delay before the first reconnection attempt. Must be ≥ 1 second for backoff to work correctly.
         public var initialDelay: Duration
         /// Upper bound on the backoff delay.
         public var maxDelay: Duration
