@@ -37,7 +37,11 @@ public struct ResponseMap: ExpressibleByArrayLiteral, Sendable {
                     exact[code] = responseCase.outcome
                 } else {
                     #if DEBUG
-                    rnLog(.responseMap, level: .error, "Duplicate exact response case for status code \(code). Keeping first.")
+                    rnLog(
+                        .responseMap,
+                        level: .error,
+                        "Duplicate exact response case for status code \(code). Keeping first."
+                    )
                     #endif
                 }
 

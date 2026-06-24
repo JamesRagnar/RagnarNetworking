@@ -6,8 +6,7 @@ This directory documents the Interfaces system: how requests are defined, constr
 
 An `Interface` pairs request parameters with response handling. Most usage follows this flow:
 1. Define `Interface` and nested `Parameters`.
-2. Create a `ServerConfiguration`.
-3. Execute via `DataTaskProvider` or `RequestService`.
+2. Execute via `APIClient` (recommended) or directly via `DataTaskProvider`.
 
 ## Example
 

@@ -7,7 +7,7 @@
 
 import Foundation
 
-// Protocol seam for test injection — lets tests supply a mock without a live server.
+/// Abstracts `URLSessionWebSocketTask` for test injection.
 public protocol WebSocketTask: AnyObject {
     func resume()
     func cancel(with closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?)
@@ -28,18 +28,28 @@ public actor SocketIOClient {
 
     // MARK: - Public Types
 
+    /// Connection state of the socket.
     public enum Status: Sendable, Equatable {
+        /// No active connection.
         case disconnected
+        /// TCP connection established; Socket.IO handshake in progress.
         case connecting
+        /// Socket.IO handshake complete; events can be sent and received.
         case connected
     }
 
+    /// Controls automatic reconnection after an unexpected disconnection.
     public struct ReconnectPolicy: Sendable {
+        /// Whether reconnection is attempted at all.
         public var enabled: Bool
+        /// Delay before the first reconnection attempt. Must be ≥ 1 second for backoff to work correctly.
         public var initialDelay: Duration
+        /// Upper bound on the backoff delay.
         public var maxDelay: Duration
+        /// Multiplier applied to the current delay after each failed attempt.
         public var multiplier: Double
 
+        /// Creates a reconnect policy with exponential backoff.
         public init(
             enabled: Bool = true,
             initialDelay: Duration = .seconds(1),
@@ -52,6 +62,7 @@ public actor SocketIOClient {
             self.multiplier = multiplier
         }
 
+        /// A policy that performs no reconnection.
         public static let disabled = ReconnectPolicy(enabled: false)
     }
 
@@ -71,9 +82,16 @@ public actor SocketIOClient {
     // These persist across disconnect/reconnect — consumers never need to re-subscribe.
     private var eventContinuations: [String: [UUID: AsyncStream<Data>.Continuation]] = [:]
     private var statusContinuations: [UUID: AsyncStream<Status>.Continuation] = [:]
+    private var pipeTasks: [UUID: Task<Void, Never>] = [:]
 
     // MARK: - Init
 
+    /// Creates a `SocketIOClient`.
+    ///
+    /// - Parameters:
+    ///   - url: The Socket.IO WebSocket URL. Use `webSocketURL(for:)` to derive it from an HTTP/HTTPS server URL.
+    ///   - session: The underlying `URLSession`. Defaults to `URLSession.shared`.
+    ///   - reconnect: Reconnection policy. Defaults to exponential backoff with a 1–15s range.
     public init(url: URL, session: URLSession = .shared, reconnect: ReconnectPolicy = .init()) {
         self.url = url
         self.urlSession = session
@@ -116,13 +134,11 @@ public actor SocketIOClient {
     /// Switch to a new URL and reconnect, preserving all registered event streams.
     public func reconnect(to newURL: URL) async {
         url = newURL
-        isDisconnecting = true
         connectionLoopTask?.cancel()
         connectionLoopTask = nil
         currentTask?.cancel(with: .goingAway, reason: nil)
         currentTask = nil
         setStatus(.disconnected)
-        isDisconnecting = false
         connectionLoopTask = Task { await self.connectionLoop() }
     }
 
@@ -135,9 +151,9 @@ public actor SocketIOClient {
     // MARK: - Typed Emit
 
     /// Emit a typed event with an Encodable payload.
-    public func emit<E: SocketEvent>(_ type: E.Type, _ payload: E.Schema) async throws
-        where E.Schema: Encodable & Sendable
-    {
+    public func emit<E: SocketEvent>(
+        _ type: E.Type, _ payload: E.Schema
+    ) async throws where E.Schema: Encodable & Sendable {
         let data = try JSONEncoder().encode(payload)
         guard let json = String(data: data, encoding: .utf8) else {
             throw SocketIOError.encodingFailed
@@ -146,9 +162,7 @@ public actor SocketIOClient {
     }
 
     /// Emit a typed event with no payload.
-    public func emit<E: SocketEvent>(_ type: E.Type) async throws
-        where E.Schema == SocketEmptyBody
-    {
+    public func emit<E: SocketEvent>(_ type: E.Type) async throws where E.Schema == SocketEmptyBody {
         try await sendText(#"42["\#(E.name)"]"#)
     }
 
@@ -161,17 +175,14 @@ public actor SocketIOClient {
         let id = UUID()
         let (dataStream, dataContinuation) = AsyncStream<Data>.makeStream()
 
-        if eventContinuations[E.name] == nil {
-            eventContinuations[E.name] = [:]
-        }
-        eventContinuations[E.name]![id] = dataContinuation
+        eventContinuations[E.name, default: [:]][id] = dataContinuation
 
         dataContinuation.onTermination = { [weak self] _ in
             Task { [weak self] in await self?.removeEventContinuation(id, name: E.name) }
         }
 
         let (typedStream, typedContinuation) = AsyncStream<E.Schema>.makeStream()
-        Task {
+        let pipeTask = Task {
             for await data in dataStream {
                 guard let value = try? JSONDecoder().decode(E.Schema.self, from: data) else {
                     continue
@@ -180,6 +191,7 @@ public actor SocketIOClient {
             }
             typedContinuation.finish()
         }
+        pipeTasks[id] = pipeTask
         typedContinuation.onTermination = { _ in dataContinuation.finish() }
 
         return typedStream
@@ -207,7 +219,7 @@ public actor SocketIOClient {
         components?.path = "/socket.io/"
         components?.queryItems = [
             URLQueryItem(name: "EIO", value: "4"),
-            URLQueryItem(name: "transport", value: "websocket"),
+            URLQueryItem(name: "transport", value: "websocket")
         ]
         return components?.url
     }
@@ -215,11 +227,11 @@ public actor SocketIOClient {
     // MARK: - Private: Connection Loop
 
     private func connectionLoop() async {
-        var delay: Duration? = nil
+        var delay: Duration?
 
         while !isDisconnecting && !Task.isCancelled {
-            if let d = delay {
-                do { try await Task.sleep(for: d) } catch { return }
+            if let duration = delay {
+                do { try await Task.sleep(for: duration) } catch { return }
             }
 
             setStatus(.connecting)
@@ -315,6 +327,8 @@ public actor SocketIOClient {
         eventContinuations = [:]
         for cont in statusContinuations.values { cont.finish() }
         statusContinuations = [:]
+        for task in pipeTasks.values { task.cancel() }
+        pipeTasks = [:]
     }
 
     private func makeWebSocketTask() -> any WebSocketTask {
@@ -323,8 +337,8 @@ public actor SocketIOClient {
 
     private func nextDelay(after current: Duration?) -> Duration {
         guard let current else { return reconnectPolicy.initialDelay }
-        let nextSeconds = Int(Double(current.components.seconds) * reconnectPolicy.multiplier)
-        return min(.seconds(nextSeconds), reconnectPolicy.maxDelay)
+        let seconds = Double(current.components.seconds) + Double(current.components.attoseconds) / 1e18
+        return min(.seconds(seconds * reconnectPolicy.multiplier), reconnectPolicy.maxDelay)
     }
 
     private func removeEventContinuation(_ id: UUID, name: String) {
@@ -332,6 +346,8 @@ public actor SocketIOClient {
         if eventContinuations[name]?.isEmpty == true {
             eventContinuations.removeValue(forKey: name)
         }
+        pipeTasks[id]?.cancel()
+        pipeTasks.removeValue(forKey: id)
     }
 
     private func removeStatusContinuation(_ id: UUID) {
@@ -339,7 +355,10 @@ public actor SocketIOClient {
     }
 }
 
+/// Errors thrown by `SocketIOClient`.
 public enum SocketIOError: Error, Sendable {
+    /// An emit was attempted while the socket was not connected.
     case notConnected
+    /// The event payload could not be serialized to a UTF-8 JSON string.
     case encodingFailed
 }

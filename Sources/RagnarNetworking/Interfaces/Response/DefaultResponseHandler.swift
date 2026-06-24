@@ -7,7 +7,10 @@
 
 import Foundation
 
-/// Default response handler using the Interface response map and decoding rules.
+/// The built-in response handler. Matches status codes against `Interface.responseCases`,
+/// decodes success bodies, and throws typed `ResponseError` values for failures.
+///
+/// Override `Interface.responseHandler` to replace this with custom logic per-interface.
 public enum DefaultResponseHandler: ResponseHandler {
 
     public static func handle<T: Interface>(

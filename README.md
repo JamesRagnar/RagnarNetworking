@@ -4,7 +4,7 @@ A modern, type-safe Swift networking library for building API interfaces with co
 
 ## Quick Example
 
-Define a typed interface and call it with shorthand parameter initialization:
+Define a typed interface, then call it through `APIClient`:
 
 ```swift
 struct GetUserInterface: Interface {
@@ -32,16 +32,13 @@ struct GetUserInterface: Interface {
     }
 }
 
-let config = ServerConfiguration(
-    url: URL(string: "https://api.example.com")!,
-    authToken: token
+let client = APIClient(
+    baseURL: URL(string: "https://api.example.com")!,
+    token: { try await keychain.accessToken() },
+    refresh: { try await authService.refresh() }
 )
 
-let user = try await URLSession.shared.dataTask(
-    GetUserInterface.self,
-    .init(userId: 123),
-    config
-)
+let user = try await client.send(GetUserInterface.self, .init(userId: 123))
 ```
 
 ## Features
@@ -50,12 +47,16 @@ let user = try await URLSession.shared.dataTask(
 - Automatic request construction from declarative parameters
 - Built-in auth strategies (`.none`, `.bearer`, `.url`)
 - Strict request bodies via `RequestBody` with intrinsic content types
+- `APIClient` actor with automatic 401 retry and coalesced token refresh
+- `SocketIOClient` actor with typed event streams and automatic reconnection
 - Testable, protocol-based networking
 - Customizable request construction via `InterfaceConstructor`
 
 ## Documentation
 
 - [Interfaces Overview](Documentation/Interfaces/README.md)
+- [APIClient](Documentation/Interfaces/api_client.md)
+- [SocketIOClient](Documentation/Interfaces/socket_io_client.md)
 - [Request Parameters](Documentation/Interfaces/request_parameters.md)
 - [Response Handling](Documentation/Interfaces/response_handling.md)
 - [DataTaskProvider](Documentation/Interfaces/data_task_provider.md)
@@ -65,7 +66,7 @@ let user = try await URLSession.shared.dataTask(
 ## Requirements
 
 - Swift 6.2+
-- iOS 13.0+ / macOS 11.0+
+- iOS 17.0+ / macOS 14.0+
 
 ## License
 
