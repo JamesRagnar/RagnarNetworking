@@ -60,7 +60,7 @@ public enum CoverResponseHandler: ResponseHandler {
     public static func handle<T: Interface>(
         _ response: (data: Data, response: URLResponse),
         for interface: T.Type
-    ) throws -> T.Response {
+    ) throws(ResponseError) -> T.Response {
         let snapshot = HTTPResponseSnapshot(response: response.response)
         guard let statusCode = snapshot.statusCode else {
             throw ResponseError.unknownResponse(response.data, snapshot)
@@ -146,7 +146,8 @@ static var responseCases: ResponseMap {
 
 When decoding fails (empty body, non-JSON response, malformed JSON), the error is surfaced as:
 
-- `ResponseError.decoding(_, _, .custom(message: ...))`
+- `ResponseError.decoding(_, _, .jsonDecoder(...))` — for `DecodingError` failures (invalid JSON, missing keys, type mismatches)
+- `ResponseError.decoding(_, _, .custom(message: ...))` — for other errors thrown by the decode closure
 
 The raw response data is always preserved, so you can still inspect `responseBodyString`.
 

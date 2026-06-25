@@ -1128,8 +1128,7 @@ struct InterfaceResponseTests {
 
         let result = try EmptyInterface.handle((data: responseData, response: httpResponse))
 
-        // Just verify it doesn't throw - result is always non-nil for struct types
-        _ = result
+        #expect(result == EmptyResponse())
     }
 
     @Test("EmptyResponse decode ignores non-empty body")
@@ -1144,7 +1143,7 @@ struct InterfaceResponseTests {
 
         let result = try EmptyDecodeInterface.handle((data: responseData, response: httpResponse))
 
-        _ = result
+        #expect(result == EmptyResponse())
     }
 
     @Test("Handles no-content success with EmptyResponse")

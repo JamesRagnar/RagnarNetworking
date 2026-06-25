@@ -150,6 +150,7 @@ struct ResponseMapTests {
             .range(lower...Int.max, .decode)
         ]
 
+        #expect(map.match(Int.max - 1) != nil)
         #expect(map.match(Int.max) == nil)
     }
 

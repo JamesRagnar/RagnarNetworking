@@ -364,7 +364,7 @@ struct SocketIOClientTests {
         let eventStream = await socket.events(for: PingEvent.self)
         let statusStream = await socket.statusUpdates()
 
-        // Use reconnect-enabled socket for this test by just triggering disconnect via simulateDisconnect
+        // Reconnect is disabled; reconnection is performed manually by calling connect() again.
         await socket.connect()
 
         var statusIterator = statusStream.makeAsyncIterator()

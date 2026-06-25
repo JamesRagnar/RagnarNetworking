@@ -10,7 +10,7 @@ public enum RagnarNetworkingConfig {
 
     /// Set to `false` to suppress all RagnarNetworking log output.
     ///
-    /// Assign this before making requests or opening connections.
+    /// Not thread-safe. Set once at app launch before starting any requests or opening connections.
     /// All log categories (network, socket) respect this flag.
     ///
     ///     RagnarNetworkingConfig.loggingEnabled = false

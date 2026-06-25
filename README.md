@@ -38,7 +38,10 @@ let client = APIClient(
     refresh: { try await authService.refresh() }
 )
 
-let user = try await client.send(GetUserInterface.self, .init(userId: 123))
+let user = try await client.send(
+    GetUserInterface.self,
+    .init(userId: 123)
+)
 ```
 
 ## Features
