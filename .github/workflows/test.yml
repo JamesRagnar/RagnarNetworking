@@ -25,12 +25,8 @@ jobs:
           version: latest
 
   test:
-    name: Test - macOS (Swift ${{ matrix.swift }})
+    name: Test
     runs-on: macos-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        swift: ["6.0", "6.1", "6.2"]
 
     steps:
       - name: Checkout
@@ -38,9 +34,6 @@ jobs:
 
       - name: Setup Swift
         uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: "${{ matrix.swift }}"
 
       - name: Run Tests
-        run: |
-          swift test --enable-code-coverage
+        run: swift test --enable-code-coverage
