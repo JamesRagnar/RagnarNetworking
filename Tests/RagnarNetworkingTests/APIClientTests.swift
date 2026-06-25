@@ -26,16 +26,25 @@ private struct TestInterface: Interface {
 // MARK: - Token Store
 
 private actor TokenStore {
-    var tokens: [String]
+    private var tokens: [String]
+    private(set) var callCount = 0
 
     init(tokens: [String]) {
         self.tokens = tokens
     }
 
     func next() -> String {
+        callCount += 1
         guard !tokens.isEmpty else { return "" }
         return tokens.removeFirst()
     }
+}
+
+// MARK: - Counter
+
+private actor Counter {
+    private(set) var value = 0
+    func increment() { value += 1 }
 }
 
 // MARK: - Mock Data Task Provider
@@ -108,16 +117,16 @@ struct APIClientTests {
         let mock = MockDataTaskProvider()
         await mock.enqueue(data: makeResponseData(), statusCode: 200)
 
-        var tokenCallCount = 0
+        let tokenCounter = Counter()
         let client = makeClient(mock: mock, token: {
-            tokenCallCount += 1
+            await tokenCounter.increment()
             return "should-not-be-called"
         })
 
         let params = TestInterface.Parameters(authentication: .none)
         _ = try await client.send(TestInterface.self, params)
 
-        #expect(tokenCallCount == 0)
+        #expect(await tokenCounter.value == 0)
     }
 
     // MARK: 2. .bearer auth sets Authorization header
@@ -127,16 +136,16 @@ struct APIClientTests {
         let mock = MockDataTaskProvider()
         await mock.enqueue(data: makeResponseData(), statusCode: 200)
 
-        var tokenCallCount = 0
+        let tokenCounter = Counter()
         let client = makeClient(mock: mock, token: {
-            tokenCallCount += 1
+            await tokenCounter.increment()
             return "my-bearer-token"
         })
 
         let params = TestInterface.Parameters(authentication: .bearer)
         _ = try await client.send(TestInterface.self, params)
 
-        #expect(tokenCallCount == 1)
+        #expect(await tokenCounter.value == 1)
         let requests = await mock.capturedRequests
         #expect(requests.count == 1)
         #expect(requests[0].value(forHTTPHeaderField: "Authorization") == "Bearer my-bearer-token")
@@ -149,16 +158,16 @@ struct APIClientTests {
         let mock = MockDataTaskProvider()
         await mock.enqueue(data: makeResponseData(), statusCode: 200)
 
-        var tokenCallCount = 0
+        let tokenCounter = Counter()
         let client = makeClient(mock: mock, token: {
-            tokenCallCount += 1
+            await tokenCounter.increment()
             return "my-url-token"
         })
 
         let params = TestInterface.Parameters(authentication: .url)
         _ = try await client.send(TestInterface.self, params)
 
-        #expect(tokenCallCount == 1)
+        #expect(await tokenCounter.value == 1)
         let requests = await mock.capturedRequests
         #expect(requests.count == 1)
         let url = try #require(requests[0].url)
@@ -187,32 +196,25 @@ struct APIClientTests {
     @Test("401 triggers refresh then retries with a fresh token")
     func fourOhOneTriggerRefreshAndRetry() async throws {
         let mock = MockDataTaskProvider()
-        // First call returns 401; retry gets 200
         await mock.enqueue(data: Data(), statusCode: 401)
         await mock.enqueue(data: makeResponseData(value: "retried"), statusCode: 200)
 
-        var tokenCallCount = 0
-        var refreshCallCount = 0
+        let tokenStore = TokenStore(tokens: ["token-1", "token-2"])
+        let refreshCounter = Counter()
 
         let client = makeClient(
             mock: mock,
-            token: {
-                tokenCallCount += 1
-                return "token-\(tokenCallCount)"
-            },
-            refresh: {
-                refreshCallCount += 1
-            }
+            token: { await tokenStore.next() },
+            refresh: { await refreshCounter.increment() }
         )
 
         let params = TestInterface.Parameters(authentication: .bearer)
         let result = try await client.send(TestInterface.self, params)
 
         #expect(result.value == "retried")
-        #expect(tokenCallCount == 2)
-        #expect(refreshCallCount == 1)
-        let callCount = await mock.callCount
-        #expect(callCount == 2)
+        #expect(await tokenStore.callCount == 2)
+        #expect(await refreshCounter.value == 1)
+        #expect(await mock.callCount == 2)
     }
 
     // MARK: 6. Non-401 errors are not retried
@@ -222,11 +224,11 @@ struct APIClientTests {
         let mock = MockDataTaskProvider()
         await mock.enqueue(data: Data(), statusCode: 500)
 
-        var refreshCallCount = 0
+        let refreshCounter = Counter()
         let client = makeClient(
             mock: mock,
             token: { "tok" },
-            refresh: { refreshCallCount += 1 }
+            refresh: { await refreshCounter.increment() }
         )
 
         let params = TestInterface.Parameters(authentication: .bearer)
@@ -234,9 +236,8 @@ struct APIClientTests {
             try await client.send(TestInterface.self, params)
         }
 
-        #expect(refreshCallCount == 0)
-        let callCount = await mock.callCount
-        #expect(callCount == 1)
+        #expect(await refreshCounter.value == 0)
+        #expect(await mock.callCount == 1)
     }
 
     // MARK: 7. Refresh failure propagates to caller
@@ -290,7 +291,6 @@ struct APIClientTests {
     @Test("Concurrent 401s coalesce into a single refresh call")
     func concurrent401sCoalesceRefresh() async throws {
         let mock = MockDataTaskProvider()
-        // Three concurrent requests each get a 401 first, then a 200 on retry
         await mock.enqueue(data: Data(), statusCode: 401)
         await mock.enqueue(data: Data(), statusCode: 401)
         await mock.enqueue(data: Data(), statusCode: 401)
@@ -298,9 +298,7 @@ struct APIClientTests {
         await mock.enqueue(data: makeResponseData(value: "b"), statusCode: 200)
         await mock.enqueue(data: makeResponseData(value: "c"), statusCode: 200)
 
-        var refreshCallCount = 0
-
-        // TokenStore with enough tokens: 3 initial + 3 post-refresh
+        let refreshCounter = Counter()
         let store = TokenStore(tokens: [
             "tok1", "tok2", "tok3",
             "fresh1", "fresh2", "fresh3"
@@ -310,8 +308,7 @@ struct APIClientTests {
             mock: mock,
             token: { await store.next() },
             refresh: {
-                refreshCallCount += 1
-                // Sleep long enough that all three 401s arrive before refresh completes
+                await refreshCounter.increment()
                 try await Task.sleep(for: .milliseconds(50))
             }
         )
@@ -327,8 +324,7 @@ struct APIClientTests {
         #expect(result1.value != "")
         #expect(result2.value != "")
         #expect(result3.value != "")
-        #expect(refreshCallCount == 1)
-        let callCount = await mock.callCount
-        #expect(callCount == 6)
+        #expect(await refreshCounter.value == 1)
+        #expect(await mock.callCount == 6)
     }
 }
