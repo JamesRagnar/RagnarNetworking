@@ -6,18 +6,13 @@
 //
 
 import Foundation
-import SocketIO
 
+/// Sentinel `Schema` type for `SocketEvent` conformances that carry no payload.
+///
+/// Use this as `associatedtype Schema` when your event has no body. The corresponding
+/// `emit(_:)` overload accepts no payload argument.
 public struct SocketEmptyBody: Decodable, Sendable {
 
     public init() {}
-
-}
-
-extension SocketEmptyBody: SocketData {
-
-    public func socketRepresentation() throws -> SocketData {
-        return []
-    }
 
 }

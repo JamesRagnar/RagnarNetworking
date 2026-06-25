@@ -53,35 +53,13 @@ struct CustomConstructor: InterfaceConstructor {
 
 ## Using a Custom Constructor
 
-You can inject a constructor at the call site or the service level.
-
-### DataTaskProvider
+Inject a constructor at the `DataTaskProvider` call site.
 
 ```swift
 let user = try await URLSession.shared.dataTask(
     GetUserInterface.self,
     .init(userId: 123),
     config,
-    constructor: CustomConstructor.self
-)
-```
-
-### RequestService
-
-```swift
-let user = try await service.dataTask(
-    GetUserInterface.self,
-    .init(userId: 123),
-    constructor: CustomConstructor.self
-)
-```
-
-### InterceptableRequestService
-
-```swift
-let service = InterceptableRequestService(
-    configurationProvider: { config },
-    interceptors: [],
     constructor: CustomConstructor.self
 )
 ```

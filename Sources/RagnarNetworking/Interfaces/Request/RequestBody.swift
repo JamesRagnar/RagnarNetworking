@@ -107,24 +107,3 @@ public struct EncodableBody<Value: Encodable & Sendable>: RequestBody {
     }
 
 }
-
-/// Encodes either a value or an explicit JSON null. Use `nil` on the property to omit.
-public enum Nullable<Value: Encodable & Sendable>: Encodable, Sendable {
-
-    case value(Value)
-    case null
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch self {
-        case .value(let value):
-            try container.encode(value)
-
-        case .null:
-            try container.encodeNil()
-        }
-    }
-
-}
-
-extension Nullable: Equatable where Value: Equatable {}

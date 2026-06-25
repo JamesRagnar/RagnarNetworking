@@ -6,12 +6,6 @@
 //
 
 import Foundation
-import os.log
-
-private let responseMapLogger = OSLog(
-    subsystem: "RagnarNetworking",
-    category: "ResponseMap"
-)
 
 /// A status-code-to-outcome mapping with range support.
 ///
@@ -43,11 +37,10 @@ public struct ResponseMap: ExpressibleByArrayLiteral, Sendable {
                     exact[code] = responseCase.outcome
                 } else {
                     #if DEBUG
-                    os_log(
-                        "Duplicate exact response case for status code %{public}d. Keeping first and ignoring duplicates.",
-                        log: responseMapLogger,
-                        type: .error,
-                        code
+                    rnLog(
+                        .responseMap,
+                        level: .error,
+                        "Duplicate exact response case for status code \(code). Keeping first."
                     )
                     #endif
                 }

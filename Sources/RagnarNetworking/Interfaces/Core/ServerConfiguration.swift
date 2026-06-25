@@ -15,14 +15,14 @@ import Foundation
 public struct ServerConfiguration: Sendable {
 
     /// The base URL for all API requests (e.g., "https://api.example.com")
-    let url: URL
+    public let url: URL
 
     /// Optional authentication token to be included in requests that require it
-    let authToken: String?
+    public let authToken: String?
 
     /// Encoder configuration for request bodies. Uses a factory pattern
     /// to maintain Sendable conformance in Swift 6.
-    let requestEncoder: RequestEncoder
+    public let requestEncoder: RequestEncoder
 
     /// Creates a server configuration with the specified base URL and optional auth token.
     /// - Parameters:
