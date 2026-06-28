@@ -80,6 +80,7 @@ private actor MockDataTaskProvider: DataTaskProvider {
         switch result {
         case .success(let pair):
             return pair
+
         case .failure(let error):
             throw error
         }

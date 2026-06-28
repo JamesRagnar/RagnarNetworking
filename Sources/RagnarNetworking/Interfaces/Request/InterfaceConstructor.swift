@@ -198,7 +198,7 @@ public extension InterfaceConstructor {
                 $0.key.caseInsensitiveCompare("token") == .orderedSame
             }) == true {
                 rnDiagnostic(
-                    "RagnarNetworking: URL authentication overrides a 'token' query item provided in request parameters."
+                    "RagnarNetworking: URL auth overrides a 'token' query param in request parameters."
                 )
             }
             newQueryItems = queryItems?
@@ -266,7 +266,7 @@ public extension InterfaceConstructor {
                 if key.caseInsensitiveCompare("Authorization") == .orderedSame {
                     if case .bearer = authentication {
                         rnDiagnostic(
-                            "RagnarNetworking: custom Authorization header overrides bearer authentication for this request."
+                            "RagnarNetworking: custom Authorization header overrides bearer auth for this request."
                         )
                     }
                     currentHeaderFields = currentHeaderFields.filter {

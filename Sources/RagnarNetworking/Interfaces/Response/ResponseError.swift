@@ -190,10 +190,10 @@ public extension ResponseError {
 
         // Error type
         switch self {
-        case .unknownResponse(_, _):
+        case .unknownResponse:
             components.append("ResponseError.unknownResponse")
 
-        case .unknownResponseCase(_, _):
+        case .unknownResponseCase:
             components.append("ResponseError.unknownResponseCase")
 
         case .decoding(_, _, let decodingError):
@@ -230,7 +230,7 @@ public extension ResponseError {
     /// A concise localized description intended for user-facing display.
     var errorDescription: String? {
         switch self {
-        case .unknownResponse(_, _):
+        case .unknownResponse:
             return "Received a non-HTTP response."
 
         case .unknownResponseCase(_, let snapshot):
@@ -239,7 +239,7 @@ public extension ResponseError {
             }
             return "Received an unhandled response."
 
-        case .decoding(_, _, _):
+        case .decoding:
             return "Failed to decode the server response."
 
         case .generic(_, _, let error),

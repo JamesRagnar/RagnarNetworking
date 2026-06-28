@@ -545,6 +545,24 @@ struct SocketIOClientTests {
         await socket.invalidate()
     }
 
+    @Test("reconnect(to:) works after an explicit disconnect")
+    func reconnectAfterDisconnectStartsANewConnection() async {
+        let task1 = MockWebSocketTask()
+        let task2 = MockWebSocketTask()
+        let socket = makeSocket(tasks: [task1, task2])
+
+        await socket.connect()
+        await Task.yield()
+        await socket.disconnect()
+
+        let newURL = URL(string: "ws://new.example.com/")!
+        await socket.reconnect(to: newURL)
+        await Task.yield()
+
+        #expect(task1.resumeCount == 1)
+        #expect(task2.resumeCount == 1)
+    }
+
     // MARK: - Malformed Payloads
 
     @Test("events(for:) silently drops payloads that do not match the schema")
@@ -592,7 +610,7 @@ struct SocketIOClientTests {
         var eventIterator = eventStream.makeAsyncIterator()
         var finished = false
         for _ in 0..<10 {
-            if await eventIterator.next() == nil {
+            guard await eventIterator.next() != nil else {
                 finished = true
                 break
             }

@@ -29,14 +29,7 @@ public actor SocketIOClient {
     // MARK: - Public Types
 
     /// Connection state of the socket.
-    public enum Status: Sendable, Equatable {
-        /// No active connection.
-        case disconnected
-        /// TCP connection established; Socket.IO handshake in progress.
-        case connecting
-        /// Socket.IO handshake complete; events can be sent and received.
-        case connected
-    }
+    public typealias Status = SocketConnectionStatus
 
     /// Controls automatic reconnection after an unexpected disconnection.
     public struct ReconnectPolicy: Sendable {
@@ -78,6 +71,7 @@ public actor SocketIOClient {
     private var isDisconnecting = false
     private var connectionLoopTask: Task<Void, Never>?
     private var currentTask: (any WebSocketTask)?
+    private var connectionGeneration: UInt64 = 0
 
     // Per-event-name fan-out. Keyed by SocketEvent.name so each typed stream receives only its events.
     // These persist across disconnect/reconnect - consumers never need to re-subscribe.
@@ -127,7 +121,9 @@ public actor SocketIOClient {
     public func connect() async {
         guard status == .disconnected else { return }
         isDisconnecting = false
-        connectionLoopTask = Task { await self.connectionLoop() }
+        connectionGeneration &+= 1
+        let generation = connectionGeneration
+        connectionLoopTask = Task { await self.connectionLoop(generation: generation) }
     }
 
     /// Close the connection. Registered event and status streams are preserved for reconnect.
@@ -143,12 +139,15 @@ public actor SocketIOClient {
     /// Switch to a new URL and reconnect, preserving all registered event streams.
     public func reconnect(to newURL: URL) async {
         url = newURL
+        isDisconnecting = false
         connectionLoopTask?.cancel()
         connectionLoopTask = nil
         currentTask?.cancel(with: .goingAway, reason: nil)
         currentTask = nil
         setStatus(.disconnected)
-        connectionLoopTask = Task { await self.connectionLoop() }
+        connectionGeneration &+= 1
+        let generation = connectionGeneration
+        connectionLoopTask = Task { await self.connectionLoop(generation: generation) }
     }
 
     /// Fully tear down - closes the connection and finishes all registered streams.
@@ -208,9 +207,9 @@ public actor SocketIOClient {
 
     /// Returns a stream of connection status changes. Emits the current status immediately.
     /// The stream persists across disconnect/reconnect cycles.
-    public func statusUpdates() -> AsyncStream<Status> {
+    public func statusUpdates() -> AsyncStream<SocketConnectionStatus> {
         let id = UUID()
-        let (stream, continuation) = AsyncStream<Status>.makeStream()
+        let (stream, continuation) = AsyncStream<SocketConnectionStatus>.makeStream()
         statusContinuations[id] = continuation
         continuation.yield(status)
         continuation.onTermination = { [weak self] _ in
@@ -223,37 +222,32 @@ public actor SocketIOClient {
 
     /// Builds the Socket.IO 4.x WebSocket URL from an HTTP/HTTPS server base URL.
     public static func webSocketURL(for serverURL: URL) -> URL? {
-        var components = URLComponents(url: serverURL, resolvingAgainstBaseURL: false)
-        components?.scheme = serverURL.scheme == "https" ? "wss" : "ws"
-        components?.path = "/socket.io/"
-        components?.queryItems = [
-            URLQueryItem(name: "EIO", value: "4"),
-            URLQueryItem(name: "transport", value: "websocket")
-        ]
-        return components?.url
+        SocketIOURL.webSocketURL(for: serverURL)
     }
 
     // MARK: - Private: Connection Loop
 
-    private func connectionLoop() async {
+    private func connectionLoop(generation: UInt64) async {
         var delay: Duration?
 
-        while !isDisconnecting && !Task.isCancelled {
+        while shouldContinueConnectionLoop(for: generation) {
             if let duration = delay {
                 do { try await Task.sleep(for: duration) } catch { return }
             }
 
+            guard generation == connectionGeneration else { return }
             setStatus(.connecting)
             let task = makeWebSocketTask()
             currentTask = task
             task.resume()
 
             var shouldReconnect = false
-            while !isDisconnecting && !Task.isCancelled {
+            while shouldContinueConnectionLoop(for: generation) {
                 do {
                     let message = try await task.receive()
-                    await handleMessage(message)
+                    await handleMessage(message, generation: generation)
                 } catch {
+                    guard generation == connectionGeneration else { return }
                     if isDisconnecting || Task.isCancelled { return }
                     setStatus(.disconnected)
                     guard reconnectPolicy.enabled else { return }
@@ -269,8 +263,20 @@ public actor SocketIOClient {
 
     // MARK: - Private: Frame Handling
 
-    private func handleMessage(_ message: URLSessionWebSocketTask.Message) async {
-        guard case .string(let text) = message else { return }
+    private func handleMessage(
+        _ message: URLSessionWebSocketTask.Message,
+        generation: UInt64
+    ) async {
+        guard generation == connectionGeneration else { return }
+
+        guard case .string(let text) = message else {
+            rnLog(
+                .socket,
+                logging: logging,
+                "ignored non-text WebSocket frame"
+            )
+            return
+        }
 
         if text.hasPrefix("0") {
             // Engine.IO OPEN - send Socket.IO CONNECT to default namespace
@@ -299,6 +305,15 @@ public actor SocketIOClient {
             if let conts = eventContinuations[name] {
                 for cont in conts.values { cont.yield(data) }
             }
+            return
+        }
+
+        if text.hasPrefix("42") {
+            rnLog(
+                .socket,
+                logging: logging,
+                "ignored malformed event frame"
+            )
         }
     }
 
@@ -362,6 +377,10 @@ public actor SocketIOClient {
     private func removeStatusContinuation(_ id: UUID) {
         statusContinuations.removeValue(forKey: id)
     }
+
+    private func shouldContinueConnectionLoop(for generation: UInt64) -> Bool {
+        generation == connectionGeneration && !isDisconnecting && !Task.isCancelled
+    }
 }
 
 /// Errors thrown by `SocketIOClient`.
@@ -371,3 +390,5 @@ public enum SocketIOError: Error, Sendable {
     /// The event payload could not be serialized to a UTF-8 JSON string.
     case encodingFailed
 }
+
+extension SocketIOClient: SocketClient {}

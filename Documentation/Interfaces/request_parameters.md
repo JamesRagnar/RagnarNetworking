@@ -21,6 +21,8 @@ public protocol RequestParameters: Sendable {
 
 `queryItems` is a dictionary of names to optional values. A `nil` value creates a name-only query item (e.g. `?flag`). If you want to omit a key, remove it from the dictionary instead of setting it to `nil`.
 
+Ordering is not part of the contract. If you need stable serialization order or duplicate keys, build that outside `RequestParameters` and convert to the required request shape explicitly.
+
 ## Request Body
 
 All bodies must conform to `RequestBody`, which couples the encoded data with its content type.

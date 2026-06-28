@@ -2,10 +2,12 @@
 
 `SocketIOClient` implements the Socket.IO 4.x wire protocol over `URLSessionWebSocketTask`. The entire public API is typed via `SocketEvent` - event names and raw payloads are never exposed to callers.
 
+`SocketIOClient` also conforms to `SocketClient`, the transport abstraction intended for higher-level consumers.
+
 ## Setup
 
 ```swift
-let socketURL = SocketIOClient.webSocketURL(for: serverURL)!
+let socketURL = SocketIOURL.webSocketURL(for: serverURL)!
 let socket = SocketIOClient(
     url: socketURL,
     logging: .disabled
@@ -13,7 +15,7 @@ let socket = SocketIOClient(
 await socket.connect()
 ```
 
-`webSocketURL(for:)` converts an HTTP/HTTPS server URL to the correct Socket.IO WebSocket URL (`wss://host/socket.io/?EIO=4&transport=websocket`).
+`SocketIOURL.webSocketURL(for:)` converts an HTTP/HTTPS server URL to the correct Socket.IO WebSocket URL (`wss://host/socket.io/?EIO=4&transport=websocket`).
 
 ## Defining Events
 
