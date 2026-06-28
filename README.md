@@ -13,7 +13,7 @@ struct GetUserInterface: Interface {
         let path: String
         let queryItems: [String: String?]? = nil
         let headers: [String: String]? = nil
-        let body: EmptyBody? = nil
+        let body: EmptyBody = .init()
         let authentication: AuthenticationType = .bearer
 
         init(userId: Int) {

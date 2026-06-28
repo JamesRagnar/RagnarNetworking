@@ -12,7 +12,7 @@ public protocol RequestParameters: Sendable {
     var path: String { get }
     var queryItems: [String: String?]? { get }
     var headers: [String: String]? { get }
-    var body: Body? { get }
+    var body: Body { get }
     var authentication: AuthenticationType { get }
 }
 ```
@@ -48,17 +48,17 @@ struct CreateUser: RequestBody, Encodable, Sendable {
 
 struct Parameters: RequestParameters {
     typealias Body = CreateUser
-    let body: CreateUser?
+    let body: CreateUser
 }
 ```
 
 ### No Body
 
-Use `EmptyBody` for requests without a body (body must be `nil`). `EmptyBody` is a type marker and cannot be instantiated.
+Use `EmptyBody()` for requests without a body.
 
 ```swift
 struct Parameters: RequestParameters {
-    let body: EmptyBody? = nil
+    let body: EmptyBody = .init()
 }
 ```
 
@@ -77,7 +77,7 @@ Use `ArrayBody` for top-level JSON arrays.
 ```swift
 struct Parameters: RequestParameters {
     typealias Body = ArrayBody<Int>
-    let body: ArrayBody<Int>?
+    let body: ArrayBody<Int>
 }
 
 let params = Parameters(body: ArrayBody([1, 2, 3]))
@@ -95,7 +95,7 @@ struct LegacyPayload: Encodable, Sendable {
 
 struct Parameters: RequestParameters {
     typealias Body = EncodableBody<LegacyPayload>
-    let body: EncodableBody<LegacyPayload>?
+    let body: EncodableBody<LegacyPayload>
 }
 
 let params = Parameters(body: EncodableBody(LegacyPayload(id: 1)))

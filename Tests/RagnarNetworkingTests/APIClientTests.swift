@@ -10,7 +10,7 @@ private struct TestInterface: Interface {
         let path: String = "/test"
         let queryItems: [String: String?]? = nil
         let headers: [String: String]? = nil
-        let body: EmptyBody? = nil
+        let body: EmptyBody = .init()
         let authentication: AuthenticationType
     }
 

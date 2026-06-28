@@ -51,11 +51,13 @@ public protocol RequestParameters: Sendable {
     var headers: [String: String]? { get }
 
     /// The concrete body type for this request.
-    /// Defaults to EmptyBody for requests without a body.
+    /// Defaults to `EmptyBody` for requests without a body.
     associatedtype Body: RequestBody = EmptyBody
 
-    /// Optional request body data. Set to nil for requests without a body.
-    var body: Body? { get }
+    /// The request body for this request.
+    ///
+    /// Use `EmptyBody()` for requests without a body.
+    var body: Body { get }
 
     /// The authentication strategy for this request
     var authentication: AuthenticationType { get }

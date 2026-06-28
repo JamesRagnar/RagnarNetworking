@@ -126,9 +126,11 @@ public extension InterfaceConstructor {
             to: &request
         )
 
-        if let body = requestParameters.body {
-            try applyBody(body, encoder: serverConfiguration.requestEncoder, to: &request)
-        }
+        try applyBody(
+            requestParameters.body,
+            encoder: serverConfiguration.requestEncoder,
+            to: &request
+        )
 
         return request
     }
