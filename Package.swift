@@ -4,8 +4,11 @@ import PackageDescription
 let package = Package(
     name: "RagnarNetworking",
     platforms: [
-        .iOS(.v17),
-        .macOS(.v14)
+        .iOS(.v16),
+        .macOS(.v13),
+        .tvOS(.v16),
+        .watchOS(.v9),
+        .visionOS(.v1)
     ],
     products: [
         .library(

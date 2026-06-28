@@ -2,6 +2,8 @@
 
 `RequestParameters` defines everything needed to build a request.
 
+This is the primary modeling API for the Interface layer.
+
 ```swift
 public protocol RequestParameters: Sendable {
     associatedtype Body: RequestBody = EmptyBody

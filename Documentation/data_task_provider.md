@@ -14,7 +14,7 @@ let response = try await URLSession.shared.dataTask(
 
 ## Custom Request Construction
 
-You can inject a custom `InterfaceConstructor` to override how requests are built.
+You can inject a custom `InterfaceConstructor` to override how requests are built. This is the package's advanced extension seam for request-construction policy.
 
 ```swift
 struct CustomConstructor: InterfaceConstructor {
@@ -44,6 +44,8 @@ let response = try await URLSession.shared.dataTask(
     constructor: CustomConstructor.self
 )
 ```
+
+Prefer overriding a single `InterfaceConstructor` step and delegating to `URLRequest` for the default behavior when possible. See `Documentation/Interfaces/interface_constructor.md` for invariants and override guidance.
 
 ## Testing
 

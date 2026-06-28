@@ -1,12 +1,15 @@
 # SocketIOClient
 
-`SocketIOClient` implements the Socket.IO 4.x wire protocol over `URLSessionWebSocketTask`. The entire public API is typed via `SocketEvent` — event names and raw payloads are never exposed to callers.
+`SocketIOClient` implements the Socket.IO 4.x wire protocol over `URLSessionWebSocketTask`. The entire public API is typed via `SocketEvent` - event names and raw payloads are never exposed to callers.
 
 ## Setup
 
 ```swift
 let socketURL = SocketIOClient.webSocketURL(for: serverURL)!
-let socket = SocketIOClient(url: socketURL)
+let socket = SocketIOClient(
+    url: socketURL,
+    logging: .disabled
+)
 await socket.connect()
 ```
 
@@ -40,7 +43,7 @@ for await event in await socket.events(for: ItemUpdatedEvent.self) {
 }
 ```
 
-Each call to `events(for:)` returns an independent stream. Multiple consumers of the same event type each get their own stream. Streams persist across reconnection cycles — consumers never need to re-subscribe.
+Each call to `events(for:)` returns an independent stream. Multiple consumers of the same event type each get their own stream. Streams persist across reconnection cycles - consumers never need to re-subscribe.
 
 ## Emitting Events
 
@@ -85,4 +88,15 @@ let socket = SocketIOClient(url: url, reconnect: ReconnectPolicy(
     maxDelay: .seconds(30),
     multiplier: 1.5
 ))
+```
+
+## Logging
+
+Runtime socket logs are controlled per instance through `RagnarNetworkingLogging`.
+
+```swift
+let socket = SocketIOClient(
+    url: url,
+    logging: RagnarNetworkingLogging(enabled: false)
+)
 ```

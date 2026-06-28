@@ -8,7 +8,7 @@
 import Foundation
 
 /// Abstracts `URLSessionWebSocketTask` for test injection.
-public protocol WebSocketTask: AnyObject {
+protocol WebSocketTask: AnyObject {
     func resume()
     func cancel(with closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?)
     func send(_ message: URLSessionWebSocketTask.Message) async throws
@@ -20,7 +20,7 @@ extension URLSessionWebSocketTask: WebSocketTask {}
 /// Swift 6 actor implementing the Socket.IO 4.x wire protocol over URLSessionWebSocketTask.
 ///
 /// The public API is entirely typed via `SocketEvent`. Raw frame encoding/decoding is an
-/// implementation detail — no consumer ever sees event names as strings or payloads as `Data`.
+/// implementation detail - no consumer ever sees event names as strings or payloads as `Data`.
 ///
 /// Event streams registered via `events(for:)` survive `disconnect()`/`reconnect(to:)` cycles.
 /// They only finish when `invalidate()` is called.
@@ -71,6 +71,7 @@ public actor SocketIOClient {
     private var url: URL
     private let urlSession: URLSession
     private let reconnectPolicy: ReconnectPolicy
+    private let logging: RagnarNetworkingLogging
     private let taskFactory: (@Sendable (URL, URLSession) -> any WebSocketTask)?
 
     private var status: Status = .disconnected
@@ -79,7 +80,7 @@ public actor SocketIOClient {
     private var currentTask: (any WebSocketTask)?
 
     // Per-event-name fan-out. Keyed by SocketEvent.name so each typed stream receives only its events.
-    // These persist across disconnect/reconnect — consumers never need to re-subscribe.
+    // These persist across disconnect/reconnect - consumers never need to re-subscribe.
     private var eventContinuations: [String: [UUID: AsyncStream<Data>.Continuation]] = [:]
     private var statusContinuations: [UUID: AsyncStream<Status>.Continuation] = [:]
     private var pipeTasks: [UUID: Task<Void, Never>] = [:]
@@ -92,23 +93,31 @@ public actor SocketIOClient {
     ///   - url: The Socket.IO WebSocket URL. Use `webSocketURL(for:)` to derive it from an HTTP/HTTPS server URL.
     ///   - session: The underlying `URLSession`. Defaults to `URLSession.shared`.
     ///   - reconnect: Reconnection policy. Defaults to exponential backoff with a 1–15s range.
-    public init(url: URL, session: URLSession = .shared, reconnect: ReconnectPolicy = .init()) {
+    public init(
+        url: URL,
+        session: URLSession = .shared,
+        reconnect: ReconnectPolicy = .init(),
+        logging: RagnarNetworkingLogging = .init()
+    ) {
         self.url = url
         self.urlSession = session
         self.reconnectPolicy = reconnect
+        self.logging = logging
         self.taskFactory = nil
     }
 
-    /// Internal initializer for unit tests — inject a custom WebSocketTask factory.
+    /// Internal initializer for unit tests - inject a custom WebSocketTask factory.
     init(
         url: URL,
         session: URLSession = .shared,
         reconnect: ReconnectPolicy = .init(),
+        logging: RagnarNetworkingLogging = .init(),
         taskFactory: @escaping @Sendable (URL, URLSession) -> any WebSocketTask
     ) {
         self.url = url
         self.urlSession = session
         self.reconnectPolicy = reconnect
+        self.logging = logging
         self.taskFactory = taskFactory
     }
 
@@ -142,7 +151,7 @@ public actor SocketIOClient {
         connectionLoopTask = Task { await self.connectionLoop() }
     }
 
-    /// Fully tear down — closes the connection and finishes all registered streams.
+    /// Fully tear down - closes the connection and finishes all registered streams.
     public func invalidate() {
         disconnect()
         finishAllContinuations()
@@ -169,7 +178,7 @@ public actor SocketIOClient {
     // MARK: - Typed Streams
 
     /// Returns a typed `AsyncStream` for the given event type. Multiple independent consumers
-    /// are supported — each call registers a new stream. All receive the same events.
+    /// are supported - each call registers a new stream. All receive the same events.
     /// The stream persists across disconnect/reconnect cycles.
     public func events<E: SocketEvent>(for type: E.Type) -> AsyncStream<E.Schema> {
         let id = UUID()
@@ -264,28 +273,28 @@ public actor SocketIOClient {
         guard case .string(let text) = message else { return }
 
         if text.hasPrefix("0") {
-            // Engine.IO OPEN — send Socket.IO CONNECT to default namespace
-            rnLog(.socket, "open")
+            // Engine.IO OPEN - send Socket.IO CONNECT to default namespace
+            rnLog(.socket, logging: logging, "open")
             try? await currentTask?.send(.string("40"))
             return
         }
 
         if text == "2" {
-            // Engine.IO PING — respond with PONG
-            rnLog(.socket, "ping")
+            // Engine.IO PING - respond with PONG
+            rnLog(.socket, logging: logging, "ping")
             try? await currentTask?.send(.string("3"))
             return
         }
 
         if text.hasPrefix("40") {
             // Socket.IO CONNECT ack
-            rnLog(.socket, "connect")
+            rnLog(.socket, logging: logging, "connect")
             setStatus(.connected)
             return
         }
 
         if text.hasPrefix("42"), let (name, payload) = parseEvent(text) {
-            rnLog(.socket, "event: \(name)")
+            rnLog(.socket, logging: logging, "event: \(name)")
             let data = payload ?? Data("{}".utf8)
             if let conts = eventContinuations[name] {
                 for cont in conts.values { cont.yield(data) }

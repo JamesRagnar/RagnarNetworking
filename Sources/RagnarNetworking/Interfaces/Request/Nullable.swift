@@ -10,9 +10,9 @@ import Foundation
 /// Use this for request body fields where the API distinguishes between a field being
 /// absent (`nil` Swift optional) and being explicitly set to `null`.
 ///
-/// - `nil` on the property — field is omitted from the JSON body
-/// - `.null` — field encodes as `null`
-/// - `.value(x)` — field encodes as the wrapped value
+/// - `nil` on the property - field is omitted from the JSON body
+/// - `.null` - field encodes as `null`
+/// - `.value(x)` - field encodes as the wrapped value
 public enum Nullable<Value: Encodable & Sendable>: Encodable, Sendable {
 
     case value(Value)

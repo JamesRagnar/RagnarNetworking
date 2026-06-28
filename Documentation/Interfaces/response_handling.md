@@ -1,6 +1,6 @@
 # Response Handling
 
-Interfaces map HTTP status codes to outcomes (decode success, throw a predefined error, or decode an error body). The `handle(_:)` method applies this mapping and decodes the response.
+Interfaces map HTTP status codes to outcomes (decode success, throw a predefined error, or decode an error body). The default `handle(_:)` path applies this mapping and decodes the response.
 
 ## Response Cases
 
@@ -87,7 +87,7 @@ public enum CoverResponseHandler: ResponseHandler {
 - Exact status codes match first.
 - Range matches are evaluated in the order they are defined.
 - Duplicate exact codes keep the first declaration. Later duplicates are ignored.
-- In DEBUG builds, duplicate exact codes emit a warning.
+- In DEBUG builds, duplicate exact codes emit a developer diagnostic.
 
 This means you can declare a fallback range and still override specific status codes later:
 
@@ -135,7 +135,7 @@ static var responseCases: ResponseMap {
 static var responseCases: ResponseMap {
     [
         .code(401, .error(APIError.unauthorized)),
-        .code(401, .error(APIError.sessionExpired)) // ignored, DEBUG warning
+        .code(401, .error(APIError.sessionExpired)) // ignored, DEBUG developer diagnostic
     ]
 }
 ```
@@ -146,8 +146,8 @@ static var responseCases: ResponseMap {
 
 When decoding fails (empty body, non-JSON response, malformed JSON), the error is surfaced as:
 
-- `ResponseError.decoding(_, _, .jsonDecoder(...))` — for `DecodingError` failures (invalid JSON, missing keys, type mismatches)
-- `ResponseError.decoding(_, _, .custom(message: ...))` — for other errors thrown by the decode closure
+- `ResponseError.decoding(_, _, .jsonDecoder(...))` - for `DecodingError` failures (invalid JSON, missing keys, type mismatches)
+- `ResponseError.decoding(_, _, .custom(message: ...))` - for other errors thrown by the decode closure
 
 The raw response data is always preserved, so you can still inspect `responseBodyString`.
 

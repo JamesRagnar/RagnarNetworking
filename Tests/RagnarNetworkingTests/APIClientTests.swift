@@ -129,6 +129,23 @@ struct APIClientTests {
         #expect(await tokenCounter.value == 0)
     }
 
+    @Test("Unauthenticated convenience initializer supports .none requests")
+    func unauthenticatedInitializerSupportsNoneAuth() async throws {
+        let mock = MockDataTaskProvider()
+        await mock.enqueue(data: makeResponseData(value: "public"), statusCode: 200)
+
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            session: mock
+        )
+
+        let params = TestInterface.Parameters(authentication: .none)
+        let result = try await client.send(TestInterface.self, params)
+
+        #expect(result.value == "public")
+        #expect(await mock.callCount == 1)
+    }
+
     // MARK: 2. .bearer auth sets Authorization header
 
     @Test(".bearer auth calls token and sets Authorization: Bearer header")
