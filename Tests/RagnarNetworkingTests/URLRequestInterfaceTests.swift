@@ -947,6 +947,52 @@ struct URLRequestInterfaceTests {
         #expect(request.url != nil)
     }
 
+    // MARK: - Interface-typed initializer
+
+    @Test("Interface-typed init produces equivalent request to RequestParameters init")
+    func testInterfaceTypedInit() throws {
+        struct SimpleInterface: Interface {
+            struct Parameters: RequestParameters {
+                let method: RequestMethod = .get
+                let path: String = "/api/check"
+                let queryItems: [String: String?]? = nil
+                let headers: [String: String]? = nil
+                let body: EmptyBody = .init()
+                let authentication: AuthenticationType = .none
+            }
+            struct Response: Decodable, Sendable {}
+            static var responseCases: ResponseMap { [.code(200, .decode)] }
+        }
+
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = SimpleInterface.Parameters()
+
+        let viaInterface = try URLRequest(SimpleInterface.self, params, config)
+        let viaParams = try URLRequest(requestParameters: params, serverConfiguration: config)
+
+        #expect(viaInterface.url == viaParams.url)
+        #expect(viaInterface.httpMethod == viaParams.httpMethod)
+    }
+
+    // MARK: - RequestEncoder
+
+    @Test("RequestEncoder with custom factory uses the provided encoder")
+    func testCustomEncoderFactory() throws {
+        let encoder = RequestEncoder(makeJSONEncoder: {
+            let e = JSONEncoder()
+            e.keyEncodingStrategy = .convertToSnakeCase
+            return e
+        })
+
+        struct Payload: Encodable { let myKey: String }
+        let produced = encoder.makeJSONEncoder()
+        let data = try produced.encode(Payload(myKey: "value"))
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        #expect(json["my_key"] as? String == "value")
+        #expect(json["myKey"] == nil)
+    }
+
     // MARK: - Integration Tests
 
     @Test("Constructs complete complex request")

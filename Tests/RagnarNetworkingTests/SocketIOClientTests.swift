@@ -500,4 +500,171 @@ struct SocketIOClientTests {
             Issue.record("Expected a string PONG message")
         }
     }
+
+    // MARK: - Reconnect
+
+    @Test("reconnect(to:) switches to the new URL and re-establishes connection")
+    func reconnectToNewURL() async {
+        let task1 = MockWebSocketTask()
+        let task2 = MockWebSocketTask()
+        nonisolated(unsafe) var usedURLs: [URL] = []
+        nonisolated(unsafe) var taskIndex = 0
+        let tasks = [task1, task2]
+        let socket = SocketIOClient(
+            url: URL(string: "ws://old.example.com/")!,
+            reconnect: .disabled,
+            taskFactory: { url, _ in
+                usedURLs.append(url)
+                let t = tasks[taskIndex]
+                taskIndex += 1
+                return t
+            }
+        )
+
+        let statusStream = await socket.statusUpdates()
+        await socket.connect()
+
+        var statusIterator = statusStream.makeAsyncIterator()
+        _ = await statusIterator.next() // .disconnected
+
+        await performHandshake(on: task1)
+        _ = await statusIterator.next() // .connecting
+        _ = await statusIterator.next() // .connected
+
+        let newURL = URL(string: "ws://new.example.com/")!
+        await socket.reconnect(to: newURL)
+
+        _ = await statusIterator.next() // .disconnected
+
+        await performHandshake(on: task2)
+        _ = await statusIterator.next() // .connecting
+        _ = await statusIterator.next() // .connected
+
+        #expect(usedURLs.last == newURL)
+
+        await socket.invalidate()
+    }
+
+    // MARK: - Malformed Payloads
+
+    @Test("events(for:) silently drops payloads that do not match the schema")
+    func eventStreamDropsMalformedPayload() async throws {
+        let task = MockWebSocketTask()
+        let socket = makeSocket(tasks: [task])
+
+        let eventStream = await socket.events(for: PingEvent.self)
+        let statusStream = await socket.statusUpdates()
+
+        await socket.connect()
+
+        var statusIterator = statusStream.makeAsyncIterator()
+        _ = await statusIterator.next() // .disconnected
+        await performHandshake(on: task)
+        _ = await statusIterator.next() // .connecting
+        _ = await statusIterator.next() // .connected
+
+        // Inject a payload that does not match PingEvent.Schema (not a JSON object)
+        task.inject(text: #"42["\#(PingEvent.name)","not-an-object"]"#)
+
+        // Inject a valid payload immediately after — this one should be received
+        let validPayload = try JSONEncoder().encode(PingEvent.Schema(message: "valid"))
+        let json = String(data: validPayload, encoding: .utf8)!
+        task.inject(text: #"42["\#(PingEvent.name)",\#(json)]"#)
+
+        var eventIterator = eventStream.makeAsyncIterator()
+        let event = await eventIterator.next()
+        #expect(event?.message == "valid")
+    }
+
+    // MARK: - Invalidate with Active Event Streams
+
+    @Test("invalidate() finishes all registered event streams")
+    func invalidateFinishesEventStreams() async {
+        let task = MockWebSocketTask()
+        let socket = makeSocket(tasks: [task])
+
+        let eventStream = await socket.events(for: PingEvent.self)
+        await socket.connect()
+        await Task.yield()
+
+        await socket.invalidate()
+
+        var eventIterator = eventStream.makeAsyncIterator()
+        var finished = false
+        for _ in 0..<10 {
+            if await eventIterator.next() == nil {
+                finished = true
+                break
+            }
+        }
+        #expect(finished)
+    }
+
+    // MARK: - Automatic Reconnect
+
+    @Test("Automatic reconnect retries after network loss using reconnect policy")
+    func automaticReconnectAfterNetworkLoss() async {
+        let task1 = MockWebSocketTask()
+        let task2 = MockWebSocketTask()
+        nonisolated(unsafe) var taskIndex = 0
+        let tasks = [task1, task2]
+        let socket = SocketIOClient(
+            url: testURL,
+            reconnect: .init(enabled: true, initialDelay: .milliseconds(1), maxDelay: .seconds(1), multiplier: 2.0),
+            taskFactory: { _, _ in
+                let t = tasks[taskIndex]
+                taskIndex += 1
+                return t
+            }
+        )
+
+        let statusStream = await socket.statusUpdates()
+        await socket.connect()
+
+        var statusIterator = statusStream.makeAsyncIterator()
+        _ = await statusIterator.next() // .disconnected
+
+        await performHandshake(on: task1)
+        _ = await statusIterator.next() // .connecting
+        _ = await statusIterator.next() // .connected
+
+        // Simulate network loss — triggers auto-reconnect
+        task1.simulateDisconnect()
+
+        _ = await statusIterator.next() // .disconnected (after receive throws)
+        _ = await statusIterator.next() // .connecting (after initialDelay sleep)
+
+        await performHandshake(on: task2)
+        _ = await statusIterator.next() // .connected
+
+        #expect(task1.resumeCount == 1)
+        #expect(task2.resumeCount == 1)
+
+        await socket.invalidate()
+    }
+}
+
+// MARK: - SocketEmptyBody Tests
+
+@Suite("SocketEmptyBody Tests")
+struct SocketEmptyBodyTests {
+
+    @Test("init() creates an instance")
+    func initCreatesInstance() {
+        _ = SocketEmptyBody()
+    }
+
+    @Test("Decodable from empty JSON object")
+    func decodableFromEmptyObject() throws {
+        let data = Data("{}".utf8)
+        _ = try JSONDecoder().decode(SocketEmptyBody.self, from: data)
+    }
+
+    @Test("Decodable from JSON array (no-payload event frame data)")
+    func decodableFromEmptyArrayElement() throws {
+        // Socket.IO no-payload events supply Data("{}") as the payload default
+        let data = Data("{}".utf8)
+        let body = try JSONDecoder().decode(SocketEmptyBody.self, from: data)
+        _ = body
+    }
 }

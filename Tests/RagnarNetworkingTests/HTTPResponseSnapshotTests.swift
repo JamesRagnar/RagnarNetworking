@@ -64,3 +64,50 @@ struct HTTPResponseSnapshotTests {
     }
 
 }
+
+@Suite("ErrorSnapshot Tests")
+struct ErrorSnapshotTests {
+
+    @Test("Memberwise init stores all fields")
+    func memberwiseInitStoresFields() {
+        let snapshot = ErrorSnapshot(
+            typeName: "MyError",
+            description: "something went wrong",
+            localizedDescription: "Something went wrong."
+        )
+        #expect(snapshot.typeName == "MyError")
+        #expect(snapshot.description == "something went wrong")
+        #expect(snapshot.localizedDescription == "Something went wrong.")
+    }
+
+    @Test("Error init captures type name, description, and localized description")
+    func errorInitCapturesProperties() {
+        struct TestError: LocalizedError {
+            var errorDescription: String? { "A test error occurred." }
+        }
+        let snapshot = ErrorSnapshot(TestError())
+        #expect(snapshot.typeName == "TestError")
+        #expect(snapshot.localizedDescription == "A test error occurred.")
+        #expect(snapshot.description.isEmpty == false)
+    }
+
+    @Test("Equatable: equal snapshots compare equal")
+    func equalSnapshotsAreEqual() {
+        let a = ErrorSnapshot(typeName: "E", description: "d", localizedDescription: "l")
+        let b = ErrorSnapshot(typeName: "E", description: "d", localizedDescription: "l")
+        #expect(a == b)
+    }
+
+    @Test("Equatable: snapshots with different fields are not equal")
+    func differentSnapshotsAreNotEqual() {
+        let a = ErrorSnapshot(typeName: "E", description: "d", localizedDescription: "l")
+        let b = ErrorSnapshot(typeName: "X", description: "d", localizedDescription: "l")
+        #expect(a != b)
+    }
+
+    @Test("CustomStringConvertible description matches description field")
+    func descriptionMatchesStoredField() {
+        let snapshot = ErrorSnapshot(typeName: "T", description: "my error text", localizedDescription: "l")
+        #expect(snapshot.description == "my error text")
+    }
+}
