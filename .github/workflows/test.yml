@@ -26,16 +26,21 @@ jobs:
 
   unit-tests:
     name: Unit tests (Swift ${{ matrix.swift }})
-    runs-on: macos-latest
+    runs-on: macos-15
     strategy:
       fail-fast: false
       matrix:
-        swift: ["6.0", "6.2"]
+        include:
+          - xcode: Xcode_16.2
+            swift: "6.0"
+          - xcode: Xcode_16.4
+            swift: "6.1"
+          - xcode: Xcode_26.3
+            swift: "6.2"
+    env:
+      DEVELOPER_DIR: /Applications/${{ matrix.xcode }}.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
-      - uses: swift-actions/setup-swift@v3
-        with:
-          swift-version: "${{ matrix.swift }}"
       - name: Run tests
         run: swift test -Xswiftc -warnings-as-errors --explicit-target-dependency-import-check error
 
