@@ -53,7 +53,7 @@ let user = try await client.send(
 - `APIClient` actor with automatic 401 retry and coalesced token refresh
 - `SocketIOClient` actor with typed event streams and automatic reconnection
 - Immutable per-instance logging configuration via `RagnarNetworkingLogging`
-- Testable, protocol-based networking
+- Testable request execution via `DataTaskProvider` and socket transport via `SocketClient`
 - Advanced request-construction extension API via `InterfaceConstructor`
 
 ## Documentation
