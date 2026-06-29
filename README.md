@@ -70,8 +70,12 @@ let user = try await client.send(
 
 ## Requirements
 
-- Swift 6.0+
-- iOS 17.0+ / macOS 14.0+
+- Swift Package Manager tools 5.10+
+- iOS 16.0+
+- macOS 13.0+
+- tvOS 16.0+
+- watchOS 9.0+
+- visionOS 1.0+
 
 ## License
 
