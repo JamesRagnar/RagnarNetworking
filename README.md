@@ -13,7 +13,7 @@ struct GetUserInterface: Interface {
         let path: String
         let queryItems: [String: String?]? = nil
         let headers: [String: String]? = nil
-        let body: EmptyBody? = nil
+        let body: EmptyBody = .init()
         let authentication: AuthenticationType = .bearer
 
         init(userId: Int) {
@@ -52,24 +52,30 @@ let user = try await client.send(
 - Strict request bodies via `RequestBody` with intrinsic content types
 - `APIClient` actor with automatic 401 retry and coalesced token refresh
 - `SocketIOClient` actor with typed event streams and automatic reconnection
-- Testable, protocol-based networking
-- Customizable request construction via `InterfaceConstructor`
+- Immutable per-instance logging configuration via `RagnarNetworkingLogging`
+- Testable request execution via `DataTaskProvider` and socket transport via `SocketClient`
+- Advanced request-construction extension API via `InterfaceConstructor`
 
 ## Documentation
 
+- [Documentation Overview](Documentation/README.md)
+- [APIClient](Documentation/api_client.md)
+- [SocketIOClient](Documentation/socket_io_client.md)
+- [DataTaskProvider](Documentation/data_task_provider.md)
+- [Server Configuration](Documentation/server_configuration.md)
 - [Interfaces Overview](Documentation/Interfaces/README.md)
-- [APIClient](Documentation/Interfaces/api_client.md)
-- [SocketIOClient](Documentation/Interfaces/socket_io_client.md)
 - [Request Parameters](Documentation/Interfaces/request_parameters.md)
 - [Response Handling](Documentation/Interfaces/response_handling.md)
-- [DataTaskProvider](Documentation/Interfaces/data_task_provider.md)
-- [Server Configuration](Documentation/Interfaces/server_configuration.md)
 - [Interface Constructor](Documentation/Interfaces/interface_constructor.md)
 
 ## Requirements
 
-- Swift 6.0+
-- iOS 17.0+ / macOS 14.0+
+- Swift Package Manager tools 5.10+
+- iOS 16.0+
+- macOS 13.0+
+- tvOS 16.0+
+- watchOS 9.0+
+- visionOS 1.0+
 
 ## License
 

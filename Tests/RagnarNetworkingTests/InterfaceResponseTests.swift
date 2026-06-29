@@ -25,7 +25,7 @@ struct InterfaceResponseTests {
             let path = "/test"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: EmptyBody? = nil
+            let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
         }
 
@@ -48,7 +48,7 @@ struct InterfaceResponseTests {
             let path = "/string"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: EmptyBody? = nil
+            let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
         }
 
@@ -65,7 +65,7 @@ struct InterfaceResponseTests {
             let path = "/data"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: EmptyBody? = nil
+            let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
         }
 
@@ -82,7 +82,7 @@ struct InterfaceResponseTests {
             let path = "/no-content"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: EmptyBody? = nil
+            let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
         }
 
@@ -99,7 +99,7 @@ struct InterfaceResponseTests {
             let path = "/no-content-string"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: EmptyBody? = nil
+            let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
         }
 
@@ -116,7 +116,7 @@ struct InterfaceResponseTests {
             let path = "/no-content-json"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: EmptyBody? = nil
+            let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
         }
 
@@ -133,7 +133,7 @@ struct InterfaceResponseTests {
             let path = "/empty-decode"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: EmptyBody? = nil
+            let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
         }
 
@@ -150,7 +150,7 @@ struct InterfaceResponseTests {
             let path = "/custom-handler"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: EmptyBody? = nil
+            let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
         }
 
@@ -199,7 +199,7 @@ struct InterfaceResponseTests {
             let path = "/range"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: EmptyBody? = nil
+            let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
         }
 
@@ -216,7 +216,7 @@ struct InterfaceResponseTests {
             let path = "/overlap"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: EmptyBody? = nil
+            let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
         }
 
@@ -236,7 +236,7 @@ struct InterfaceResponseTests {
             let path = "/decode-error"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: EmptyBody? = nil
+            let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
         }
 
@@ -270,7 +270,7 @@ struct InterfaceResponseTests {
             let path = "/decode-error-throws"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: EmptyBody? = nil
+            let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
         }
 
@@ -305,7 +305,7 @@ struct InterfaceResponseTests {
             let path = "/no-content-custom-decoding"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: EmptyBody? = nil
+            let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
         }
 
@@ -322,7 +322,7 @@ struct InterfaceResponseTests {
             let path = "/range-order"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: EmptyBody? = nil
+            let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
         }
 
@@ -616,7 +616,7 @@ struct InterfaceResponseTests {
                 let path = "/category"
                 let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: EmptyBody? = nil
+                let body: EmptyBody = .init()
                 let authentication: AuthenticationType = .none
             }
 
@@ -1024,7 +1024,7 @@ struct InterfaceResponseTests {
                 let path = "/nested"
                 let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: EmptyBody? = nil
+                let body: EmptyBody = .init()
                 let authentication: AuthenticationType = .none
             }
 
@@ -1067,7 +1067,7 @@ struct InterfaceResponseTests {
                 let path = "/array"
                 let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: EmptyBody? = nil
+                let body: EmptyBody = .init()
                 let authentication: AuthenticationType = .none
             }
 
@@ -1107,7 +1107,7 @@ struct InterfaceResponseTests {
                 let path = "/empty"
                 let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: EmptyBody? = nil
+                let body: EmptyBody = .init()
                 let authentication: AuthenticationType = .none
             }
 
@@ -1154,7 +1154,7 @@ struct InterfaceResponseTests {
                 let path = "/no-content"
                 let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: EmptyBody? = nil
+                let body: EmptyBody = .init()
                 let authentication: AuthenticationType = .none
             }
 

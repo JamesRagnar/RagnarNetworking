@@ -1,12 +1,12 @@
 # Interfaces
 
-This directory documents the Interfaces system: how requests are defined, constructed, executed, and decoded.
+This directory documents the Interface modeling layer: how requests are defined, constructed, and decoded.
 
 ## Overview
 
 An `Interface` pairs request parameters with response handling. Most usage follows this flow:
 1. Define `Interface` and nested `Parameters`.
-2. Execute via `APIClient` (recommended) or directly via `DataTaskProvider`.
+2. Execute via `APIClient` or directly via `DataTaskProvider`.
 
 ## Example
 
@@ -17,7 +17,7 @@ struct GetUserInterface: Interface {
         let path: String
         let queryItems: [String: String?]? = nil
         let headers: [String: String]? = nil
-        let body: EmptyBody? = nil
+        let body: EmptyBody = .init()
         let authentication: AuthenticationType = .bearer
 
         init(userId: Int) {
@@ -59,7 +59,7 @@ let config = ServerConfiguration(
   - Exact code matches are checked first.
   - Then ranges are checked in declaration order.
   - Duplicate exact codes keep the first declaration.
-  - In DEBUG builds, duplicate exact codes emit a warning.
+  - In DEBUG builds, duplicate exact codes emit a developer diagnostic.
 - `.decodeError(MyError.self)` decodes structured error bodies and throws `ResponseError.decoded`.
 - Use `.noContent` for no-body success (204/205/304). Prefer `EmptyResponse` as the response type.
 - Override `responseHandler` when an Interface needs custom response handling logic.
@@ -71,7 +71,7 @@ static var responseCases: ResponseMap {
     [
         .success(.error(APIError.fallbackSuccess)),
         .code(200, .decode), // exact overrides success range
-        .code(200, .error(APIError.duplicate)) // ignored, DEBUG warning
+        .code(200, .error(APIError.duplicate)) // ignored, DEBUG developer diagnostic
     ]
 }
 ```
@@ -102,6 +102,4 @@ Prefer explicit success codes. Use success ranges only when the endpoint truly v
 
 - [Request Parameters](request_parameters.md)
 - [Response Handling](response_handling.md)
-- [DataTaskProvider](data_task_provider.md)
-- [Server Configuration](server_configuration.md)
 - [Interface Constructor](interface_constructor.md)

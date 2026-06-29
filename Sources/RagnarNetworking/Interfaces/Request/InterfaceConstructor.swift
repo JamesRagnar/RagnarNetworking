@@ -7,27 +7,53 @@
 
 import Foundation
 
-/// Defines the steps required to construct a URLRequest from Interface parameters.
+/// Advanced extension API for constructing `URLRequest` values from typed Interface parameters.
+///
+/// `InterfaceConstructor` exposes the request-construction pipeline as a set of stable
+/// customization points. `URLRequest` provides the default implementation, and custom
+/// constructors can override individual steps while inheriting the rest of the pipeline.
+///
+/// Most consumers should use the default `URLRequest` constructor path. Conform to this
+/// protocol only when you need to change request construction behavior in a targeted way.
+///
+/// Recommended override style:
+/// - Override the smallest step that solves the problem.
+/// - Call the default `URLRequest` implementation first when you want additive behavior.
+/// - Reimplement `buildRequest` only when you need to change pipeline ordering or omit steps.
+///
+/// Constructor invariants:
+/// - Respect the request's declared `AuthenticationType`.
+/// - Preserve explicit `RequestError` failures for malformed configuration or invalid requests.
+/// - Keep body bytes and `Content-Type` in sync.
+/// - Return a fully formed `URLRequest` with a valid URL.
 public protocol InterfaceConstructor {
 
-    /// Builds a URLRequest using the provided parameters and configuration.
+    /// Builds a `URLRequest` using the provided parameters and server configuration.
+    ///
+    /// Override this only when you need to change the overall construction flow.
     static func buildRequest<Parameters: RequestParameters>(
         requestParameters: Parameters,
         serverConfiguration: ServerConfiguration
     ) throws(RequestError) -> URLRequest
 
-    /// Creates URL components from the server configuration.
+    /// Creates base `URLComponents` from the server configuration.
     static func makeComponents(
         serverConfiguration: ServerConfiguration
     ) throws(RequestError) -> URLComponents
 
     /// Applies the request path to the URL components.
+    ///
+    /// Custom implementations should preserve the default path-joining semantics unless they are
+    /// intentionally redefining how interface paths combine with the configured base URL.
     static func applyPath(
         _ path: String,
         to components: inout URLComponents
     )
 
     /// Applies query items and URL authentication parameters.
+    ///
+    /// Custom implementations should ensure `.url` authentication still has a single final
+    /// `token` query item when authentication succeeds.
     static func applyQueryItems(
         _ queryItems: [String: String?]?,
         authentication: AuthenticationType,
@@ -35,10 +61,10 @@ public protocol InterfaceConstructor {
         to components: inout URLComponents
     ) throws(RequestError)
 
-    /// Builds a URL from the components.
+    /// Builds a final URL from the components.
     static func makeURL(from components: URLComponents) throws(RequestError) -> URL
 
-    /// Creates the base URLRequest.
+    /// Creates the base `URLRequest`.
     static func makeRequest(url: URL) -> URLRequest
 
     /// Applies the HTTP method.
@@ -48,6 +74,9 @@ public protocol InterfaceConstructor {
     )
 
     /// Applies headers, including authentication.
+    ///
+    /// Custom implementations should preserve case-insensitive header semantics and define how
+    /// caller-supplied headers interact with generated authentication headers.
     static func applyHeaders(
         _ headers: [String: String]?,
         authentication: AuthenticationType,
@@ -56,6 +85,8 @@ public protocol InterfaceConstructor {
     ) throws(RequestError)
 
     /// Encodes and applies the request body with its content type.
+    ///
+    /// Custom implementations must keep the encoded body bytes and `Content-Type` header aligned.
     static func applyBody<B: RequestBody>(
         _ body: B,
         encoder: RequestEncoder,
@@ -64,10 +95,13 @@ public protocol InterfaceConstructor {
 
 }
 
-// MARK: - Default InterfaceConstructor Implementation
+// MARK: - Default Pipeline Implementation
 
 public extension InterfaceConstructor {
 
+    /// Default pipeline:
+    /// `makeComponents` → `applyPath` → `applyQueryItems` → `makeURL` →
+    /// `makeRequest` → `applyMethod` → `applyHeaders` → `applyBody`
     static func buildRequest<Parameters: RequestParameters>(
         requestParameters: Parameters,
         serverConfiguration: ServerConfiguration
@@ -92,9 +126,11 @@ public extension InterfaceConstructor {
             to: &request
         )
 
-        if let body = requestParameters.body {
-            try applyBody(body, encoder: serverConfiguration.requestEncoder, to: &request)
-        }
+        try applyBody(
+            requestParameters.body,
+            encoder: serverConfiguration.requestEncoder,
+            to: &request
+        )
 
         return request
     }
@@ -144,6 +180,13 @@ public extension InterfaceConstructor {
         var currentQueryItems = components.queryItems ?? []
 
         if case .url = authentication {
+            if currentQueryItems.contains(where: {
+                $0.name.caseInsensitiveCompare("token") == .orderedSame
+            }) {
+                rnDiagnostic(
+                    "RagnarNetworking: URL authentication overrides an existing 'token' query item from the base URL."
+                )
+            }
             currentQueryItems.removeAll {
                 $0.name.caseInsensitiveCompare("token") == .orderedSame
             }
@@ -151,6 +194,13 @@ public extension InterfaceConstructor {
 
         let newQueryItems: [URLQueryItem]?
         if case .url = authentication {
+            if queryItems?.contains(where: {
+                $0.key.caseInsensitiveCompare("token") == .orderedSame
+            }) == true {
+                rnDiagnostic(
+                    "RagnarNetworking: URL auth overrides a 'token' query param in request parameters."
+                )
+            }
             newQueryItems = queryItems?
                 .filter { $0.key.caseInsensitiveCompare("token") != .orderedSame }
                 .map { URLQueryItem(name: $0.key, value: $0.value) }
@@ -214,6 +264,11 @@ public extension InterfaceConstructor {
         if let newHeaderFields = headers {
             for (key, value) in newHeaderFields {
                 if key.caseInsensitiveCompare("Authorization") == .orderedSame {
+                    if case .bearer = authentication {
+                        rnDiagnostic(
+                            "RagnarNetworking: custom Authorization header overrides bearer auth for this request."
+                        )
+                    }
                     currentHeaderFields = currentHeaderFields.filter {
                         $0.key.caseInsensitiveCompare("Authorization") != .orderedSame
                     }

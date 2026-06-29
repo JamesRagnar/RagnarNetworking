@@ -19,7 +19,7 @@ struct URLRequestInterfaceTests {
         let path: String
         let queryItems: [String: String?]? = nil
         let headers: [String: String]? = nil
-        let body: EmptyBody? = nil
+        let body: EmptyBody = .init()
         let authentication: AuthenticationType = .none
     }
 
@@ -28,7 +28,7 @@ struct URLRequestInterfaceTests {
         let path: String = "/api/users"
         let queryItems: [String: String?]? = nil
         let headers: [String: String]? = nil
-        let body: EmptyBody? = nil
+        let body: EmptyBody = .init()
         let authentication: AuthenticationType
     }
 
@@ -38,7 +38,7 @@ struct URLRequestInterfaceTests {
         let path: String = "/api/update"
         let queryItems: [String: String?]?
         let headers: [String: String]?
-        let body: BodyType?
+        let body: BodyType
         let authentication: AuthenticationType
     }
 
@@ -74,7 +74,7 @@ struct URLRequestInterfaceTests {
                 let path = "/test"
                 let queryItems: [String: String?]? = nil
                 let headers: [String: String]? = nil
-                let body: EmptyBody? = nil
+                let body: EmptyBody = .init()
                 let authentication: AuthenticationType = .none
             }
 
@@ -172,7 +172,7 @@ struct URLRequestInterfaceTests {
         let params = ComplexParameters<EmptyBody>(
             queryItems: ["page": "1", "limit": "10"],
             headers: nil,
-            body: nil,
+            body: .init(),
             authentication: .none
         )
 
@@ -193,7 +193,7 @@ struct URLRequestInterfaceTests {
         let params = ComplexParameters<EmptyBody>(
             queryItems: ["flag": nil],
             headers: nil,
-            body: nil,
+            body: .init(),
             authentication: .none
         )
 
@@ -215,7 +215,7 @@ struct URLRequestInterfaceTests {
         let params = ComplexParameters<EmptyBody>(
             queryItems: ["new": "param"],
             headers: nil,
-            body: nil,
+            body: .init(),
             authentication: .none
         )
 
@@ -236,7 +236,7 @@ struct URLRequestInterfaceTests {
         let params = ComplexParameters<EmptyBody>(
             queryItems: ["filter": "active"],
             headers: nil,
-            body: nil,
+            body: .init(),
             authentication: .url
         )
 
@@ -257,7 +257,7 @@ struct URLRequestInterfaceTests {
         let params = ComplexParameters<EmptyBody>(
             queryItems: ["token": "custom-token"],
             headers: nil,
-            body: nil,
+            body: .init(),
             authentication: .url
         )
 
@@ -279,7 +279,7 @@ struct URLRequestInterfaceTests {
         let params = ComplexParameters<EmptyBody>(
             queryItems: nil,
             headers: nil,
-            body: nil,
+            body: .init(),
             authentication: .url
         )
 
@@ -301,7 +301,7 @@ struct URLRequestInterfaceTests {
         let params = ComplexParameters<EmptyBody>(
             queryItems: ["Token": "custom-token"],
             headers: nil,
-            body: nil,
+            body: .init(),
             authentication: .url
         )
 
@@ -350,7 +350,7 @@ struct URLRequestInterfaceTests {
         let params = ComplexParameters<EmptyBody>(
             queryItems: nil,
             headers: ["X-Custom-Header": "custom-value", "Accept-Language": "en-US"],
-            body: nil,
+            body: .init(),
             authentication: .none
         )
 
@@ -418,7 +418,7 @@ struct URLRequestInterfaceTests {
         let params = ComplexParameters<EmptyBody>(
             queryItems: nil,
             headers: ["X-Request-ID": "12345"],
-            body: nil,
+            body: .init(),
             authentication: .bearer
         )
 
@@ -438,7 +438,7 @@ struct URLRequestInterfaceTests {
         let params = ComplexParameters<EmptyBody>(
             queryItems: nil,
             headers: ["Authorization": "Custom token"],
-            body: nil,
+            body: .init(),
             authentication: .bearer
         )
 
@@ -457,7 +457,7 @@ struct URLRequestInterfaceTests {
         let params = ComplexParameters<EmptyBody>(
             queryItems: nil,
             headers: ["authorization": "Custom token"],
-            body: nil,
+            body: .init(),
             authentication: .bearer
         )
 
@@ -482,7 +482,7 @@ struct URLRequestInterfaceTests {
             let path: String = "/test"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: EmptyBody? = nil
+            let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
         }
 
@@ -686,7 +686,7 @@ struct URLRequestInterfaceTests {
             let path: String = "/test"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: EncoderBody?
+            let body: EncoderBody
             let authentication: AuthenticationType = .none
         }
 
@@ -720,7 +720,7 @@ struct URLRequestInterfaceTests {
             let path: String = "/test"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: ArrayBody<Int>?
+            let body: ArrayBody<Int>
             let authentication: AuthenticationType = .none
         }
 
@@ -751,7 +751,7 @@ struct URLRequestInterfaceTests {
             let path: String = "/test"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: EncodableBody<LegacyPayload>?
+            let body: EncodableBody<LegacyPayload>
             let authentication: AuthenticationType = .none
         }
 
@@ -782,7 +782,7 @@ struct URLRequestInterfaceTests {
             let path: String = "/test"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: PayloadWithNullable?
+            let body: PayloadWithNullable
             let authentication: AuthenticationType = .none
         }
 
@@ -812,7 +812,7 @@ struct URLRequestInterfaceTests {
             let path: String = "/test"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: PayloadWithNullable?
+            let body: PayloadWithNullable
             let authentication: AuthenticationType = .none
         }
 
@@ -841,7 +841,7 @@ struct URLRequestInterfaceTests {
             let path: String = "/test"
             let queryItems: [String: String?]? = nil
             let headers: [String: String]? = nil
-            let body: PayloadWithNullable?
+            let body: PayloadWithNullable
             let authentication: AuthenticationType = .none
         }
 
@@ -945,6 +945,52 @@ struct URLRequestInterfaceTests {
         )
 
         #expect(request.url != nil)
+    }
+
+    // MARK: - Interface-typed initializer
+
+    @Test("Interface-typed init produces equivalent request to RequestParameters init")
+    func testInterfaceTypedInit() throws {
+        struct SimpleInterface: Interface {
+            struct Parameters: RequestParameters {
+                let method: RequestMethod = .get
+                let path: String = "/api/check"
+                let queryItems: [String: String?]? = nil
+                let headers: [String: String]? = nil
+                let body: EmptyBody = .init()
+                let authentication: AuthenticationType = .none
+            }
+            struct Response: Decodable, Sendable {}
+            static var responseCases: ResponseMap { [.code(200, .decode)] }
+        }
+
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = SimpleInterface.Parameters()
+
+        let viaInterface = try URLRequest(SimpleInterface.self, params, config)
+        let viaParams = try URLRequest(requestParameters: params, serverConfiguration: config)
+
+        #expect(viaInterface.url == viaParams.url)
+        #expect(viaInterface.httpMethod == viaParams.httpMethod)
+    }
+
+    // MARK: - RequestEncoder
+
+    @Test("RequestEncoder with custom factory uses the provided encoder")
+    func testCustomEncoderFactory() throws {
+        let encoder = RequestEncoder(makeJSONEncoder: {
+            let e = JSONEncoder()
+            e.keyEncodingStrategy = .convertToSnakeCase
+            return e
+        })
+
+        struct Payload: Encodable { let myKey: String }
+        let produced = encoder.makeJSONEncoder()
+        let data = try produced.encode(Payload(myKey: "value"))
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        #expect(json["my_key"] as? String == "value")
+        #expect(json["myKey"] == nil)
     }
 
     // MARK: - Integration Tests

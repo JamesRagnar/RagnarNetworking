@@ -21,7 +21,7 @@ public protocol ResponseHandler {
 // MARK: - Response Outcome Result
 
 /// The result of a handled response, allowing non-decoding success cases.
-public enum ResponseOutcomeResult<Response: Sendable>: Sendable {
+enum ResponseOutcomeResult<Response: Sendable>: Sendable {
 
     /// The response was decoded as the Interface's Response type.
     case decoded(Response)

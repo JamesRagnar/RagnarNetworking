@@ -3,7 +3,7 @@ import Foundation
 /// App-agnostic actor that owns auth state and handles 401 retry.
 ///
 /// Unauthenticated requests (`.none` auth) never invoke the token closure.
-/// Concurrent 401s coalesce into a single refresh — only one `refresh` call fires
+/// Concurrent 401s coalesce into a single refresh - only one `refresh` call fires
 /// regardless of how many requests fail simultaneously.
 public actor APIClient {
 
@@ -16,7 +16,7 @@ public actor APIClient {
     /// Creates an `APIClient`.
     ///
     /// - Parameters:
-    ///   - baseURL: Base URL for all requests. Stable for the client's lifetime — recreate if the server URL changes.
+    ///   - baseURL: Base URL for all requests. Stable for the client's lifetime - recreate if the server URL changes.
     ///   - session: The underlying transport. Defaults to `URLSession.shared`.
     ///   - token: Called before each authenticated request. Evaluated lazily to always return the post-refresh value.
     ///   - refresh: Called on 401. Must update whatever state `token` reads from.
@@ -32,9 +32,30 @@ public actor APIClient {
         self.refresh = refresh
     }
 
+    /// Creates an `APIClient` for unauthenticated request flows.
+    ///
+    /// Use this initializer when the client will only send requests whose
+    /// `AuthenticationType` is `.none`.
+    ///
+    /// Requests using `.bearer` or `.url` authentication through this initializer
+    /// will fail with authentication-related errors.
+    ///
+    /// - Parameters:
+    ///   - baseURL: Base URL for all requests. Stable for the client's lifetime - recreate if the server URL changes.
+    ///   - session: The underlying transport. Defaults to `URLSession.shared`.
+    public init(
+        baseURL: URL,
+        session: any DataTaskProvider = URLSession.shared
+    ) {
+        self.baseURL = baseURL
+        self.session = session
+        self.token = { nil }
+        self.refresh = { throw RequestError.authentication }
+    }
+
     /// Sends a typed request.
     ///
-    /// Authenticated requests (`.bearer` or `.url`) are retried once after a 401 —
+    /// Authenticated requests (`.bearer` or `.url`) are retried once after a 401 -
     /// the `refresh` closure fires first, then `token` is re-evaluated for the retry.
     public func send<T: Interface>(
         _ type: T.Type,

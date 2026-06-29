@@ -44,18 +44,23 @@ public protocol RequestParameters: Sendable {
     /// The path component of the URL (e.g., "/api/users/123")
     var path: String { get }
 
-    /// Optional query parameters to append to the URL
+    /// Optional query parameters to append to the URL.
+    ///
+    /// Ordering is not part of the contract. If a consumer requires stable ordering or
+    /// duplicate keys, model that outside `RequestParameters` and convert at construction time.
     var queryItems: [String: String?]? { get }
 
     /// Optional HTTP headers to include in the request
     var headers: [String: String]? { get }
 
     /// The concrete body type for this request.
-    /// Defaults to EmptyBody for requests without a body.
+    /// Defaults to `EmptyBody` for requests without a body.
     associatedtype Body: RequestBody = EmptyBody
 
-    /// Optional request body data. Set to nil for requests without a body.
-    var body: Body? { get }
+    /// The request body for this request.
+    ///
+    /// Use `EmptyBody()` for requests without a body.
+    var body: Body { get }
 
     /// The authentication strategy for this request
     var authentication: AuthenticationType { get }

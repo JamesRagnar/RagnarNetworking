@@ -1,16 +1,21 @@
 # SocketIOClient
 
-`SocketIOClient` implements the Socket.IO 4.x wire protocol over `URLSessionWebSocketTask`. The entire public API is typed via `SocketEvent` — event names and raw payloads are never exposed to callers.
+`SocketIOClient` implements the Socket.IO 4.x wire protocol over `URLSessionWebSocketTask`. The entire public API is typed via `SocketEvent` - event names and raw payloads are never exposed to callers.
+
+`SocketIOClient` also conforms to `SocketClient`, the transport abstraction intended for higher-level consumers.
 
 ## Setup
 
 ```swift
-let socketURL = SocketIOClient.webSocketURL(for: serverURL)!
-let socket = SocketIOClient(url: socketURL)
+let socketURL = SocketIOURL.webSocketURL(for: serverURL)!
+let socket = SocketIOClient(
+    url: socketURL,
+    logging: .disabled
+)
 await socket.connect()
 ```
 
-`webSocketURL(for:)` converts an HTTP/HTTPS server URL to the correct Socket.IO WebSocket URL (`wss://host/socket.io/?EIO=4&transport=websocket`).
+`SocketIOURL.webSocketURL(for:)` converts an HTTP/HTTPS server URL to the correct Socket.IO WebSocket URL (`wss://host/socket.io/?EIO=4&transport=websocket`).
 
 ## Defining Events
 
@@ -40,7 +45,7 @@ for await event in await socket.events(for: ItemUpdatedEvent.self) {
 }
 ```
 
-Each call to `events(for:)` returns an independent stream. Multiple consumers of the same event type each get their own stream. Streams persist across reconnection cycles — consumers never need to re-subscribe.
+Each call to `events(for:)` returns an independent stream. Multiple consumers of the same event type each get their own stream. Streams persist across reconnection cycles - consumers never need to re-subscribe.
 
 ## Emitting Events
 
@@ -85,4 +90,15 @@ let socket = SocketIOClient(url: url, reconnect: ReconnectPolicy(
     maxDelay: .seconds(30),
     multiplier: 1.5
 ))
+```
+
+## Logging
+
+Runtime socket logs are controlled per instance through `RagnarNetworkingLogging`.
+
+```swift
+let socket = SocketIOClient(
+    url: url,
+    logging: RagnarNetworkingLogging(enabled: false)
+)
 ```

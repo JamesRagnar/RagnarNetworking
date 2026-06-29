@@ -16,7 +16,7 @@ import Foundation
 /// Duplicate exact-code behavior:
 /// - The first exact case wins.
 /// - Later duplicates are ignored.
-/// - In DEBUG builds, duplicates emit a warning.
+/// - In DEBUG builds, duplicates emit a developer diagnostic.
 public struct ResponseMap: ExpressibleByArrayLiteral, Sendable {
 
     private let exactCases: [Int: ResponseOutcome]
@@ -36,13 +36,9 @@ public struct ResponseMap: ExpressibleByArrayLiteral, Sendable {
                 if exact[code] == nil {
                     exact[code] = responseCase.outcome
                 } else {
-                    #if DEBUG
-                    rnLog(
-                        .responseMap,
-                        level: .error,
-                        "Duplicate exact response case for status code \(code). Keeping first."
+                    rnDiagnostic(
+                        "RagnarNetworking: duplicate exact response case for status code \(code). Keeping first."
                     )
-                    #endif
                 }
 
             case .range(let range):

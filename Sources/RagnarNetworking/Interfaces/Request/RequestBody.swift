@@ -42,13 +42,12 @@ public struct EncodedBody: Sendable {
     }
 }
 
-/// Sentinel type for endpoints with no request body.
-/// Cannot be instantiated - used only as a type marker in typealias.
-/// This type represents the absence of a request body; callers should pass `nil`
-/// for the `body` parameter rather than instantiating EmptyBody.
+/// Concrete body type for endpoints with no request body.
+///
+/// Use `EmptyBody()` to explicitly declare that a request has no body.
 public struct EmptyBody: RequestBody {
 
-    private init() {}
+    public init() {}
 
     public func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody {
         EncodedBody(data: Data(), contentType: nil)
@@ -92,7 +91,7 @@ public struct ArrayBody<Element: Encodable & Sendable>: RequestBody {
 
 }
 
-/// Wraps any Encodable payload as a request body.
+/// Wraps any `Encodable` payload as a request body.
 public struct EncodableBody<Value: Encodable & Sendable>: RequestBody {
 
     public let value: Value

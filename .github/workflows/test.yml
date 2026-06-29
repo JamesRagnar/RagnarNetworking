@@ -1,10 +1,14 @@
 name: Test
 
+permissions:
+  contents: read
+
 on:
   pull_request:
-    branches: [ main ]
+    branches: [main]
+    types: [opened, reopened, synchronize]
   push:
-    branches: [ main ]
+    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -14,26 +18,43 @@ jobs:
   swiftlint:
     name: SwiftLint
     runs-on: macos-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Run SwiftLint
-        uses: cirruslabs/swiftlint-action@v1
+      - uses: actions/checkout@v4
+      - uses: cirruslabs/swiftlint-action@v1
         with:
           version: latest
 
-  test:
-    name: Test
-    runs-on: macos-latest
-
+  unit-tests:
+    name: Unit tests (Swift ${{ matrix.swift }})
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - xcode: Xcode_16.2
+            swift: "6.0"
+          - xcode: Xcode_16.4
+            swift: "6.1"
+          - xcode: Xcode_26.3
+            swift: "6.2"
+    env:
+      DEVELOPER_DIR: /Applications/${{ matrix.xcode }}.app/Contents/Developer
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - name: Run tests
+        run: swift test -Xswiftc -warnings-as-errors --explicit-target-dependency-import-check error
 
-      - name: Setup Swift
-        uses: swift-actions/setup-swift@v2
-
-      - name: Run Tests
-        run: swift test --enable-code-coverage
+  platform-build:
+    name: Build (${{ matrix.platform }})
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ios, tvos, watchos, visionos, macos]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          xcodebuild -scheme RagnarNetworking \
+            -destination "generic/platform=${{ matrix.platform }}" \
+            build
