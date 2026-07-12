@@ -23,7 +23,7 @@ struct DataTaskProviderTests {
         struct Parameters: RequestParameters {
             let method: RequestMethod = .get
             let path: String
-            let queryItems: [String: String?]? = nil
+            let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
@@ -160,7 +160,7 @@ struct DataTaskProviderTests {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .get
                 let path = "/secure"
-                let queryItems: [String: String?]? = nil
+                let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
                 let authentication: AuthenticationType = .bearer
@@ -256,7 +256,7 @@ struct DataTaskProviderTests {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .get
                 let path = "/message"
-                let queryItems: [String: String?]? = nil
+                let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
                 let authentication: AuthenticationType = .none
@@ -293,7 +293,7 @@ struct DataTaskProviderTests {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .get
                 let path = "/binary"
-                let queryItems: [String: String?]? = nil
+                let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
                 let authentication: AuthenticationType = .none
@@ -339,7 +339,7 @@ struct DataTaskProviderTests {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .post
                 let path = "/login"
-                let queryItems: [String: String?]? = nil
+                let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
                 let authentication: AuthenticationType = .none
@@ -391,7 +391,7 @@ struct DataTaskProviderTests {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .get
                 let path = "/items"
-                let queryItems: [String: String?]? = nil
+                let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
                 let authentication: AuthenticationType = .none
@@ -439,7 +439,7 @@ struct DataTaskProviderTests {
             typealias Body = BinaryBody
             let method: RequestMethod = .post
             let path = "/api/resource"
-            let queryItems: [String: String?]? = ["page": "1"]
+            let queryItems: [URLQueryItem]? = [URLQueryItem(name: "page", value: "1")]
             let headers: [String: String]? = ["X-Custom": "value"]
             let body: BinaryBody
             let authentication: AuthenticationType = .bearer
@@ -491,7 +491,7 @@ struct DataTaskProviderTests {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .get
                 let path = "/secure"
-                let queryItems: [String: String?]? = nil
+                let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
                 let authentication: AuthenticationType = .bearer // Requires token

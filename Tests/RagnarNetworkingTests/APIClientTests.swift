@@ -8,7 +8,7 @@ private struct TestInterface: Interface {
     struct Parameters: RequestParameters {
         let method: RequestMethod = .get
         let path: String = "/test"
-        let queryItems: [String: String?]? = nil
+        let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EmptyBody = .init()
         let authentication: AuthenticationType
