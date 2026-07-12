@@ -29,7 +29,7 @@ struct DeleteUser: Interface {
     struct Parameters: RequestParameters {
         let method: RequestMethod = .delete
         let path = "/users/123"
-        let queryItems: [String: String?]? = nil
+        let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EmptyBody = .init()
         let authentication: AuthenticationType = .bearer

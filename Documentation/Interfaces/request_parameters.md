@@ -10,7 +10,7 @@ public protocol RequestParameters: Sendable {
 
     var method: RequestMethod { get }
     var path: String { get }
-    var queryItems: [String: String?]? { get }
+    var queryItems: [URLQueryItem]? { get }
     var headers: [String: String]? { get }
     var body: Body { get }
     var authentication: AuthenticationType { get }
@@ -19,9 +19,9 @@ public protocol RequestParameters: Sendable {
 
 ## Query Items
 
-`queryItems` is a dictionary of names to optional values. A `nil` value creates a name-only query item (e.g. `?flag`). If you want to omit a key, remove it from the dictionary instead of setting it to `nil`.
+`queryItems` is an ordered array of `URLQueryItem` values. A `nil` value creates a name-only query item (e.g. `?flag`). If you want to omit a key, leave it out of the array.
 
-Ordering is not part of the contract. If you need stable serialization order or duplicate keys, build that outside `RequestParameters` and convert to the required request shape explicitly.
+The array order is preserved during URL construction, and repeated names are supported when an endpoint requires duplicate query keys.
 
 ## Request Body
 
