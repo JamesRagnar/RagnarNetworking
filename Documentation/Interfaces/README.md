@@ -15,7 +15,7 @@ struct GetUserInterface: Interface {
     struct Parameters: RequestParameters {
         let method: RequestMethod = .get
         let path: String
-        let queryItems: [String: String?]? = nil
+        let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EmptyBody = .init()
         let authentication: AuthenticationType = .bearer

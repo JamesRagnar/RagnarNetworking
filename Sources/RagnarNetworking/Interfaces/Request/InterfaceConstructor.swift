@@ -55,7 +55,7 @@ public protocol InterfaceConstructor {
     /// Custom implementations should ensure `.url` authentication still has a single final
     /// `token` query item when authentication succeeds.
     static func applyQueryItems(
-        _ queryItems: [String: String?]?,
+        _ queryItems: [URLQueryItem]?,
         authentication: AuthenticationType,
         authToken: String?,
         to components: inout URLComponents
@@ -172,7 +172,7 @@ public extension InterfaceConstructor {
     }
 
     static func applyQueryItems(
-        _ queryItems: [String: String?]?,
+        _ queryItems: [URLQueryItem]?,
         authentication: AuthenticationType,
         authToken: String?,
         to components: inout URLComponents
@@ -195,18 +195,16 @@ public extension InterfaceConstructor {
         let newQueryItems: [URLQueryItem]?
         if case .url = authentication {
             if queryItems?.contains(where: {
-                $0.key.caseInsensitiveCompare("token") == .orderedSame
+                $0.name.caseInsensitiveCompare("token") == .orderedSame
             }) == true {
                 rnDiagnostic(
                     "RagnarNetworking: URL auth overrides a 'token' query param in request parameters."
                 )
             }
             newQueryItems = queryItems?
-                .filter { $0.key.caseInsensitiveCompare("token") != .orderedSame }
-                .map { URLQueryItem(name: $0.key, value: $0.value) }
+                .filter { $0.name.caseInsensitiveCompare("token") != .orderedSame }
         } else {
-            newQueryItems = queryItems?
-                .map { URLQueryItem(name: $0.key, value: $0.value) }
+            newQueryItems = queryItems
         }
 
         if let newQueryItems {

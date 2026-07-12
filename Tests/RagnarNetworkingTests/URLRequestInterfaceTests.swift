@@ -17,7 +17,7 @@ struct URLRequestInterfaceTests {
     struct BasicParameters: RequestParameters {
         let method: RequestMethod = .get
         let path: String
-        let queryItems: [String: String?]? = nil
+        let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EmptyBody = .init()
         let authentication: AuthenticationType = .none
@@ -26,7 +26,7 @@ struct URLRequestInterfaceTests {
     struct AuthenticatedParameters: RequestParameters {
         let method: RequestMethod = .post
         let path: String = "/api/users"
-        let queryItems: [String: String?]? = nil
+        let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EmptyBody = .init()
         let authentication: AuthenticationType
@@ -36,7 +36,7 @@ struct URLRequestInterfaceTests {
         typealias Body = BodyType
         let method: RequestMethod = .put
         let path: String = "/api/update"
-        let queryItems: [String: String?]?
+        let queryItems: [URLQueryItem]?
         let headers: [String: String]?
         let body: BodyType
         let authentication: AuthenticationType
@@ -72,7 +72,7 @@ struct URLRequestInterfaceTests {
             struct TestParams: RequestParameters {
                 let method: RequestMethod
                 let path = "/test"
-                let queryItems: [String: String?]? = nil
+                let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
                 let authentication: AuthenticationType = .none
@@ -170,7 +170,7 @@ struct URLRequestInterfaceTests {
         let url = URL(string: "https://api.example.com")!
         let config = ServerConfiguration(url: url)
         let params = ComplexParameters<EmptyBody>(
-            queryItems: ["page": "1", "limit": "10"],
+            queryItems: [URLQueryItem(name: "page", value: "1"), URLQueryItem(name: "limit", value: "10")],
             headers: nil,
             body: .init(),
             authentication: .none
@@ -186,12 +186,36 @@ struct URLRequestInterfaceTests {
         #expect(urlString.contains("limit=10"))
     }
 
+    @Test("Preserves query item order and duplicate keys")
+    func testOrderedQueryItems() throws {
+        let url = URL(string: "https://api.example.com")!
+        let config = ServerConfiguration(url: url)
+        let params = ComplexParameters<EmptyBody>(
+            queryItems: [
+                URLQueryItem(name: "sort", value: "title"),
+                URLQueryItem(name: "filter", value: "new"),
+                URLQueryItem(name: "filter", value: "featured")
+            ],
+            headers: nil,
+            body: .init(),
+            authentication: .none
+        )
+
+        let request = try URLRequest(
+            requestParameters: params,
+            serverConfiguration: config
+        )
+
+        let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
+        #expect(components?.queryItems == params.queryItems)
+    }
+
     @Test("Supports nil-valued query items")
     func testNilValuedQueryItems() throws {
         let url = URL(string: "https://api.example.com")!
         let config = ServerConfiguration(url: url)
         let params = ComplexParameters<EmptyBody>(
-            queryItems: ["flag": nil],
+            queryItems: [URLQueryItem(name: "flag", value: nil)],
             headers: nil,
             body: .init(),
             authentication: .none
@@ -213,7 +237,7 @@ struct URLRequestInterfaceTests {
         let url = URL(string: "https://api.example.com?existing=value")!
         let config = ServerConfiguration(url: url)
         let params = ComplexParameters<EmptyBody>(
-            queryItems: ["new": "param"],
+            queryItems: [URLQueryItem(name: "new", value: "param")],
             headers: nil,
             body: .init(),
             authentication: .none
@@ -234,7 +258,7 @@ struct URLRequestInterfaceTests {
         let url = URL(string: "https://api.example.com")!
         let config = ServerConfiguration(url: url, authToken: "auth-token")
         let params = ComplexParameters<EmptyBody>(
-            queryItems: ["filter": "active"],
+            queryItems: [URLQueryItem(name: "filter", value: "active")],
             headers: nil,
             body: .init(),
             authentication: .url
@@ -255,7 +279,7 @@ struct URLRequestInterfaceTests {
         let url = URL(string: "https://api.example.com")!
         let config = ServerConfiguration(url: url, authToken: "auth-token")
         let params = ComplexParameters<EmptyBody>(
-            queryItems: ["token": "custom-token"],
+            queryItems: [URLQueryItem(name: "token", value: "custom-token")],
             headers: nil,
             body: .init(),
             authentication: .url
@@ -299,7 +323,7 @@ struct URLRequestInterfaceTests {
         let url = URL(string: "https://api.example.com?TOKEN=base-token")!
         let config = ServerConfiguration(url: url, authToken: "auth-token")
         let params = ComplexParameters<EmptyBody>(
-            queryItems: ["Token": "custom-token"],
+            queryItems: [URLQueryItem(name: "Token", value: "custom-token")],
             headers: nil,
             body: .init(),
             authentication: .url
@@ -480,7 +504,7 @@ struct URLRequestInterfaceTests {
         struct EmptyBodyParams: RequestParameters {
             let method: RequestMethod = .get
             let path: String = "/test"
-            let queryItems: [String: String?]? = nil
+            let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
@@ -684,7 +708,7 @@ struct URLRequestInterfaceTests {
             typealias Body = EncoderBody
             let method: RequestMethod = .post
             let path: String = "/test"
-            let queryItems: [String: String?]? = nil
+            let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EncoderBody
             let authentication: AuthenticationType = .none
@@ -718,7 +742,7 @@ struct URLRequestInterfaceTests {
             typealias Body = ArrayBody<Int>
             let method: RequestMethod = .post
             let path: String = "/test"
-            let queryItems: [String: String?]? = nil
+            let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: ArrayBody<Int>
             let authentication: AuthenticationType = .none
@@ -749,7 +773,7 @@ struct URLRequestInterfaceTests {
             typealias Body = EncodableBody<LegacyPayload>
             let method: RequestMethod = .post
             let path: String = "/test"
-            let queryItems: [String: String?]? = nil
+            let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EncodableBody<LegacyPayload>
             let authentication: AuthenticationType = .none
@@ -780,7 +804,7 @@ struct URLRequestInterfaceTests {
             typealias Body = PayloadWithNullable
             let method: RequestMethod = .post
             let path: String = "/test"
-            let queryItems: [String: String?]? = nil
+            let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: PayloadWithNullable
             let authentication: AuthenticationType = .none
@@ -810,7 +834,7 @@ struct URLRequestInterfaceTests {
             typealias Body = PayloadWithNullable
             let method: RequestMethod = .post
             let path: String = "/test"
-            let queryItems: [String: String?]? = nil
+            let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: PayloadWithNullable
             let authentication: AuthenticationType = .none
@@ -839,7 +863,7 @@ struct URLRequestInterfaceTests {
             typealias Body = PayloadWithNullable
             let method: RequestMethod = .post
             let path: String = "/test"
-            let queryItems: [String: String?]? = nil
+            let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: PayloadWithNullable
             let authentication: AuthenticationType = .none
@@ -955,7 +979,7 @@ struct URLRequestInterfaceTests {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .get
                 let path: String = "/api/check"
-                let queryItems: [String: String?]? = nil
+                let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
                 let authentication: AuthenticationType = .none
@@ -1001,7 +1025,7 @@ struct URLRequestInterfaceTests {
         let config = ServerConfiguration(url: url, authToken: "complex-token")
         let bodyData = "{\"test\":\"data\"}".data(using: .utf8)!
         let params = ComplexParameters<BinaryBody>(
-            queryItems: ["filter": "active", "sort": "name"],
+            queryItems: [URLQueryItem(name: "filter", value: "active"), URLQueryItem(name: "sort", value: "name")],
             headers: ["X-API-Version": "2.0", "X-Client-ID": "ios-app"],
             body: BinaryBody(data: bodyData, contentType: "application/octet-stream"),
             authentication: .bearer

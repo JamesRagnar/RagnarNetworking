@@ -23,7 +23,7 @@ struct InterfaceResponseTests {
         struct Parameters: RequestParameters {
             let method: RequestMethod = .get
             let path = "/test"
-            let queryItems: [String: String?]? = nil
+            let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
@@ -46,7 +46,7 @@ struct InterfaceResponseTests {
         struct Parameters: RequestParameters {
             let method: RequestMethod = .get
             let path = "/string"
-            let queryItems: [String: String?]? = nil
+            let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
@@ -63,7 +63,7 @@ struct InterfaceResponseTests {
         struct Parameters: RequestParameters {
             let method: RequestMethod = .get
             let path = "/data"
-            let queryItems: [String: String?]? = nil
+            let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
@@ -80,7 +80,7 @@ struct InterfaceResponseTests {
         struct Parameters: RequestParameters {
             let method: RequestMethod = .get
             let path = "/no-content"
-            let queryItems: [String: String?]? = nil
+            let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
@@ -97,7 +97,7 @@ struct InterfaceResponseTests {
         struct Parameters: RequestParameters {
             let method: RequestMethod = .get
             let path = "/no-content-string"
-            let queryItems: [String: String?]? = nil
+            let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
@@ -114,7 +114,7 @@ struct InterfaceResponseTests {
         struct Parameters: RequestParameters {
             let method: RequestMethod = .get
             let path = "/no-content-json"
-            let queryItems: [String: String?]? = nil
+            let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
@@ -131,7 +131,7 @@ struct InterfaceResponseTests {
         struct Parameters: RequestParameters {
             let method: RequestMethod = .get
             let path = "/empty-decode"
-            let queryItems: [String: String?]? = nil
+            let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
@@ -148,7 +148,7 @@ struct InterfaceResponseTests {
         struct Parameters: RequestParameters {
             let method: RequestMethod = .get
             let path = "/custom-handler"
-            let queryItems: [String: String?]? = nil
+            let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
@@ -197,7 +197,7 @@ struct InterfaceResponseTests {
         struct Parameters: RequestParameters {
             let method: RequestMethod = .get
             let path = "/range"
-            let queryItems: [String: String?]? = nil
+            let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
@@ -214,7 +214,7 @@ struct InterfaceResponseTests {
         struct Parameters: RequestParameters {
             let method: RequestMethod = .get
             let path = "/overlap"
-            let queryItems: [String: String?]? = nil
+            let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
@@ -234,7 +234,7 @@ struct InterfaceResponseTests {
         struct Parameters: RequestParameters {
             let method: RequestMethod = .get
             let path = "/decode-error"
-            let queryItems: [String: String?]? = nil
+            let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
@@ -268,7 +268,7 @@ struct InterfaceResponseTests {
         struct Parameters: RequestParameters {
             let method: RequestMethod = .get
             let path = "/decode-error-throws"
-            let queryItems: [String: String?]? = nil
+            let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
@@ -303,7 +303,7 @@ struct InterfaceResponseTests {
         struct Parameters: RequestParameters {
             let method: RequestMethod = .get
             let path = "/no-content-custom-decoding"
-            let queryItems: [String: String?]? = nil
+            let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
@@ -320,7 +320,7 @@ struct InterfaceResponseTests {
         struct Parameters: RequestParameters {
             let method: RequestMethod = .get
             let path = "/range-order"
-            let queryItems: [String: String?]? = nil
+            let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
             let authentication: AuthenticationType = .none
@@ -614,7 +614,7 @@ struct InterfaceResponseTests {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .get
                 let path = "/category"
-                let queryItems: [String: String?]? = nil
+                let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
                 let authentication: AuthenticationType = .none
@@ -1022,7 +1022,7 @@ struct InterfaceResponseTests {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .get
                 let path = "/nested"
-                let queryItems: [String: String?]? = nil
+                let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
                 let authentication: AuthenticationType = .none
@@ -1065,7 +1065,7 @@ struct InterfaceResponseTests {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .get
                 let path = "/array"
-                let queryItems: [String: String?]? = nil
+                let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
                 let authentication: AuthenticationType = .none
@@ -1105,7 +1105,7 @@ struct InterfaceResponseTests {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .get
                 let path = "/empty"
-                let queryItems: [String: String?]? = nil
+                let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
                 let authentication: AuthenticationType = .none
@@ -1152,7 +1152,7 @@ struct InterfaceResponseTests {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .get
                 let path = "/no-content"
-                let queryItems: [String: String?]? = nil
+                let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
                 let authentication: AuthenticationType = .none

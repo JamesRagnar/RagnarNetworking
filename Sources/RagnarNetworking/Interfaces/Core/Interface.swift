@@ -44,11 +44,8 @@ public protocol RequestParameters: Sendable {
     /// The path component of the URL (e.g., "/api/users/123")
     var path: String { get }
 
-    /// Optional query parameters to append to the URL.
-    ///
-    /// Ordering is not part of the contract. If a consumer requires stable ordering or
-    /// duplicate keys, model that outside `RequestParameters` and convert at construction time.
-    var queryItems: [String: String?]? { get }
+    /// Optional ordered query parameters to append to the URL.
+    var queryItems: [URLQueryItem]? { get }
 
     /// Optional HTTP headers to include in the request
     var headers: [String: String]? { get }

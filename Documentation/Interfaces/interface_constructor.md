@@ -101,7 +101,7 @@ This example preserves the default behavior and then adds a fixed query item to 
 ```swift
 struct ClientTaggedConstructor: InterfaceConstructor {
     static func applyQueryItems(
-        _ queryItems: [String: String?]?,
+        _ queryItems: [URLQueryItem]?,
         authentication: AuthenticationType,
         authToken: String?,
         to components: inout URLComponents
