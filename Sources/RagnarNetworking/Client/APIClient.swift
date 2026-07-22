@@ -5,6 +5,11 @@ import Foundation
 /// Unauthenticated requests (`.none` auth) never invoke the token closure.
 /// Concurrent 401s coalesce into a single refresh - only one `refresh` call fires
 /// regardless of how many requests fail simultaneously.
+///
+/// A client can be permanently invalidated via `invalidate()`. Invalidation is a
+/// terminal, one-way boundary: it rejects new `send` calls, cancels any coalesced
+/// refresh, and cancels tracked in-flight transport work. A client never becomes
+/// valid again - create a new client for a new connection generation.
 public actor APIClient {
 
     private let baseURL: URL
@@ -12,6 +17,15 @@ public actor APIClient {
     private let token: @Sendable () async throws -> String?
     private let refresh: @Sendable () async throws -> Void
     private var ongoingRefresh: Task<Void, Error>?
+
+    /// Whether `invalidate()` has been called. Once `true`, it never returns to `false`.
+    private var isInvalidated = false
+
+    /// Cancellation handles for tracked in-flight transport tasks, keyed by request identity.
+    ///
+    /// Type-erased to `() -> Void` because each transport `Task` is generic over its
+    /// `Interface.Response` and cannot be stored in a homogeneous collection directly.
+    private var inFlightCancellers: [UUID: @Sendable () -> Void] = [:]
 
     /// Creates an `APIClient`.
     ///
@@ -57,10 +71,16 @@ public actor APIClient {
     ///
     /// Authenticated requests (`.bearer` or `.url`) are retried once after a 401 -
     /// the `refresh` closure fires first, then `token` is re-evaluated for the retry.
+    ///
+    /// - Throws: `APIClientError.invalidated` if the client has been invalidated. The
+    ///   check is applied before token resolution, before and after transport, before
+    ///   refresh, and before retry.
     public func send<T: Interface>(
         _ type: T.Type,
         _ params: T.Parameters
     ) async throws -> T.Response {
+        try checkValid()
+
         switch params.authentication {
         case .none:
             return try await execute(type, params, token: nil)
@@ -70,25 +90,91 @@ public actor APIClient {
             do {
                 return try await execute(type, params, token: currentToken)
             } catch let err as ResponseError where err.statusCode == 401 {
-                try await coalesceRefresh()
+                try checkValid()
+                do {
+                    try await coalesceRefresh()
+                } catch {
+                    // A refresh cancelled by `invalidate()` surfaces as the terminal
+                    // invalidation error rather than a raw cancellation.
+                    try checkValid()
+                    throw error
+                }
+                try checkValid()
                 let freshToken = try await token()
                 return try await execute(type, params, token: freshToken)
             }
         }
     }
 
+    /// Permanently invalidates the client.
+    ///
+    /// After this call:
+    /// - New `send` calls fail with `APIClientError.invalidated`.
+    /// - Any coalesced refresh owned by the client is cancelled.
+    /// - Tracked in-flight transport tasks are cancelled. Cancellation reaches the
+    ///   underlying transport when the configured `DataTaskProvider` honors task
+    ///   cancellation (as `URLSession` does); otherwise the in-flight result is
+    ///   suppressed at the post-transport checkpoint.
+    ///
+    /// Invalidation is terminal and idempotent - a client never becomes valid again.
+    public func invalidate() {
+        guard !isInvalidated else { return }
+        isInvalidated = true
+
+        ongoingRefresh?.cancel()
+
+        for cancel in inFlightCancellers.values {
+            cancel()
+        }
+        inFlightCancellers.removeAll()
+    }
+
     // MARK: - Private
+
+    /// Throws `APIClientError.invalidated` if the client has been invalidated.
+    private func checkValid() throws {
+        if isInvalidated {
+            throw APIClientError.invalidated
+        }
+    }
 
     private func execute<T: Interface>(
         _ type: T.Type,
         _ params: T.Parameters,
         token: String?
     ) async throws -> T.Response {
+        try checkValid()
+
         let config = ServerConfiguration(
             url: baseURL,
             authToken: token
         )
-        return try await session.dataTask(type, params, config)
+
+        // Run transport inside a tracked child task so `invalidate()` can cancel it
+        // from another task. The cancellation handler also forwards cancellation of
+        // the caller's own task to the child.
+        let task = Task {
+            try await session.dataTask(type, params, config)
+        }
+        let id = UUID()
+        inFlightCancellers[id] = { task.cancel() }
+        defer { inFlightCancellers[id] = nil }
+
+        do {
+            let response = try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
+            try checkValid()
+            return response
+        } catch {
+            // Transport cancelled by `invalidate()` surfaces as the terminal
+            // invalidation error rather than a raw cancellation. Caller-initiated
+            // cancellation (without invalidation) still propagates unchanged.
+            try checkValid()
+            throw error
+        }
     }
 
     private func coalesceRefresh() async throws {
