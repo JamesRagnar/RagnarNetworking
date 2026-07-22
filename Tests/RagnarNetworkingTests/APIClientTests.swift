@@ -87,6 +87,99 @@ private actor MockDataTaskProvider: DataTaskProvider {
     }
 }
 
+// MARK: - Signal
+
+/// A one-shot async signal used to await a point reached inside a closure.
+private actor Signal {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var isFired = false
+
+    func fire() {
+        guard !isFired else { return }
+        isFired = true
+        continuation?.resume()
+        continuation = nil
+    }
+
+    func wait() async {
+        if isFired { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+}
+
+// MARK: - Cancellation Latch
+
+/// Suspends until the surrounding task is cancelled, then throws `CancellationError`.
+///
+/// Deterministic hold: the suspension ends exactly when cancellation propagates,
+/// with no polling, timeout, or sleep. Used to keep an operation in flight until a
+/// test cancels it.
+private actor CancellationLatch {
+    private var continuation: CheckedContinuation<Void, Error>?
+    private var isCancelled = false
+
+    func wait() async throws {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                register(continuation)
+            }
+        } onCancel: {
+            Task { await trigger() }
+        }
+    }
+
+    private func register(_ continuation: CheckedContinuation<Void, Error>) {
+        if isCancelled {
+            continuation.resume(throwing: CancellationError())
+        } else {
+            self.continuation = continuation
+        }
+    }
+
+    private func trigger() {
+        isCancelled = true
+        continuation?.resume(throwing: CancellationError())
+        continuation = nil
+    }
+}
+
+// MARK: - Blocking Data Task Provider
+
+/// A provider whose `data(for:)` blocks until the request is cancelled, letting a
+/// test observe an in-flight transport request and then cancel it deterministically.
+private actor BlockingDataTaskProvider: DataTaskProvider {
+    private let started = Signal()
+    private let latch = CancellationLatch()
+    private(set) var completed = false
+
+    private let responseData: Data
+    private let statusCode: Int
+    private let baseURL = URL(string: "https://api.example.com")!
+
+    init(data: Data, statusCode: Int) {
+        self.responseData = data
+        self.statusCode = statusCode
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        await started.fire()
+        // Suspends until the request is cancelled; only reached on natural completion.
+        try await latch.wait()
+        completed = true
+        let response = HTTPURLResponse(
+            url: baseURL,
+            statusCode: statusCode,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+        return (responseData, response)
+    }
+
+    func waitUntilStarted() async {
+        await started.wait()
+    }
+}
+
 // MARK: - Helpers
 
 private func makeResponseData(value: String = "ok") -> Data {
@@ -94,7 +187,7 @@ private func makeResponseData(value: String = "ok") -> Data {
 }
 
 private func makeClient(
-    mock: MockDataTaskProvider,
+    mock: any DataTaskProvider,
     token: @escaping @Sendable () async throws -> String?,
     refresh: @escaping @Sendable () async throws -> Void = {}
 ) -> APIClient {
@@ -344,5 +437,127 @@ struct APIClientTests {
         #expect(result3.value != "")
         #expect(await refreshCounter.value == 1)
         #expect(await mock.callCount == 6)
+    }
+
+    // MARK: 10. Invalidating before send prevents token and transport work
+
+    @Test("Invalidating before send prevents token and transport work")
+    func invalidateBeforeSendPreventsWork() async throws {
+        let mock = MockDataTaskProvider()
+        await mock.enqueue(data: makeResponseData(), statusCode: 200)
+
+        let tokenCounter = Counter()
+        let client = makeClient(mock: mock, token: {
+            await tokenCounter.increment()
+            return "tok"
+        })
+
+        await client.invalidate()
+
+        let params = TestInterface.Parameters(authentication: .bearer)
+        await #expect(throws: APIClientError.self) {
+            try await client.send(TestInterface.self, params)
+        }
+
+        #expect(await tokenCounter.value == 0)
+        #expect(await mock.callCount == 0)
+    }
+
+    // MARK: 11. Invalidating during transport suppresses completion
+
+    @Test("Invalidating during transport cancels or suppresses completion")
+    func invalidateDuringTransportSuppressesCompletion() async throws {
+        let mock = BlockingDataTaskProvider(data: makeResponseData(), statusCode: 200)
+        let client = makeClient(mock: mock, token: { "tok" })
+
+        let params = TestInterface.Parameters(authentication: .bearer)
+        let sendTask = Task {
+            try await client.send(TestInterface.self, params)
+        }
+
+        await mock.waitUntilStarted()
+        await client.invalidate()
+
+        await #expect(throws: APIClientError.self) {
+            try await sendTask.value
+        }
+        #expect(await mock.completed == false)
+    }
+
+    // MARK: 12. Invalidating during refresh cancels refresh and prevents retry
+
+    @Test("Invalidating during refresh cancels the refresh and prevents retry")
+    func invalidateDuringRefreshPreventsRetry() async throws {
+        let mock = MockDataTaskProvider()
+        await mock.enqueue(data: Data(), statusCode: 401)
+        // A retry, if it happened, would consume this success response.
+        await mock.enqueue(data: makeResponseData(), statusCode: 200)
+
+        let refreshStarted = Signal()
+        let refreshCounter = Counter()
+        let refreshLatch = CancellationLatch()
+
+        let client = makeClient(
+            mock: mock,
+            token: { "tok" },
+            refresh: {
+                await refreshCounter.increment()
+                await refreshStarted.fire()
+                // Suspends until the refresh is cancelled by invalidate().
+                try await refreshLatch.wait()
+            }
+        )
+
+        let params = TestInterface.Parameters(authentication: .bearer)
+        let sendTask = Task {
+            try await client.send(TestInterface.self, params)
+        }
+
+        await refreshStarted.wait()
+        await client.invalidate()
+
+        await #expect(throws: APIClientError.self) {
+            try await sendTask.value
+        }
+        #expect(await refreshCounter.value == 1)
+        // Only the initial 401 request was sent - no retry.
+        #expect(await mock.callCount == 1)
+    }
+
+    // MARK: 13. Repeated invalidation is idempotent
+
+    @Test("Repeated invalidation is idempotent")
+    func repeatedInvalidationIsIdempotent() async throws {
+        let mock = MockDataTaskProvider()
+        let client = makeClient(mock: mock, token: { "tok" })
+
+        await client.invalidate()
+        await client.invalidate()
+        await client.invalidate()
+
+        let params = TestInterface.Parameters(authentication: .bearer)
+        await #expect(throws: APIClientError.self) {
+            try await client.send(TestInterface.self, params)
+        }
+        #expect(await mock.callCount == 0)
+    }
+
+    // MARK: 14. A separately created replacement client is unaffected
+
+    @Test("A separately created replacement client is unaffected")
+    func replacementClientIsUnaffected() async throws {
+        let mockA = MockDataTaskProvider()
+        let clientA = makeClient(mock: mockA, token: { "a" })
+        await clientA.invalidate()
+
+        let mockB = MockDataTaskProvider()
+        await mockB.enqueue(data: makeResponseData(value: "b"), statusCode: 200)
+        let clientB = makeClient(mock: mockB, token: { "b" })
+
+        let params = TestInterface.Parameters(authentication: .bearer)
+        let result = try await clientB.send(TestInterface.self, params)
+
+        #expect(result.value == "b")
+        #expect(await mockB.callCount == 1)
     }
 }

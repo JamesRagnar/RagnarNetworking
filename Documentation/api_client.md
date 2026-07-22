@@ -1,6 +1,6 @@
 # APIClient
 
-`APIClient` is the recommended entry point for making authenticated requests. It wraps `DataTaskProvider` with auth token management and automatic 401 retry.
+`APIClient` is the recommended entry point for making authenticated requests. It wraps `DataTaskProvider` with auth token management, automatic 401 retry, and terminal client invalidation.
 
 ## Setup
 
@@ -43,3 +43,32 @@ The request's `AuthenticationType` controls whether the token closure is invoked
 ## Concurrent 401 Coalescing
 
 If multiple requests fail with 401 simultaneously, only one `refresh` call is made. All waiting requests resume after the single refresh completes. If refresh throws, all waiters receive the error.
+
+## Lifecycle and Invalidation
+
+Call `invalidate()` when the client must no longer send requests, such as during logout or when replacing a connection generation:
+
+```swift
+await client.invalidate()
+```
+
+Invalidation is terminal and idempotent. After it is called:
+
+- New `send` calls fail with `APIClientError.invalidated`, before token resolution or transport work begins.
+- In-flight transport tasks are cancelled. If a custom `DataTaskProvider` does not honor cancellation, its result is still suppressed before it can complete through the client.
+- A coalesced token refresh is cancelled, and no 401 retry is started.
+- The client never becomes valid again. Create a new `APIClient` for a new server URL or connection generation.
+
+Handle invalidation separately from request, transport, and response errors when a caller needs to replace the client:
+
+```swift
+do {
+    let user = try await client.send(
+        GetUserInterface.self,
+        .init(userId: 123)
+    )
+    print(user)
+} catch APIClientError.invalidated {
+    // Obtain and use a replacement APIClient.
+}
+```
