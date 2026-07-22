@@ -50,7 +50,7 @@ let user = try await client.send(
 - Automatic request construction from declarative parameters
 - Built-in auth strategies (`.none`, `.bearer`, `.url`)
 - Strict request bodies via `RequestBody` with intrinsic content types
-- `APIClient` actor with automatic 401 retry and coalesced token refresh
+- `APIClient` actor with automatic 401 retry, coalesced token refresh, and terminal invalidation
 - `SocketIOClient` actor with typed event streams and automatic reconnection
 - Immutable per-instance logging configuration via `RagnarNetworkingLogging`
 - Testable request execution via `DataTaskProvider` and socket transport via `SocketClient`
