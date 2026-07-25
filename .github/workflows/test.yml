@@ -17,12 +17,12 @@ concurrency:
 jobs:
   swiftlint:
     name: SwiftLint
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
+    container: ghcr.io/realm/swiftlint:latest
     steps:
       - uses: actions/checkout@v4
-      - uses: cirruslabs/swiftlint-action@v1
-        with:
-          version: latest
+      - name: Run SwiftLint
+        run: swiftlint
 
   unit-tests:
     name: Unit tests (Swift ${{ matrix.swift }})
