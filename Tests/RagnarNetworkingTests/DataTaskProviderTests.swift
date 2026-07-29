@@ -9,7 +9,7 @@ import Foundation
 @testable import RagnarNetworking
 import Testing
 
-@Suite("DataTaskProvider Tests")
+@Suite("DataTaskProvider Tests", .timeLimit(.minutes(1)))
 struct DataTaskProviderTests {
 
     // MARK: - Test Fixtures

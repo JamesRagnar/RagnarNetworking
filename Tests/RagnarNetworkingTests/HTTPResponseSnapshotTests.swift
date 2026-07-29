@@ -9,7 +9,7 @@ import Foundation
 @testable import RagnarNetworking
 import Testing
 
-@Suite("HTTPResponseSnapshot Tests")
+@Suite("HTTPResponseSnapshot Tests", .timeLimit(.minutes(1)))
 struct HTTPResponseSnapshotTests {
 
     @Test("Captures non-HTTP response properties")
@@ -65,7 +65,7 @@ struct HTTPResponseSnapshotTests {
 
 }
 
-@Suite("ErrorSnapshot Tests")
+@Suite("ErrorSnapshot Tests", .timeLimit(.minutes(1)))
 struct ErrorSnapshotTests {
 
     @Test("Memberwise init stores all fields")

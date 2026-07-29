@@ -9,7 +9,7 @@ import Foundation
 @testable import RagnarNetworking
 import Testing
 
-@Suite("ServerConfiguration Tests")
+@Suite("ServerConfiguration Tests", .timeLimit(.minutes(1)))
 struct ServerConfigurationTests {
 
     @Test("Initializes with URL and auth token")

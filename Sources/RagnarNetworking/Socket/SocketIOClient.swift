@@ -66,12 +66,24 @@ public actor SocketIOClient {
     private let reconnectPolicy: ReconnectPolicy
     private let logging: RagnarNetworkingLogging
     private let taskFactory: (@Sendable (URL, URLSession) -> any WebSocketTask)?
+    private let clock: any SleepClock
 
     private var status: Status = .disconnected
     private var isDisconnecting = false
     private var connectionLoopTask: Task<Void, Never>?
     private var currentTask: (any WebSocketTask)?
     private var connectionGeneration: UInt64 = 0
+
+    /// Engine.IO heartbeat parameters from the current connection's `open` handshake.
+    /// Reset to these defaults at the start of every connection attempt; overwritten
+    /// with the server's actual values once the `open` payload is parsed.
+    private var pingInterval: Duration = .seconds(25)
+    private var pingTimeout: Duration = .seconds(20)
+
+    /// Watches for the absence of any inbound frame within `pingInterval + pingTimeout`.
+    /// Reset on every inbound frame; a real Socket.IO server pings within `pingInterval`,
+    /// so any silence longer than the combined window means the connection is half-open.
+    private var heartbeatTask: Task<Void, Never>?
 
     // Per-event-name fan-out. Keyed by SocketEvent.name so each typed stream receives only its events.
     // These persist across disconnect/reconnect - consumers never need to re-subscribe.
@@ -98,21 +110,26 @@ public actor SocketIOClient {
         self.reconnectPolicy = reconnect
         self.logging = logging
         self.taskFactory = nil
+        self.clock = SystemSleepClock()
     }
 
-    /// Internal initializer for unit tests - inject a custom WebSocketTask factory.
+    /// Internal initializer for unit tests - inject a custom WebSocketTask factory and,
+    /// optionally, a replacement clock so reconnect and heartbeat timing are deterministic
+    /// rather than tied to the wall clock.
     init(
         url: URL,
         session: URLSession = .shared,
         reconnect: ReconnectPolicy = .init(),
         logging: RagnarNetworkingLogging = .init(),
-        taskFactory: @escaping @Sendable (URL, URLSession) -> any WebSocketTask
+        taskFactory: @escaping @Sendable (URL, URLSession) -> any WebSocketTask,
+        clock: any SleepClock = SystemSleepClock()
     ) {
         self.url = url
         self.urlSession = session
         self.reconnectPolicy = reconnect
         self.logging = logging
         self.taskFactory = taskFactory
+        self.clock = clock
     }
 
     // MARK: - Connection
@@ -131,6 +148,8 @@ public actor SocketIOClient {
         isDisconnecting = true
         connectionLoopTask?.cancel()
         connectionLoopTask = nil
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
         currentTask?.cancel(with: .goingAway, reason: nil)
         currentTask = nil
         setStatus(.disconnected)
@@ -142,6 +161,8 @@ public actor SocketIOClient {
         isDisconnecting = false
         connectionLoopTask?.cancel()
         connectionLoopTask = nil
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
         currentTask?.cancel(with: .goingAway, reason: nil)
         currentTask = nil
         setStatus(.disconnected)
@@ -232,14 +253,17 @@ public actor SocketIOClient {
 
         while shouldContinueConnectionLoop(for: generation) {
             if let duration = delay {
-                do { try await Task.sleep(for: duration) } catch { return }
+                do { try await clock.sleep(for: duration) } catch { return }
             }
 
             guard generation == connectionGeneration else { return }
             setStatus(.connecting)
+            pingInterval = .seconds(25)
+            pingTimeout = .seconds(20)
             let task = makeWebSocketTask()
             currentTask = task
             task.resume()
+            resetHeartbeat(generation: generation)
 
             var shouldReconnect = false
             while shouldContinueConnectionLoop(for: generation) {
@@ -248,6 +272,8 @@ public actor SocketIOClient {
                     await handleMessage(message, generation: generation)
                 } catch {
                     guard generation == connectionGeneration else { return }
+                    heartbeatTask?.cancel()
+                    heartbeatTask = nil
                     if isDisconnecting || Task.isCancelled { return }
                     setStatus(.disconnected)
                     guard reconnectPolicy.enabled else { return }
@@ -270,6 +296,7 @@ public actor SocketIOClient {
         guard generation == connectionGeneration else { return }
 
         guard case .string(let text) = message else {
+            resetHeartbeat(generation: generation)
             rnLog(
                 .socket,
                 logging: logging,
@@ -279,11 +306,17 @@ public actor SocketIOClient {
         }
 
         if text.hasPrefix("0") {
-            // Engine.IO OPEN - send Socket.IO CONNECT to default namespace
+            // Engine.IO OPEN - parse the server's heartbeat timing before arming the
+            // watchdog, so the deadline reflects it immediately, then send Socket.IO
+            // CONNECT to the default namespace
             rnLog(.socket, logging: logging, "open")
+            parseOpenPayload(text)
+            resetHeartbeat(generation: generation)
             try? await currentTask?.send(.string("40"))
             return
         }
+
+        resetHeartbeat(generation: generation)
 
         if text == "2" {
             // Engine.IO PING - respond with PONG
@@ -317,19 +350,37 @@ public actor SocketIOClient {
         }
     }
 
-    private func parseEvent(_ text: String) -> (name: String, payload: Data?)? {
-        let json = String(text.dropFirst(2))
-        guard
-            let data = json.data(using: .utf8),
-            let array = try? JSONSerialization.jsonObject(with: data) as? [Any],
-            let name = array.first as? String
-        else { return nil }
+    // MARK: - Private: Heartbeat
 
-        let payload: Data? = array.count > 1
-            ? try? JSONSerialization.data(withJSONObject: array[1], options: .fragmentsAllowed)
-            : nil
+    /// Restarts the heartbeat watchdog. Call on every inbound frame - any frame indicates
+    /// the connection is alive, and only sustained silence should be treated as a fault.
+    private func resetHeartbeat(generation: UInt64) {
+        heartbeatTask?.cancel()
+        let deadline = pingInterval + pingTimeout
+        heartbeatTask = Task {
+            do {
+                try await clock.sleep(for: deadline)
+            } catch {
+                // Cancelled because a newer frame reset the watchdog, or the connection
+                // was torn down - not a timeout.
+                return
+            }
+            heartbeatTimedOut(generation: generation)
+        }
+    }
 
-        return (name, payload)
+    /// No inbound frame arrived within `pingInterval + pingTimeout`. Cancels the transport
+    /// task so its in-flight `receive()` fails, which routes through the connection loop's
+    /// existing disconnect/reconnect handling exactly as a real network failure would.
+    private func heartbeatTimedOut(generation: UInt64) {
+        guard generation == connectionGeneration else { return }
+        rnLog(
+            .socket,
+            logging: logging,
+            level: .error,
+            "heartbeat timeout - no frames received within pingInterval + pingTimeout"
+        )
+        currentTask?.cancel(with: .abnormalClosure, reason: nil)
     }
 
     // MARK: - Private: Helpers
@@ -392,3 +443,40 @@ public enum SocketIOError: Error, Sendable {
 }
 
 extension SocketIOClient: SocketClient {}
+
+// MARK: - Private: Frame Parsing
+
+private extension SocketIOClient {
+
+    func parseEvent(_ text: String) -> (name: String, payload: Data?)? {
+        let json = String(text.dropFirst(2))
+        guard
+            let data = json.data(using: .utf8),
+            let array = try? JSONSerialization.jsonObject(with: data) as? [Any],
+            let name = array.first as? String
+        else { return nil }
+
+        let payload: Data? = array.count > 1
+            ? try? JSONSerialization.data(withJSONObject: array[1], options: .fragmentsAllowed)
+            : nil
+
+        return (name, payload)
+    }
+
+    /// Parses `pingInterval`/`pingTimeout` (milliseconds) from an Engine.IO `open` payload.
+    /// Leaves the current values in place if the payload is absent or unparseable.
+    func parseOpenPayload(_ text: String) {
+        let json = String(text.dropFirst(1))
+        guard
+            let data = json.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return }
+
+        if let intervalMS = object["pingInterval"] as? Int {
+            pingInterval = .milliseconds(intervalMS)
+        }
+        if let timeoutMS = object["pingTimeout"] as? Int {
+            pingTimeout = .milliseconds(timeoutMS)
+        }
+    }
+}

@@ -8,7 +8,7 @@
 @testable import RagnarNetworking
 import Testing
 
-@Suite("ResponseMap Tests")
+@Suite("ResponseMap Tests", .timeLimit(.minutes(1)))
 struct ResponseMapTests {
 
     enum TestError: Error, Equatable {

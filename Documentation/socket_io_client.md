@@ -80,6 +80,8 @@ for await status in await socket.statusUpdates() {
 
 By default, the client reconnects with exponential backoff (1s initial, 15s max, 2× multiplier) after an unexpected disconnection. Disconnections triggered by `disconnect()` or `invalidate()` do not reconnect.
 
+The client also watches for silence: if no inbound frame of any kind arrives within `pingInterval + pingTimeout` (taken from the server's handshake, defaulting to 25s/20s if unavailable), the connection is treated as half-open and torn down, triggering the same reconnection behavior as a network failure.
+
 ```swift
 // Disable reconnection
 let socket = SocketIOClient(url: url, reconnect: .disabled)

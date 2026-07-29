@@ -9,7 +9,7 @@ import Foundation
 @testable import RagnarNetworking
 import Testing
 
-@Suite("ResponseError Helper Methods Tests")
+@Suite("ResponseError Helper Methods Tests", .timeLimit(.minutes(1)))
 struct ResponseErrorHelpersTests {
 
     // MARK: - Test Fixtures
