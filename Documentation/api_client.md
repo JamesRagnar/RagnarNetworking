@@ -42,7 +42,9 @@ The request's `AuthenticationType` controls whether the token closure is invoked
 
 ## Concurrent 401 Coalescing
 
-If multiple requests fail with 401 simultaneously, only one `refresh` call is made. All waiting requests resume after the single refresh completes. If refresh throws, all waiters receive the error.
+If multiple requests fail with 401 while using the same token, only one `refresh` call is made regardless of whether their 401s arrive simultaneously or are staggered over time. All requests resume after that single refresh completes, using the fresh token. If refresh throws, all requests that joined it receive the error.
+
+A request whose 401 arrives after a refresh has already produced a newer token does not trigger a second refresh - it retries directly with the token now in effect.
 
 ## Lifecycle and Invalidation
 
