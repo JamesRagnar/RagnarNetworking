@@ -117,9 +117,10 @@ public actor SocketIOClient {
 
     // MARK: - Connection
 
-    /// Open connection. No-ops if already connecting or connected.
+    /// Open connection. No-ops if already connecting or connected. Can be called again
+    /// after a `.failed` status, for example once fresh credentials are available.
     public func connect() async {
-        guard status == .disconnected else { return }
+        guard canStartNewConnection else { return }
         isDisconnecting = false
         connectionGeneration &+= 1
         let generation = connectionGeneration
@@ -299,6 +300,16 @@ public actor SocketIOClient {
             return
         }
 
+        if text.hasPrefix("44") {
+            // Socket.IO CONNECT_ERROR - the server rejected the connection. Reconnecting
+            // with the same credentials would only be rejected again, so this is terminal
+            // for the current attempt rather than a transient fault to retry.
+            let reason = parseConnectError(text)
+            rnLog(.socket, logging: logging, level: .error, "connect_error: \(reason)")
+            failConnection(reason: reason)
+            return
+        }
+
         if text.hasPrefix("42"), let (name, payload) = parseEvent(text) {
             rnLog(.socket, logging: logging, "event: \(name)")
             let data = payload ?? Data("{}".utf8)
@@ -332,6 +343,24 @@ public actor SocketIOClient {
         return (name, payload)
     }
 
+    private func parseConnectError(_ text: String) -> String {
+        let remainder = String(text.dropFirst(2))
+        guard let braceIndex = remainder.firstIndex(of: "{") else {
+            return remainder.isEmpty ? "Connection rejected by server" : remainder
+        }
+
+        let json = String(remainder[braceIndex...])
+        guard
+            let data = json.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let message = object["message"] as? String
+        else {
+            return "Connection rejected by server"
+        }
+
+        return message
+    }
+
     // MARK: - Private: Helpers
 
     private func sendText(_ text: String) async throws {
@@ -342,6 +371,17 @@ public actor SocketIOClient {
     private func setStatus(_ newStatus: Status) {
         status = newStatus
         for cont in statusContinuations.values { cont.yield(newStatus) }
+    }
+
+    /// Tears down the current connection attempt after a server-rejected connection
+    /// (`CONNECT_ERROR`) and suppresses automatic reconnection - the same credentials
+    /// would only be rejected again. `connect()` or `reconnect(to:)` can still be called
+    /// explicitly afterward, for example once fresh credentials are available.
+    private func failConnection(reason: String) {
+        isDisconnecting = true
+        currentTask?.cancel(with: .goingAway, reason: nil)
+        currentTask = nil
+        setStatus(.failed(reason: reason))
     }
 
     private func finishAllContinuations() {
@@ -380,6 +420,16 @@ public actor SocketIOClient {
 
     private func shouldContinueConnectionLoop(for generation: UInt64) -> Bool {
         generation == connectionGeneration && !isDisconnecting && !Task.isCancelled
+    }
+
+    private var canStartNewConnection: Bool {
+        switch status {
+        case .disconnected, .failed:
+            return true
+
+        case .connecting, .connected:
+            return false
+        }
     }
 }
 

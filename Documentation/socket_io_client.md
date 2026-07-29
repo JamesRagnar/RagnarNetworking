@@ -80,6 +80,8 @@ for await status in await socket.statusUpdates() {
 
 By default, the client reconnects with exponential backoff (1s initial, 15s max, 2× multiplier) after an unexpected disconnection. Disconnections triggered by `disconnect()` or `invalidate()` do not reconnect.
 
+If the server rejects the connection (Socket.IO `CONNECT_ERROR`, for example due to invalid or expired credentials), `statusUpdates()` emits `.failed(reason:)` instead of `.disconnected`, and automatic reconnection is not attempted - the same credentials would only be rejected again. Call `connect()` or `reconnect(to:)` explicitly once the underlying cause has been addressed.
+
 ```swift
 // Disable reconnection
 let socket = SocketIOClient(url: url, reconnect: .disabled)
