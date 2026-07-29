@@ -180,6 +180,96 @@ private actor BlockingDataTaskProvider: DataTaskProvider {
     }
 }
 
+// MARK: - Barrier
+
+/// Suspends each caller until exactly two callers have arrived, then releases both
+/// together. Used to guarantee two requests have both read their token and reached
+/// transport before either one's response is allowed to resolve.
+private actor Barrier2 {
+    private var arrivals = 0
+    private var continuations: [CheckedContinuation<Void, Never>] = []
+
+    func arrive() async {
+        arrivals += 1
+        if arrivals >= 2 {
+            for continuation in continuations { continuation.resume() }
+            continuations.removeAll()
+        } else {
+            await withCheckedContinuation { continuations.append($0) }
+        }
+    }
+}
+
+// MARK: - Switching Token Store
+
+/// Returns a stale token until `advance()` is called, then returns a fresh token for
+/// every subsequent call. Models a real token store where every reader sees the same
+/// value until a refresh updates it, regardless of how many readers there are.
+private actor SwitchingTokenStore {
+    private var current = "stale"
+    private(set) var callCount = 0
+
+    func next() -> String {
+        callCount += 1
+        return current
+    }
+
+    func advance() {
+        current = "fresh"
+    }
+}
+
+// MARK: - Staggered Data Task Provider
+
+/// A provider whose first two calls both fail with 401, but whose second call does not
+/// return until `refreshCompleted` fires. Combined with `Barrier2`, this reproduces a
+/// staggered 401 deterministically: both requests reach transport before either 401 is
+/// observed by the client, and the second 401 is only observed after a refresh
+/// triggered by the first has already completed.
+private actor StaggeredDataTaskProvider: DataTaskProvider {
+    private let baseURL = URL(string: "https://api.example.com")!
+    private var callIndex = 0
+    private(set) var callCount = 0
+    private(set) var capturedRequests: [URLRequest] = []
+
+    private let responses: [(data: Data, statusCode: Int)]
+    private let bothStarted: Barrier2
+    private let refreshCompleted: Signal
+
+    init(
+        responses: [(data: Data, statusCode: Int)],
+        bothStarted: Barrier2,
+        refreshCompleted: Signal
+    ) {
+        self.responses = responses
+        self.bothStarted = bothStarted
+        self.refreshCompleted = refreshCompleted
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        let index = callIndex
+        callIndex += 1
+        callCount += 1
+        capturedRequests.append(request)
+
+        if index < 2 {
+            await bothStarted.arrive()
+        }
+        if index == 1 {
+            await refreshCompleted.wait()
+        }
+
+        let (data, statusCode) = responses[index]
+        let response = HTTPURLResponse(
+            url: baseURL,
+            statusCode: statusCode,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+        return (data, response)
+    }
+}
+
 // MARK: - Helpers
 
 private func makeResponseData(value: String = "ok") -> Data {
@@ -439,7 +529,82 @@ struct APIClientTests {
         #expect(await mock.callCount == 6)
     }
 
-    // MARK: 10. Invalidating before send prevents token and transport work
+    // MARK: 10. A 401 that arrives after an unrelated refresh has completed does not trigger a second refresh
+
+    @Test("A 401 whose token predates a completed refresh retries directly instead of refreshing again")
+    func staggered401DoesNotTriggerRedundantRefresh() async throws {
+        let bothStarted = Barrier2()
+        let refreshCompleted = Signal()
+
+        // Call order: two initial sends both fail 401 using the stale token (the second
+        // is held back until refreshCompleted fires), then two retries both succeed 200.
+        let mock = StaggeredDataTaskProvider(
+            responses: [
+                (Data(), 401),
+                (Data(), 401),
+                (makeResponseData(value: "a"), 200),
+                (makeResponseData(value: "b"), 200)
+            ],
+            bothStarted: bothStarted,
+            refreshCompleted: refreshCompleted
+        )
+
+        let refreshCounter = Counter()
+        let store = SwitchingTokenStore()
+
+        let client = makeClient(
+            mock: mock,
+            token: { await store.next() },
+            refresh: {
+                await refreshCounter.increment()
+                await store.advance()
+                await refreshCompleted.fire()
+            }
+        )
+
+        let params = TestInterface.Parameters(authentication: .bearer)
+
+        async let r1 = client.send(TestInterface.self, params)
+        async let r2 = client.send(TestInterface.self, params)
+
+        let (result1, result2) = try await (r1, r2)
+
+        #expect(result1.value != "")
+        #expect(result2.value != "")
+        #expect(await refreshCounter.value == 1)
+        #expect(await mock.callCount == 4)
+
+        // The two retries (the last two transport calls) both used the post-refresh token.
+        let requests = await mock.capturedRequests
+        #expect(requests[2].value(forHTTPHeaderField: "Authorization") == "Bearer fresh")
+        #expect(requests[3].value(forHTTPHeaderField: "Authorization") == "Bearer fresh")
+    }
+
+    // MARK: 11. 401 followed by another 401 does not loop
+
+    @Test("A second 401 after refresh and retry is not retried again")
+    func secondConsecutive401IsNotRetriedAgain() async throws {
+        let mock = MockDataTaskProvider()
+        await mock.enqueue(data: Data(), statusCode: 401)
+        await mock.enqueue(data: Data(), statusCode: 401)
+
+        let refreshCounter = Counter()
+        let client = makeClient(
+            mock: mock,
+            token: { "token" },
+            refresh: { await refreshCounter.increment() }
+        )
+
+        let params = TestInterface.Parameters(authentication: .bearer)
+        await #expect(throws: ResponseError.self) {
+            try await client.send(TestInterface.self, params)
+        }
+
+        #expect(await refreshCounter.value == 1)
+        #expect(await mock.callCount == 2)
+    }
+
+    // MARK: 12. Invalidating before send prevents token and transport work
 
     @Test("Invalidating before send prevents token and transport work")
     func invalidateBeforeSendPreventsWork() async throws {
@@ -463,7 +628,7 @@ struct APIClientTests {
         #expect(await mock.callCount == 0)
     }
 
-    // MARK: 11. Invalidating during transport suppresses completion
+    // MARK: 13. Invalidating during transport suppresses completion
 
     @Test("Invalidating during transport cancels or suppresses completion")
     func invalidateDuringTransportSuppressesCompletion() async throws {
@@ -484,7 +649,7 @@ struct APIClientTests {
         #expect(await mock.completed == false)
     }
 
-    // MARK: 12. Invalidating during refresh cancels refresh and prevents retry
+    // MARK: 14. Invalidating during refresh cancels refresh and prevents retry
 
     @Test("Invalidating during refresh cancels the refresh and prevents retry")
     func invalidateDuringRefreshPreventsRetry() async throws {
@@ -524,7 +689,7 @@ struct APIClientTests {
         #expect(await mock.callCount == 1)
     }
 
-    // MARK: 13. Repeated invalidation is idempotent
+    // MARK: 15. Repeated invalidation is idempotent
 
     @Test("Repeated invalidation is idempotent")
     func repeatedInvalidationIsIdempotent() async throws {
@@ -542,7 +707,7 @@ struct APIClientTests {
         #expect(await mock.callCount == 0)
     }
 
-    // MARK: 14. A separately created replacement client is unaffected
+    // MARK: 16. A separately created replacement client is unaffected
 
     @Test("A separately created replacement client is unaffected")
     func replacementClientIsUnaffected() async throws {
