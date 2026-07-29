@@ -44,6 +44,18 @@ jobs:
       - name: Run tests
         run: swift test -Xswiftc -warnings-as-errors --explicit-target-dependency-import-check error
 
+  swift6-language-mode:
+    name: Swift 6 language mode
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build in explicit Swift 6 language mode
+        run: swift build -Xswiftc -swift-version -Xswiftc 6 -Xswiftc -warnings-as-errors
+      - name: Build with complete strict concurrency checking
+        run: swift build -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+
   platform-build:
     name: Build (${{ matrix.platform }})
     runs-on: macos-latest
