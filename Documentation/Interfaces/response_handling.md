@@ -82,6 +82,37 @@ public enum CoverResponseHandler: ResponseHandler {
 }
 ```
 
+### Composing with DefaultResponseHandler
+
+A custom `ResponseHandler` that only needs a targeted addition to the default behavior
+(for example, inspecting a header before decoding) does not need to reimplement status-code
+matching. `DefaultResponseHandler.handleOutcome(_:for:)` performs the same matching `handle`
+does, returning a `ResponseOutcomeResult` instead of deciding what to do with a `.noContent`
+result. `DefaultResponseHandler.decode(_:as:)` performs the same type-driven decoding
+(`EmptyResponse`, `String`, `Data`, or `JSONDecoder`) `handle` uses to finish a `.noContent`
+result.
+
+```swift
+public enum LoggingResponseHandler: ResponseHandler {
+    public static func handle<T: Interface>(
+        _ response: (data: Data, response: URLResponse),
+        for interface: T.Type
+    ) throws(ResponseError) -> T.Response {
+        switch try DefaultResponseHandler.handleOutcome(response, for: interface) {
+        case .decoded(let value):
+            return value
+
+        case .noContent:
+            do {
+                return try DefaultResponseHandler.decode(Data(), as: interface)
+            } catch {
+                throw ResponseError.decoding(response.data, HTTPResponseSnapshot(response: response.response), error)
+            }
+        }
+    }
+}
+```
+
 ### Matching Priority
 
 - Exact status codes match first.
