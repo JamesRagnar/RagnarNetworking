@@ -19,6 +19,12 @@ public actor APIClient {
     private let refresh: @Sendable () async throws -> Void
     private var ongoingRefresh: Task<Void, Error>?
 
+    /// Called each time a request has resolved whether it owns or is joining the
+    /// coalesced refresh, immediately before it starts waiting on it. Test-only hook -
+    /// lets a test know precisely when it is safe to let a held-open `refresh` complete,
+    /// without depending on timing.
+    private let onCoalesceRefreshJoin: (@Sendable () -> Void)?
+
     /// Bumped each time a refresh completes successfully. Lets a request that read its
     /// token before an unrelated refresh completed skip a redundant second refresh.
     private var refreshGeneration: UInt64 = 0
@@ -49,6 +55,24 @@ public actor APIClient {
         self.session = session
         self.token = token
         self.refresh = refresh
+        self.onCoalesceRefreshJoin = nil
+    }
+
+    /// Internal initializer for unit tests - adds a hook for observing exactly when a
+    /// request has joined the coalesced refresh, so tests can synchronize deterministically
+    /// instead of relying on `Task.sleep`.
+    init(
+        baseURL: URL,
+        session: any DataTaskProvider = URLSession.shared,
+        token: @escaping @Sendable () async throws -> String?,
+        refresh: @escaping @Sendable () async throws -> Void,
+        onCoalesceRefreshJoin: (@Sendable () -> Void)?
+    ) {
+        self.baseURL = baseURL
+        self.session = session
+        self.token = token
+        self.refresh = refresh
+        self.onCoalesceRefreshJoin = onCoalesceRefreshJoin
     }
 
     /// Creates an `APIClient` for unauthenticated request flows.
@@ -70,6 +94,7 @@ public actor APIClient {
         self.session = session
         self.token = { nil }
         self.refresh = { throw RequestError.authentication }
+        self.onCoalesceRefreshJoin = nil
     }
 
     /// Sends a typed request.
@@ -197,11 +222,13 @@ public actor APIClient {
 
     private func coalesceRefresh() async throws {
         if let task = ongoingRefresh {
+            onCoalesceRefreshJoin?()
             try await task.value
             return
         }
         let task = Task<Void, Error> { [self] in try await refresh() }
         ongoingRefresh = task
+        onCoalesceRefreshJoin?()
         do {
             try await task.value
             ongoingRefresh = nil

@@ -107,6 +107,30 @@ private actor Signal {
     }
 }
 
+// MARK: - Join Counter
+
+/// Fires `onTarget` once `arrive()` has been called `target` times. Paired with
+/// `APIClient`'s internal `onCoalesceRefreshJoin` hook, this counts down exactly when
+/// each concurrent request has resolved whether it owns or is joining the coalesced
+/// refresh - the precise moment after which a held-open refresh is safe to release.
+private actor JoinCounter {
+    private var count = 0
+    private let target: Int
+    private let onTarget: Signal
+
+    init(target: Int, onTarget: Signal) {
+        self.target = target
+        self.onTarget = onTarget
+    }
+
+    func arrive() async {
+        count += 1
+        if count == target {
+            await onTarget.fire()
+        }
+    }
+}
+
 // MARK: - Cancellation Latch
 
 /// Suspends until the surrounding task is cancelled, then throws `CancellationError`.
@@ -505,13 +529,22 @@ struct APIClientTests {
             "fresh1", "fresh2", "fresh3"
         ])
 
-        let client = makeClient(
-            mock: mock,
+        let allJoined = Signal()
+        let joinCounter = JoinCounter(target: 3, onTarget: allJoined)
+
+        let client = APIClient(
+            baseURL: URL(string: "https://api.example.com")!,
+            session: mock,
             token: { await store.next() },
             refresh: {
                 await refreshCounter.increment()
-                try await Task.sleep(for: .milliseconds(50))
-            }
+                // Held open until all three requests have resolved whether they own
+                // or are joining this refresh - the internal hook fires only after
+                // that point, so this can never resolve before a slower request has
+                // had its chance to observe the refresh as still in flight.
+                await allJoined.wait()
+            },
+            onCoalesceRefreshJoin: { Task { await joinCounter.arrive() } }
         )
 
         let params = TestInterface.Parameters(authentication: .bearer)
