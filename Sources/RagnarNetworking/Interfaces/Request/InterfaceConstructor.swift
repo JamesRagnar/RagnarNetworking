@@ -93,6 +93,20 @@ public protocol InterfaceConstructor {
         to request: inout URLRequest
     ) throws(RequestError)
 
+    /// Applies a request body's `Content-Type`, called by the default `applyBody`.
+    ///
+    /// Custom implementations should preserve the existing-header conflict check unless they
+    /// are intentionally redefining how a caller-supplied `Content-Type` interacts with the
+    /// body's own.
+    static func applyContentType(
+        _ contentType: String?,
+        to request: inout URLRequest
+    ) throws(RequestError)
+
+    /// Compares two `Content-Type` values for equivalence, ignoring parameters (for example
+    /// `charset`) and case. Called by the default `applyContentType`.
+    static func mediaTypesMatch(_ value1: String, _ value2: String) -> Bool
+
 }
 
 // MARK: - Default Pipeline Implementation

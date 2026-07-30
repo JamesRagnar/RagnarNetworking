@@ -1047,4 +1047,72 @@ struct URLRequestInterfaceTests {
         #expect(request.httpBody == bodyData)
     }
 
+    // MARK: - Custom InterfaceConstructor Override Dispatch
+
+    /// A custom constructor overriding `applyContentType`. Prior to `applyContentType` and
+    /// `mediaTypesMatch` becoming protocol requirements, calls to them from the default
+    /// `applyBody` bound statically to the extension default, so this override never ran.
+    struct ContentTypeOverridingConstructor: InterfaceConstructor {
+        static func applyContentType(
+            _ contentType: String?,
+            to request: inout URLRequest
+        ) throws(RequestError) {
+            var headers = request.allHTTPHeaderFields ?? [:]
+            headers["Content-Type"] = "application/vnd.custom+json"
+            headers["X-Override-Ran"] = "yes"
+            request.allHTTPHeaderFields = headers
+        }
+    }
+
+    @Test("Custom InterfaceConstructor override of applyContentType is invoked by the default buildRequest")
+    func customApplyContentTypeOverrideIsInvoked() throws {
+        struct Body: RequestBody, Encodable { let a: Int }
+        struct Parameters: RequestParameters {
+            let method: RequestMethod = .post
+            let path: String = "/x"
+            let queryItems: [URLQueryItem]? = nil
+            let headers: [String: String]? = nil
+            let body: Body = Body(a: 1)
+            let authentication: AuthenticationType = .none
+        }
+
+        let request = try ContentTypeOverridingConstructor.buildRequest(
+            requestParameters: Parameters(),
+            serverConfiguration: ServerConfiguration(url: URL(string: "https://api.example.com")!)
+        )
+
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/vnd.custom+json")
+        #expect(request.value(forHTTPHeaderField: "X-Override-Ran") == "yes")
+    }
+
+    /// A custom constructor overriding `mediaTypesMatch` to treat any two media types as
+    /// equivalent, so an existing `Content-Type` header never conflicts with the body's.
+    struct AlwaysMatchingMediaTypeConstructor: InterfaceConstructor {
+        static func mediaTypesMatch(_ value1: String, _ value2: String) -> Bool {
+            true
+        }
+    }
+
+    @Test("Custom InterfaceConstructor override of mediaTypesMatch is invoked by the default applyContentType")
+    func customMediaTypesMatchOverrideIsInvoked() throws {
+        struct Body: RequestBody, Encodable { let a: Int }
+        struct Parameters: RequestParameters {
+            let method: RequestMethod = .post
+            let path: String = "/x"
+            let queryItems: [URLQueryItem]? = nil
+            // A header that would normally conflict with the body's "application/json".
+            let headers: [String: String]? = ["Content-Type": "text/plain"]
+            let body: Body = Body(a: 1)
+            let authentication: AuthenticationType = .none
+        }
+
+        // With the default mediaTypesMatch, this would throw RequestError.invalidRequest.
+        let request = try AlwaysMatchingMediaTypeConstructor.buildRequest(
+            requestParameters: Parameters(),
+            serverConfiguration: ServerConfiguration(url: URL(string: "https://api.example.com")!)
+        )
+
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "text/plain")
+    }
+
 }
