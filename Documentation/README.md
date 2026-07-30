@@ -10,7 +10,6 @@ This directory documents the public surface of `RagnarNetworking`.
 - `SocketIOURL` - Socket.IO WebSocket URL builder from HTTP(S) server URLs
 - `DataTaskProvider` - transport abstraction for interface-driven requests
 - `ServerConfiguration` - base URL, auth token, and request encoding configuration
-- `RagnarNetworkingLogging` - immutable runtime logging configuration
 - `Interfaces/` - request/response modeling, response mapping, and request construction
 
 ## Guides

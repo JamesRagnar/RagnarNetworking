@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import OSLog
 
 /// Advanced extension API for constructing `URLRequest` values from typed Interface parameters.
 ///
@@ -197,7 +198,7 @@ public extension InterfaceConstructor {
             if currentQueryItems.contains(where: {
                 $0.name.caseInsensitiveCompare("token") == .orderedSame
             }) {
-                rnDiagnostic(
+                Logger.diagnostics.warning(
                     "RagnarNetworking: URL authentication overrides an existing 'token' query item from the base URL."
                 )
             }
@@ -211,7 +212,7 @@ public extension InterfaceConstructor {
             if queryItems?.contains(where: {
                 $0.name.caseInsensitiveCompare("token") == .orderedSame
             }) == true {
-                rnDiagnostic(
+                Logger.diagnostics.warning(
                     "RagnarNetworking: URL auth overrides a 'token' query param in request parameters."
                 )
             }
@@ -277,7 +278,7 @@ public extension InterfaceConstructor {
             for (key, value) in newHeaderFields {
                 if key.caseInsensitiveCompare("Authorization") == .orderedSame {
                     if case .bearer = authentication {
-                        rnDiagnostic(
+                        Logger.diagnostics.warning(
                             "RagnarNetworking: custom Authorization header overrides bearer auth for this request."
                         )
                     }

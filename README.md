@@ -52,7 +52,6 @@ let user = try await client.send(
 - Strict request bodies via `RequestBody` with intrinsic content types
 - `APIClient` actor with automatic 401 retry, coalesced token refresh, and terminal invalidation
 - `SocketIOClient` actor with typed event streams and automatic reconnection
-- Immutable per-instance logging configuration via `RagnarNetworkingLogging`
 - Testable request execution via `DataTaskProvider` and socket transport via `SocketClient`
 - Advanced request-construction extension API via `InterfaceConstructor`
 

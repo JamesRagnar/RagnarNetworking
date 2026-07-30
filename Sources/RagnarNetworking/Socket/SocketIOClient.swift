@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import OSLog
 
 /// Abstracts `URLSessionWebSocketTask` for test injection.
 protocol WebSocketTask: AnyObject, Sendable {
@@ -64,7 +65,6 @@ public actor SocketIOClient {
     private var url: URL
     private let urlSession: URLSession
     private let reconnectPolicy: ReconnectPolicy
-    let logging: RagnarNetworkingLogging
     private let taskFactory: (@Sendable (URL, URLSession) -> any WebSocketTask)?
     let clock: any SleepClock
 
@@ -102,13 +102,11 @@ public actor SocketIOClient {
     public init(
         url: URL,
         session: URLSession = .shared,
-        reconnect: ReconnectPolicy = .init(),
-        logging: RagnarNetworkingLogging = .init()
+        reconnect: ReconnectPolicy = .init()
     ) {
         self.url = url
         self.urlSession = session
         self.reconnectPolicy = reconnect
-        self.logging = logging
         self.taskFactory = nil
         self.clock = SystemSleepClock()
     }
@@ -120,14 +118,12 @@ public actor SocketIOClient {
         url: URL,
         session: URLSession = .shared,
         reconnect: ReconnectPolicy = .init(),
-        logging: RagnarNetworkingLogging = .init(),
         taskFactory: @escaping @Sendable (URL, URLSession) -> any WebSocketTask,
         clock: any SleepClock = SystemSleepClock()
     ) {
         self.url = url
         self.urlSession = session
         self.reconnectPolicy = reconnect
-        self.logging = logging
         self.taskFactory = taskFactory
         self.clock = clock
     }
@@ -308,17 +304,13 @@ public actor SocketIOClient {
 
         guard case .string(let text) = message else {
             resetHeartbeat(generation: generation)
-            rnLog(
-                .socket,
-                logging: logging,
-                "ignored non-text WebSocket frame"
-            )
+            Logger.socket.debug("ignored non-text WebSocket frame")
             return
         }
 
         guard let frame = ParsedEngineIOFrame.parse(text) else {
             resetHeartbeat(generation: generation)
-            rnLog(.socket, logging: logging, "ignored unrecognized Engine.IO frame")
+            Logger.socket.debug("ignored unrecognized Engine.IO frame")
             return
         }
 
@@ -326,7 +318,7 @@ public actor SocketIOClient {
             // Engine.IO OPEN - parse the server's heartbeat timing before arming the
             // watchdog, so the deadline reflects it immediately, then send Socket.IO
             // CONNECT to the default namespace
-            rnLog(.socket, logging: logging, "open")
+            Logger.socket.debug("open")
             parseOpenPayload(text)
             resetHeartbeat(generation: generation)
             try? await currentTask?.send(.string(SocketIOPacketType.connect.enginePrefixedWireValue))
@@ -338,14 +330,16 @@ public actor SocketIOClient {
         switch (frame.engineIOType, frame.socketIOType) {
         case (.ping, _) where frame.payload.isEmpty:
             // Engine.IO PING - respond with PONG
-            rnLog(.socket, logging: logging, "ping")
+            Logger.socket.debug("ping")
             try? await currentTask?.send(.string(EngineIOPacketType.pong.wireValue))
 
         case (.message, let socketIOType):
             await handleSocketIOPacket(socketIOType, payload: frame.payload)
 
         default:
-            rnLog(.socket, logging: logging, "ignored unhandled Engine.IO packet \(frame.engineIOType)")
+            Logger.socket.debug(
+                "ignored unhandled Engine.IO packet \(String(describing: frame.engineIOType), privacy: .public)"
+            )
         }
     }
 
