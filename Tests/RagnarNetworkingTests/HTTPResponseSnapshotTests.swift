@@ -63,6 +63,39 @@ struct HTTPResponseSnapshotTests {
         #expect(coerced["X-Token"]?.contains("123E4567-E89B-12D3-A456-426614174000") == true)
     }
 
+    // MARK: - Token Redaction
+
+    @Test("Removes a token query item from the captured URL")
+    func testRedactsTokenQueryItem() {
+        let url = URL(string: "https://api.example.com/test?token=secret-value&other=kept")!
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+
+        let snapshot = HTTPResponseSnapshot(response: response)
+
+        #expect(snapshot.url?.absoluteString.contains("secret-value") == false)
+        #expect(snapshot.url?.absoluteString.contains("other=kept") == true)
+    }
+
+    @Test("Removes a token query item case-insensitively")
+    func testRedactsTokenQueryItemCaseInsensitively() {
+        let url = URL(string: "https://api.example.com/test?Token=secret-value")!
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+
+        let snapshot = HTTPResponseSnapshot(response: response)
+
+        #expect(snapshot.url?.absoluteString.contains("secret-value") == false)
+    }
+
+    @Test("URL with no token query item is unaffected")
+    func testURLWithNoTokenIsUnaffected() {
+        let url = URL(string: "https://api.example.com/test?other=kept")!
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+
+        let snapshot = HTTPResponseSnapshot(response: response)
+
+        #expect(snapshot.url == url)
+    }
+
 }
 
 @Suite("ErrorSnapshot Tests", .timeLimit(.minutes(1)))
