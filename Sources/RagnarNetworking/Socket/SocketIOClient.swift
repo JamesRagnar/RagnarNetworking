@@ -256,7 +256,9 @@ public actor SocketIOClient {
     /// meaningful, so a backlog of stale states is dropped rather than retained.
     public func statusUpdates() -> AsyncStream<SocketConnectionStatus> {
         let id = UUID()
-        let (stream, continuation) = AsyncStream<SocketConnectionStatus>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let (stream, continuation) = AsyncStream<SocketConnectionStatus>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
         statusContinuations[id] = continuation
         continuation.yield(status)
         continuation.onTermination = { [weak self] _ in
