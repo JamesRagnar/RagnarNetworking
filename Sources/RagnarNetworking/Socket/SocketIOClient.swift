@@ -8,7 +8,7 @@
 import Foundation
 
 /// Abstracts `URLSessionWebSocketTask` for test injection.
-protocol WebSocketTask: AnyObject {
+protocol WebSocketTask: AnyObject, Sendable {
     func resume()
     func cancel(with closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?)
     func send(_ message: URLSessionWebSocketTask.Message) async throws
