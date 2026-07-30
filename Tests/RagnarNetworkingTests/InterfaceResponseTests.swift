@@ -1239,4 +1239,98 @@ struct InterfaceResponseTests {
         #expect(results.allSatisfy { $0.message == "concurrent" && $0.code == 200 })
     }
 
+    // MARK: - Composing a Custom ResponseHandler on DefaultResponseHandler
+
+    /// Delegates to `DefaultResponseHandler.handleOutcome` and `.decode` instead of
+    /// reimplementing status-code matching, demonstrating the composition pattern that
+    /// `handleOutcome` and `decode` being public (rather than internal) enables.
+    enum ComposingResponseHandler: ResponseHandler {
+        static func handle<T: Interface>(
+            _ response: (data: Data, response: URLResponse),
+            for interface: T.Type
+        ) throws(ResponseError) -> T.Response {
+            switch try DefaultResponseHandler.handleOutcome(response, for: interface) {
+            case .decoded(let value):
+                return value
+
+            case .noContent:
+                do {
+                    return try DefaultResponseHandler.decode(Data(), as: interface)
+                } catch {
+                    throw .decoding(response.data, HTTPResponseSnapshot(response: response.response), error)
+                }
+            }
+        }
+    }
+
+    @Test("Composed ResponseHandler produces the same result as the default handler for the success path")
+    func testComposedHandlerMatchesDefaultForSuccess() throws {
+        let responseData = try JSONEncoder().encode(SuccessResponse(message: "ok", code: 200))
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        let expected = try TestInterface.handle((data: responseData, response: httpResponse))
+        let actual = try ComposingResponseHandler.handle((data: responseData, response: httpResponse), for: TestInterface.self)
+
+        #expect(actual.message == expected.message)
+        #expect(actual.code == expected.code)
+    }
+
+    @Test("Composed ResponseHandler produces the same result as the default handler for the noContent path")
+    func testComposedHandlerMatchesDefaultForNoContent() throws {
+        struct NoContentEmptyInterface: Interface {
+            struct Parameters: RequestParameters {
+                let method: RequestMethod = .get
+                let path = "/no-content-empty"
+                let queryItems: [URLQueryItem]? = nil
+                let headers: [String: String]? = nil
+                let body: EmptyBody = .init()
+                let authentication: AuthenticationType = .none
+            }
+
+            typealias Response = EmptyResponse
+
+            static var responseCases: ResponseMap {
+                [.code(204, .noContent)]
+            }
+        }
+
+        let responseData = Data()
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 204,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        let expected = try NoContentEmptyInterface.handle((data: responseData, response: httpResponse))
+        let actual = try ComposingResponseHandler.handle(
+            (data: responseData, response: httpResponse),
+            for: NoContentEmptyInterface.self
+        )
+
+        #expect(actual == expected)
+    }
+
+    @Test("Composed ResponseHandler produces the same result as the default handler for the error path")
+    func testComposedHandlerMatchesDefaultForError() {
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 400,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        do {
+            _ = try ComposingResponseHandler.handle((data: Data(), response: httpResponse), for: TestInterface.self)
+            Issue.record("Expected ResponseError.generic to be thrown")
+        } catch {
+            #expect(error.statusCode == 400)
+        }
+    }
+
 }
