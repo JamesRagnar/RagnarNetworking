@@ -101,16 +101,23 @@ public actor APIClient {
                 // another request's 401 already refreshed for us - retry directly with
                 // the now-current token rather than triggering a second refresh.
                 if refreshGeneration == generation {
+                    // Run the refresh in its own task so this request's own cancellation
+                    // can stop *waiting* for it without cancelling the refresh itself -
+                    // other requests may be relying on the same refresh completing.
+                    let refreshTask = Task { [self] in try await coalesceRefresh() }
                     do {
-                        try await coalesceRefresh()
+                        try await CancellableTaskWait.value(of: refreshTask)
                     } catch {
                         // A refresh cancelled by `invalidate()` surfaces as the terminal
-                        // invalidation error rather than a raw cancellation.
+                        // invalidation error rather than a raw cancellation. Caller-initiated
+                        // cancellation surfaces as `CancellationError` here without affecting
+                        // the refresh, which keeps running for any other waiters.
                         try checkValid()
                         throw error
                     }
                 }
                 try checkValid()
+                try Task.checkCancellation()
                 let freshToken = try await token()
                 return try await execute(type, params, token: freshToken)
             }
@@ -203,5 +210,62 @@ public actor APIClient {
             ongoingRefresh = nil
             throw error
         }
+    }
+}
+
+/// Awaits a `Task<Void, Error>`'s value, resolving promptly with `CancellationError`
+/// if the calling task is cancelled first - without cancelling the awaited task itself.
+///
+/// Used so a request that stops waiting on a token refresh does not cancel that
+/// refresh for any other requests still relying on it to complete.
+private actor CancellableTaskWait {
+
+    private var continuation: CheckedContinuation<Void, Error>?
+    private var isResolved = false
+
+    static func value(of task: Task<Void, Error>) async throws {
+        try await CancellableTaskWait().wait(for: task)
+    }
+
+    private func wait(for task: Task<Void, Error>) async throws {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                register(continuation, watching: task)
+            }
+        } onCancel: {
+            Task { await self.resolve(.failure(CancellationError())) }
+        }
+    }
+
+    private func register(
+        _ continuation: CheckedContinuation<Void, Error>,
+        watching task: Task<Void, Error>
+    ) {
+        guard !isResolved else {
+            continuation.resume(throwing: CancellationError())
+            return
+        }
+        self.continuation = continuation
+        Task {
+            do {
+                try await task.value
+                resolve(.success(()))
+            } catch {
+                resolve(.failure(error))
+            }
+        }
+    }
+
+    private func resolve(_ result: Result<Void, Error>) {
+        guard !isResolved else { return }
+        isResolved = true
+        switch result {
+        case .success:
+            continuation?.resume()
+
+        case .failure(let error):
+            continuation?.resume(throwing: error)
+        }
+        continuation = nil
     }
 }

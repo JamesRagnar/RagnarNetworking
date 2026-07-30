@@ -725,4 +725,62 @@ struct APIClientTests {
         #expect(result.value == "b")
         #expect(await mockB.callCount == 1)
     }
+
+    // MARK: 17. Cancelling the caller's task during transport throws promptly
+
+    @Test("Cancelling during transport throws CancellationError and does not complete the request")
+    func cancelDuringTransportThrowsCancellationError() async throws {
+        let mock = BlockingDataTaskProvider(data: makeResponseData(), statusCode: 200)
+        let client = makeClient(mock: mock, token: { "token" })
+
+        let params = TestInterface.Parameters(authentication: .none)
+        let task = Task { try await client.send(TestInterface.self, params) }
+
+        await mock.waitUntilStarted()
+        task.cancel()
+
+        await #expect(throws: CancellationError.self) {
+            try await task.value
+        }
+        #expect(await mock.completed == false)
+    }
+
+    // MARK: 18. Cancelling the caller's task during refresh throws promptly and does not retry
+
+    @Test("Cancelling during refresh throws CancellationError without cancelling the refresh or retrying")
+    func cancelDuringRefreshThrowsCancellationErrorWithoutRetrying() async throws {
+        let mock = MockDataTaskProvider()
+        await mock.enqueue(data: Data(), statusCode: 401)
+
+        let refreshStarted = Signal()
+        let allowRefreshToFinish = Signal()
+        let refreshFinished = Signal()
+
+        let client = makeClient(
+            mock: mock,
+            token: { "token" },
+            refresh: {
+                await refreshStarted.fire()
+                await allowRefreshToFinish.wait()
+                await refreshFinished.fire()
+            }
+        )
+
+        let params = TestInterface.Parameters(authentication: .bearer)
+        let task = Task { try await client.send(TestInterface.self, params) }
+
+        await refreshStarted.wait()
+        task.cancel()
+
+        await #expect(throws: CancellationError.self) {
+            try await task.value
+        }
+
+        // No retry was issued while the refresh was still in flight.
+        #expect(await mock.callCount == 1)
+
+        // The refresh itself was not cancelled by the caller giving up on it.
+        await allowRefreshToFinish.fire()
+        await refreshFinished.wait()
+    }
 }
