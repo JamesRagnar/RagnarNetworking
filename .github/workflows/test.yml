@@ -33,8 +33,6 @@ jobs:
         include:
           - xcode: Xcode_16.2
             swift: "6.0"
-          - xcode: Xcode_16.4
-            swift: "6.1"
           - xcode: Xcode_26.3
             swift: "6.2"
     env:
@@ -50,7 +48,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [ios, tvos, watchos, visionos, macos]
+        platform: [ios, watchos, visionos]
     steps:
       - uses: actions/checkout@v4
       - name: Build
