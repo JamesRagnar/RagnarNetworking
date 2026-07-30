@@ -4,13 +4,7 @@ This guide explains how `InterfaceConstructor` acts as the advanced request-cons
 
 ## Overview
 
-`InterfaceConstructor` defines a stable, step-by-step pipeline for building a `URLRequest` from `RequestParameters` and `ServerConfiguration`. `URLRequest` conforms by default, and you can provide your own constructor type to override only the steps you need.
-
-Key benefits:
-- Consistent, well-structured request construction
-- Safe defaults for standard behavior
-- Targeted overrides for advanced customization
-- A clear extension seam for package consumers who need transport-level policy changes
+`InterfaceConstructor` defines a step-by-step pipeline for building a `URLRequest` from `RequestParameters` and `ServerConfiguration`. `URLRequest` conforms by default, and you can provide your own constructor type to override only the steps you need; unoverridden steps fall back to the default implementation.
 
 ## Construction Pipeline
 
@@ -24,7 +18,7 @@ The default pipeline is:
 - `applyHeaders`
 - `applyBody`
 
-`applyBody` encodes the request body using the configured `RequestEncoder` and applies the inferred `Content-Type`. If a `Content-Type` header already exists, the media types must match (case-insensitive) or request construction will fail with `RequestError.invalidRequest`.
+`applyBody` encodes the request body using the configured `RequestEncoder`, then calls `applyContentType` to apply the inferred `Content-Type`. If a `Content-Type` header already exists, `applyContentType` calls `mediaTypesMatch` to compare it against the inferred value (case-insensitive, ignoring parameters such as `charset`); a mismatch fails request construction with `RequestError.invalidRequest`.
 
 ## When to Use It
 
@@ -41,7 +35,8 @@ Do not reach for this when a plain `RequestParameters` value already expresses t
 Prefer the narrowest possible override:
 - Override `applyHeaders` to add or rewrite headers.
 - Override `applyQueryItems` to change query assembly behavior.
-- Override `applyBody` to change encoding or content-type handling.
+- Override `applyBody` to change encoding behavior.
+- Override `applyContentType` or `mediaTypesMatch` to change how a body's `Content-Type` is applied or compared against an existing header.
 - Override `buildRequest` only when you need to change the pipeline itself.
 
 For additive behavior, call the default `URLRequest` step implementation first and then append your custom logic.
