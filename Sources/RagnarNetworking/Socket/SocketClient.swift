@@ -12,6 +12,13 @@ public enum SocketConnectionStatus: Sendable, Equatable {
     case connecting
     case connected
 
+    /// The server rejected the connection (Socket.IO `CONNECT_ERROR`), for example due
+    /// to invalid or expired credentials. Terminal for the current connection attempt:
+    /// automatic reconnection is not attempted, since the same credentials would be
+    /// rejected again. Call `connect()` or `reconnect(to:)` explicitly once the
+    /// underlying cause (such as a stale token) has been addressed.
+    case failed(reason: String)
+
 }
 
 /// Abstract socket transport used by higher-level packages.

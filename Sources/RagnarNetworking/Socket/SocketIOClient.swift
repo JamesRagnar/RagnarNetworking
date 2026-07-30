@@ -8,7 +8,7 @@
 import Foundation
 
 /// Abstracts `URLSessionWebSocketTask` for test injection.
-protocol WebSocketTask: AnyObject {
+protocol WebSocketTask: AnyObject, Sendable {
     func resume()
     func cancel(with closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?)
     func send(_ message: URLSessionWebSocketTask.Message) async throws
@@ -64,30 +64,30 @@ public actor SocketIOClient {
     private var url: URL
     private let urlSession: URLSession
     private let reconnectPolicy: ReconnectPolicy
-    private let logging: RagnarNetworkingLogging
+    let logging: RagnarNetworkingLogging
     private let taskFactory: (@Sendable (URL, URLSession) -> any WebSocketTask)?
-    private let clock: any SleepClock
+    let clock: any SleepClock
 
     private var status: Status = .disconnected
     private var isDisconnecting = false
     private var connectionLoopTask: Task<Void, Never>?
-    private var currentTask: (any WebSocketTask)?
-    private var connectionGeneration: UInt64 = 0
+    var currentTask: (any WebSocketTask)?
+    var connectionGeneration: UInt64 = 0
 
     /// Engine.IO heartbeat parameters from the current connection's `open` handshake.
     /// Reset to these defaults at the start of every connection attempt; overwritten
     /// with the server's actual values once the `open` payload is parsed.
-    private var pingInterval: Duration = .seconds(25)
-    private var pingTimeout: Duration = .seconds(20)
+    var pingInterval: Duration = .seconds(25)
+    var pingTimeout: Duration = .seconds(20)
 
     /// Watches for the absence of any inbound frame within `pingInterval + pingTimeout`.
     /// Reset on every inbound frame; a real Socket.IO server pings within `pingInterval`,
     /// so any silence longer than the combined window means the connection is half-open.
-    private var heartbeatTask: Task<Void, Never>?
+    var heartbeatTask: Task<Void, Never>?
 
     // Per-event-name fan-out. Keyed by SocketEvent.name so each typed stream receives only its events.
     // These persist across disconnect/reconnect - consumers never need to re-subscribe.
-    private var eventContinuations: [String: [UUID: AsyncStream<Data>.Continuation]] = [:]
+    var eventContinuations: [String: [UUID: AsyncStream<Data>.Continuation]] = [:]
     private var statusContinuations: [UUID: AsyncStream<Status>.Continuation] = [:]
     private var pipeTasks: [UUID: Task<Void, Never>] = [:]
 
@@ -134,9 +134,10 @@ public actor SocketIOClient {
 
     // MARK: - Connection
 
-    /// Open connection. No-ops if already connecting or connected.
+    /// Open connection. No-ops if already connecting or connected. Can be called again
+    /// after a `.failed` status, for example once fresh credentials are available.
     public func connect() async {
-        guard status == .disconnected else { return }
+        guard canStartNewConnection else { return }
         isDisconnecting = false
         connectionGeneration &+= 1
         let generation = connectionGeneration
@@ -187,12 +188,12 @@ public actor SocketIOClient {
         guard let json = String(data: data, encoding: .utf8) else {
             throw SocketIOError.encodingFailed
         }
-        try await sendText(#"42["\#(E.name)",\#(json)]"#)
+        try await sendText(#"\#(SocketIOPacketType.event.enginePrefixedWireValue)["\#(E.name)",\#(json)]"#)
     }
 
     /// Emit a typed event with no payload.
     public func emit<E: SocketEvent>(_ type: E.Type) async throws where E.Schema == SocketEmptyBody {
-        try await sendText(#"42["\#(E.name)"]"#)
+        try await sendText(#"\#(SocketIOPacketType.event.enginePrefixedWireValue)["\#(E.name)"]"#)
     }
 
     // MARK: - Typed Streams
@@ -305,82 +306,37 @@ public actor SocketIOClient {
             return
         }
 
-        if text.hasPrefix("0") {
+        guard let frame = ParsedEngineIOFrame.parse(text) else {
+            resetHeartbeat(generation: generation)
+            rnLog(.socket, logging: logging, "ignored unrecognized Engine.IO frame")
+            return
+        }
+
+        if frame.engineIOType == .open {
             // Engine.IO OPEN - parse the server's heartbeat timing before arming the
             // watchdog, so the deadline reflects it immediately, then send Socket.IO
             // CONNECT to the default namespace
             rnLog(.socket, logging: logging, "open")
             parseOpenPayload(text)
             resetHeartbeat(generation: generation)
-            try? await currentTask?.send(.string("40"))
+            try? await currentTask?.send(.string(SocketIOPacketType.connect.enginePrefixedWireValue))
             return
         }
 
         resetHeartbeat(generation: generation)
 
-        if text == "2" {
+        switch (frame.engineIOType, frame.socketIOType) {
+        case (.ping, _) where frame.payload.isEmpty:
             // Engine.IO PING - respond with PONG
             rnLog(.socket, logging: logging, "ping")
-            try? await currentTask?.send(.string("3"))
-            return
+            try? await currentTask?.send(.string(EngineIOPacketType.pong.wireValue))
+
+        case (.message, let socketIOType):
+            await handleSocketIOPacket(socketIOType, payload: frame.payload)
+
+        default:
+            rnLog(.socket, logging: logging, "ignored unhandled Engine.IO packet \(frame.engineIOType)")
         }
-
-        if text.hasPrefix("40") {
-            // Socket.IO CONNECT ack
-            rnLog(.socket, logging: logging, "connect")
-            setStatus(.connected)
-            return
-        }
-
-        if text.hasPrefix("42"), let (name, payload) = parseEvent(text) {
-            rnLog(.socket, logging: logging, "event: \(name)")
-            let data = payload ?? Data("{}".utf8)
-            if let conts = eventContinuations[name] {
-                for cont in conts.values { cont.yield(data) }
-            }
-            return
-        }
-
-        if text.hasPrefix("42") {
-            rnLog(
-                .socket,
-                logging: logging,
-                "ignored malformed event frame"
-            )
-        }
-    }
-
-    // MARK: - Private: Heartbeat
-
-    /// Restarts the heartbeat watchdog. Call on every inbound frame - any frame indicates
-    /// the connection is alive, and only sustained silence should be treated as a fault.
-    private func resetHeartbeat(generation: UInt64) {
-        heartbeatTask?.cancel()
-        let deadline = pingInterval + pingTimeout
-        heartbeatTask = Task {
-            do {
-                try await clock.sleep(for: deadline)
-            } catch {
-                // Cancelled because a newer frame reset the watchdog, or the connection
-                // was torn down - not a timeout.
-                return
-            }
-            heartbeatTimedOut(generation: generation)
-        }
-    }
-
-    /// No inbound frame arrived within `pingInterval + pingTimeout`. Cancels the transport
-    /// task so its in-flight `receive()` fails, which routes through the connection loop's
-    /// existing disconnect/reconnect handling exactly as a real network failure would.
-    private func heartbeatTimedOut(generation: UInt64) {
-        guard generation == connectionGeneration else { return }
-        rnLog(
-            .socket,
-            logging: logging,
-            level: .error,
-            "heartbeat timeout - no frames received within pingInterval + pingTimeout"
-        )
-        currentTask?.cancel(with: .abnormalClosure, reason: nil)
     }
 
     // MARK: - Private: Helpers
@@ -390,9 +346,20 @@ public actor SocketIOClient {
         try await task.send(.string(text))
     }
 
-    private func setStatus(_ newStatus: Status) {
+    func setStatus(_ newStatus: Status) {
         status = newStatus
         for cont in statusContinuations.values { cont.yield(newStatus) }
+    }
+
+    /// Tears down the current connection attempt after a server-rejected connection
+    /// (`CONNECT_ERROR`) and suppresses automatic reconnection - the same credentials
+    /// would only be rejected again. `connect()` or `reconnect(to:)` can still be called
+    /// explicitly afterward, for example once fresh credentials are available.
+    func failConnection(reason: String) {
+        isDisconnecting = true
+        currentTask?.cancel(with: .goingAway, reason: nil)
+        currentTask = nil
+        setStatus(.failed(reason: reason))
     }
 
     private func finishAllContinuations() {
@@ -432,6 +399,16 @@ public actor SocketIOClient {
     private func shouldContinueConnectionLoop(for generation: UInt64) -> Bool {
         generation == connectionGeneration && !isDisconnecting && !Task.isCancelled
     }
+
+    private var canStartNewConnection: Bool {
+        switch status {
+        case .disconnected, .failed:
+            return true
+
+        case .connecting, .connected:
+            return false
+        }
+    }
 }
 
 /// Errors thrown by `SocketIOClient`.
@@ -443,40 +420,3 @@ public enum SocketIOError: Error, Sendable {
 }
 
 extension SocketIOClient: SocketClient {}
-
-// MARK: - Private: Frame Parsing
-
-private extension SocketIOClient {
-
-    func parseEvent(_ text: String) -> (name: String, payload: Data?)? {
-        let json = String(text.dropFirst(2))
-        guard
-            let data = json.data(using: .utf8),
-            let array = try? JSONSerialization.jsonObject(with: data) as? [Any],
-            let name = array.first as? String
-        else { return nil }
-
-        let payload: Data? = array.count > 1
-            ? try? JSONSerialization.data(withJSONObject: array[1], options: .fragmentsAllowed)
-            : nil
-
-        return (name, payload)
-    }
-
-    /// Parses `pingInterval`/`pingTimeout` (milliseconds) from an Engine.IO `open` payload.
-    /// Leaves the current values in place if the payload is absent or unparseable.
-    func parseOpenPayload(_ text: String) {
-        let json = String(text.dropFirst(1))
-        guard
-            let data = json.data(using: .utf8),
-            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return }
-
-        if let intervalMS = object["pingInterval"] as? Int {
-            pingInterval = .milliseconds(intervalMS)
-        }
-        if let timeoutMS = object["pingTimeout"] as? Int {
-            pingTimeout = .milliseconds(timeoutMS)
-        }
-    }
-}

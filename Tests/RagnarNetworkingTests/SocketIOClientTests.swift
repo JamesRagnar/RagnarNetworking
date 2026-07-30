@@ -865,6 +865,156 @@ struct SocketIOClientTests {
 
         await socket.invalidate()
     }
+
+    // MARK: - Connect Error
+
+    @Test("CONNECT_ERROR (44) sets status to .failed with the server's message")
+    func connectErrorSetsFailedStatusWithReason() async {
+        let task = MockWebSocketTask()
+        let socket = makeSocket(tasks: [task])
+
+        let statusStream = await socket.statusUpdates()
+        await socket.connect()
+
+        var statusIterator = statusStream.makeAsyncIterator()
+        _ = await statusIterator.next() // .disconnected
+        _ = await statusIterator.next() // .connecting
+
+        task.inject(text: #"44{"message":"Not authorized"}"#)
+
+        let status = await statusIterator.next()
+        #expect(status == .failed(reason: "Not authorized"))
+    }
+
+    @Test("CONNECT_ERROR (44) with no payload falls back to a generic reason")
+    func connectErrorWithNoPayloadUsesGenericReason() async {
+        let task = MockWebSocketTask()
+        let socket = makeSocket(tasks: [task])
+
+        let statusStream = await socket.statusUpdates()
+        await socket.connect()
+
+        var statusIterator = statusStream.makeAsyncIterator()
+        _ = await statusIterator.next() // .disconnected
+        _ = await statusIterator.next() // .connecting
+
+        task.inject(text: "44")
+
+        let status = await statusIterator.next()
+        #expect(status == .failed(reason: "Connection rejected by server"))
+    }
+
+    @Test("CONNECT_ERROR (44) with malformed JSON falls back to a generic reason without crashing")
+    func connectErrorWithMalformedJSONUsesGenericReason() async {
+        let task = MockWebSocketTask()
+        let socket = makeSocket(tasks: [task])
+
+        let statusStream = await socket.statusUpdates()
+        await socket.connect()
+
+        var statusIterator = statusStream.makeAsyncIterator()
+        _ = await statusIterator.next() // .disconnected
+        _ = await statusIterator.next() // .connecting
+
+        // Has a brace, so it reaches the JSONSerialization path, but is not valid JSON.
+        task.inject(text: "44{not valid json")
+
+        let status = await statusIterator.next()
+        #expect(status == .failed(reason: "Connection rejected by server"))
+    }
+
+    @Test("An unrecognized Socket.IO packet type is ignored without disrupting the connection")
+    func unrecognizedSocketIOPacketTypeIsIgnored() async throws {
+        let task = MockWebSocketTask()
+        let socket = makeSocket(tasks: [task])
+
+        let statusStream = await socket.statusUpdates()
+        await socket.connect()
+        await performHandshake(on: task)
+
+        var statusIterator = statusStream.makeAsyncIterator()
+        _ = await statusIterator.next() // .disconnected
+        _ = await statusIterator.next() // .connecting
+        _ = await statusIterator.next() // .connected
+
+        // Socket.IO ACK (43) - not currently handled, should be ignored rather than
+        // crashing or disrupting the connection.
+        task.inject(text: "43[1,{}]")
+
+        // The connection is still usable: a subsequent event still arrives.
+        let eventStream = await socket.events(for: PingEvent.self)
+        task.inject(text: #"42["test_ping",{"message":"hi"}]"#)
+        let event = await awaitNextEvent(from: eventStream)
+        #expect(event == PingEvent.Schema(message: "hi"))
+
+        #expect(task.cancelCount == 0)
+    }
+
+    @Test("CONNECT_ERROR (44) does not trigger automatic reconnection even when reconnect is enabled")
+    func connectErrorSuppressesAutomaticReconnect() async {
+        let task1 = MockWebSocketTask()
+        let task2 = MockWebSocketTask()
+        nonisolated(unsafe) var taskIndex = 0
+        let tasks = [task1, task2]
+        let socket = SocketIOClient(
+            url: testURL,
+            reconnect: .init(enabled: true, initialDelay: .milliseconds(1), maxDelay: .seconds(1), multiplier: 2.0),
+            taskFactory: { _, _ in
+                let t = tasks[taskIndex]
+                taskIndex += 1
+                return t
+            }
+        )
+
+        let statusStream = await socket.statusUpdates()
+        await socket.connect()
+
+        var statusIterator = statusStream.makeAsyncIterator()
+        _ = await statusIterator.next() // .disconnected
+        _ = await statusIterator.next() // .connecting
+
+        task1.inject(text: #"44{"message":"Not authorized"}"#)
+        let status = await statusIterator.next()
+        #expect(status == .failed(reason: "Not authorized"))
+
+        // Give an (incorrect) reconnect loop a generous number of scheduler turns to run
+        // before asserting it never did - no real time elapses since the loop's exit
+        // check happens before its delay, so this is not a timing-sensitive wait.
+        for _ in 0..<20 {
+            await Task.yield()
+        }
+
+        #expect(task1.resumeCount == 1)
+        #expect(task2.resumeCount == 0)
+    }
+
+    @Test("connect() can be called again after a CONNECT_ERROR to retry with fresh credentials")
+    func connectAfterConnectErrorStartsANewConnection() async {
+        let task1 = MockWebSocketTask()
+        let task2 = MockWebSocketTask()
+        let socket = makeSocket(tasks: [task1, task2])
+
+        let statusStream = await socket.statusUpdates()
+        await socket.connect()
+
+        var statusIterator = statusStream.makeAsyncIterator()
+        _ = await statusIterator.next() // .disconnected
+        _ = await statusIterator.next() // .connecting
+
+        task1.inject(text: "44")
+        _ = await statusIterator.next() // .failed
+
+        await socket.connect()
+        _ = await statusIterator.next() // .connecting
+
+        await performHandshake(on: task2)
+        _ = await statusIterator.next() // .connected
+
+        #expect(task1.resumeCount == 1)
+        #expect(task2.resumeCount == 1)
+
+        await socket.invalidate()
+    }
 }
 
 // MARK: - SocketEmptyBody Tests
