@@ -167,12 +167,12 @@ public actor SocketIOClient {
         guard let json = String(data: data, encoding: .utf8) else {
             throw SocketIOError.encodingFailed
         }
-        try await sendText(#"42["\#(E.name)",\#(json)]"#)
+        try await sendText(#"\#(SocketIOPacketType.event.enginePrefixedWireValue)["\#(E.name)",\#(json)]"#)
     }
 
     /// Emit a typed event with no payload.
     public func emit<E: SocketEvent>(_ type: E.Type) async throws where E.Schema == SocketEmptyBody {
-        try await sendText(#"42["\#(E.name)"]"#)
+        try await sendText(#"\#(SocketIOPacketType.event.enginePrefixedWireValue)["\#(E.name)"]"#)
     }
 
     // MARK: - Typed Streams
@@ -279,86 +279,59 @@ public actor SocketIOClient {
             return
         }
 
-        if text.hasPrefix("0") {
+        guard let frame = ParsedEngineIOFrame.parse(text) else {
+            rnLog(.socket, logging: logging, "ignored unrecognized Engine.IO frame")
+            return
+        }
+
+        switch (frame.engineIOType, frame.socketIOType) {
+        case (.open, _):
             // Engine.IO OPEN - send Socket.IO CONNECT to default namespace
             rnLog(.socket, logging: logging, "open")
-            try? await currentTask?.send(.string("40"))
-            return
-        }
+            try? await currentTask?.send(.string(SocketIOPacketType.connect.enginePrefixedWireValue))
 
-        if text == "2" {
+        case (.ping, _) where frame.payload.isEmpty:
             // Engine.IO PING - respond with PONG
             rnLog(.socket, logging: logging, "ping")
-            try? await currentTask?.send(.string("3"))
-            return
-        }
+            try? await currentTask?.send(.string(EngineIOPacketType.pong.wireValue))
 
-        if text.hasPrefix("40") {
+        case (.message, let socketIOType):
+            await handleSocketIOPacket(socketIOType, payload: frame.payload)
+
+        default:
+            rnLog(.socket, logging: logging, "ignored unhandled Engine.IO packet \(frame.engineIOType)")
+        }
+    }
+
+    private func handleSocketIOPacket(_ type: SocketIOPacketType?, payload: Substring) async {
+        switch type {
+        case .connect:
             // Socket.IO CONNECT ack
             rnLog(.socket, logging: logging, "connect")
             setStatus(.connected)
-            return
-        }
 
-        if text.hasPrefix("44") {
+        case .connectError:
             // Socket.IO CONNECT_ERROR - the server rejected the connection. Reconnecting
             // with the same credentials would only be rejected again, so this is terminal
             // for the current attempt rather than a transient fault to retry.
-            let reason = parseConnectError(text)
+            let reason = parseConnectError(String(payload))
             rnLog(.socket, logging: logging, level: .error, "connect_error: \(reason)")
             failConnection(reason: reason)
-            return
-        }
 
-        if text.hasPrefix("42"), let (name, payload) = parseEvent(text) {
-            rnLog(.socket, logging: logging, "event: \(name)")
-            let data = payload ?? Data("{}".utf8)
-            if let conts = eventContinuations[name] {
-                for cont in conts.values { cont.yield(data) }
+        case .event:
+            if let (name, data) = parseEvent(String(payload)) {
+                rnLog(.socket, logging: logging, "event: \(name)")
+                let eventData = data ?? Data("{}".utf8)
+                if let conts = eventContinuations[name] {
+                    for cont in conts.values { cont.yield(eventData) }
+                }
+            } else {
+                rnLog(.socket, logging: logging, "ignored malformed event frame")
             }
-            return
+
+        case .disconnect, .ack, .binaryEvent, .binaryAck, nil:
+            rnLog(.socket, logging: logging, "ignored unhandled Socket.IO packet \(String(describing: type))")
         }
-
-        if text.hasPrefix("42") {
-            rnLog(
-                .socket,
-                logging: logging,
-                "ignored malformed event frame"
-            )
-        }
-    }
-
-    private func parseEvent(_ text: String) -> (name: String, payload: Data?)? {
-        let json = String(text.dropFirst(2))
-        guard
-            let data = json.data(using: .utf8),
-            let array = try? JSONSerialization.jsonObject(with: data) as? [Any],
-            let name = array.first as? String
-        else { return nil }
-
-        let payload: Data? = array.count > 1
-            ? try? JSONSerialization.data(withJSONObject: array[1], options: .fragmentsAllowed)
-            : nil
-
-        return (name, payload)
-    }
-
-    private func parseConnectError(_ text: String) -> String {
-        let remainder = String(text.dropFirst(2))
-        guard let braceIndex = remainder.firstIndex(of: "{") else {
-            return remainder.isEmpty ? "Connection rejected by server" : remainder
-        }
-
-        let json = String(remainder[braceIndex...])
-        guard
-            let data = json.data(using: .utf8),
-            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let message = object["message"] as? String
-        else {
-            return "Connection rejected by server"
-        }
-
-        return message
     }
 
     // MARK: - Private: Helpers
@@ -442,3 +415,56 @@ public enum SocketIOError: Error, Sendable {
 }
 
 extension SocketIOClient: SocketClient {}
+
+// MARK: - Private: Frame Parsing
+
+private extension SocketIOClient {
+
+    func parseEvent(_ payload: String) -> (name: String, payload: Data?)? {
+        guard
+            let data = payload.data(using: .utf8),
+            let array = try? JSONSerialization.jsonObject(with: data) as? [Any],
+            let name = array.first as? String
+        else { return nil }
+
+        let eventPayload: Data? = array.count > 1
+            ? try? JSONSerialization.data(withJSONObject: array[1], options: .fragmentsAllowed)
+            : nil
+
+        return (name, eventPayload)
+    }
+
+    func parseConnectError(_ payload: String) -> String {
+        guard let braceIndex = payload.firstIndex(of: "{") else {
+            return payload.isEmpty ? "Connection rejected by server" : payload
+        }
+
+        let json = String(payload[braceIndex...])
+        guard let data = json.data(using: .utf8) else {
+            rnLog(.socket, logging: logging, level: .error, "connect_error payload was not valid UTF-8: \(json)")
+            return "Connection rejected by server"
+        }
+
+        do {
+            let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            guard let message = object?["message"] as? String else {
+                rnLog(
+                    .socket,
+                    logging: logging,
+                    level: .error,
+                    "connect_error payload had no \"message\" field: \(json)"
+                )
+                return "Connection rejected by server"
+            }
+            return message
+        } catch {
+            rnLog(
+                .socket,
+                logging: logging,
+                level: .error,
+                "failed to parse connect_error payload \(json): \(error)"
+            )
+            return "Connection rejected by server"
+        }
+    }
+}

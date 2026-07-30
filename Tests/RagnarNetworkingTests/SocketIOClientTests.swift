@@ -699,6 +699,52 @@ struct SocketIOClientTests {
         #expect(status == .failed(reason: "Connection rejected by server"))
     }
 
+    @Test("CONNECT_ERROR (44) with malformed JSON falls back to a generic reason without crashing")
+    func connectErrorWithMalformedJSONUsesGenericReason() async {
+        let task = MockWebSocketTask()
+        let socket = makeSocket(tasks: [task])
+
+        let statusStream = await socket.statusUpdates()
+        await socket.connect()
+
+        var statusIterator = statusStream.makeAsyncIterator()
+        _ = await statusIterator.next() // .disconnected
+        _ = await statusIterator.next() // .connecting
+
+        // Has a brace, so it reaches the JSONSerialization path, but is not valid JSON.
+        task.inject(text: "44{not valid json")
+
+        let status = await statusIterator.next()
+        #expect(status == .failed(reason: "Connection rejected by server"))
+    }
+
+    @Test("An unrecognized Socket.IO packet type is ignored without disrupting the connection")
+    func unrecognizedSocketIOPacketTypeIsIgnored() async throws {
+        let task = MockWebSocketTask()
+        let socket = makeSocket(tasks: [task])
+
+        let statusStream = await socket.statusUpdates()
+        await socket.connect()
+        await performHandshake(on: task)
+
+        var statusIterator = statusStream.makeAsyncIterator()
+        _ = await statusIterator.next() // .disconnected
+        _ = await statusIterator.next() // .connecting
+        _ = await statusIterator.next() // .connected
+
+        // Socket.IO ACK (43) - not currently handled, should be ignored rather than
+        // crashing or disrupting the connection.
+        task.inject(text: "43[1,{}]")
+
+        // The connection is still usable: a subsequent event still arrives.
+        let eventStream = await socket.events(for: PingEvent.self)
+        task.inject(text: #"42["test_ping",{"message":"hi"}]"#)
+        let event = await awaitNextEvent(from: eventStream)
+        #expect(event == PingEvent.Schema(message: "hi"))
+
+        #expect(task.cancelCount == 0)
+    }
+
     @Test("CONNECT_ERROR (44) does not trigger automatic reconnection even when reconnect is enabled")
     func connectErrorSuppressesAutomaticReconnect() async {
         let task1 = MockWebSocketTask()
