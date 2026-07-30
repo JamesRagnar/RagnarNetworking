@@ -243,8 +243,18 @@ public actor SocketIOClient {
     // MARK: - Socket.IO URL Construction
 
     /// Builds the Socket.IO 4.x WebSocket URL from an HTTP/HTTPS server base URL.
-    public static func webSocketURL(for serverURL: URL) -> URL? {
-        SocketIOURL.webSocketURL(for: serverURL)
+    ///
+    /// Joins `path` onto the server URL's existing path rather than discarding it, so a
+    /// server hosted under a prefix (for example behind a reverse proxy at
+    /// `https://example.com/api/v2`) resolves to `wss://example.com/api/v2/socket.io/...`.
+    /// Any existing query items on `serverURL` are preserved alongside `EIO` and `transport`.
+    ///
+    /// - Parameters:
+    ///   - serverURL: The HTTP/HTTPS base URL of the Socket.IO server.
+    ///   - path: The Socket.IO endpoint path, joined onto `serverURL`'s path. Defaults to
+    ///     `"socket.io"`, matching Socket.IO's own default `path` client option.
+    public static func webSocketURL(for serverURL: URL, path: String = "socket.io") -> URL? {
+        SocketIOURL.webSocketURL(for: serverURL, path: path)
     }
 
     // MARK: - Private: Connection Loop
