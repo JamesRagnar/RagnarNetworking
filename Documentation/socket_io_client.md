@@ -7,7 +7,7 @@
 ## Setup
 
 ```swift
-let socketURL = SocketIOURL.webSocketURL(for: serverURL)!
+let socketURL = SocketIOClient.webSocketURL(for: serverURL)!
 let socket = SocketIOClient(
     url: socketURL,
     logging: .disabled
@@ -15,7 +15,7 @@ let socket = SocketIOClient(
 await socket.connect()
 ```
 
-`SocketIOURL.webSocketURL(for:)` converts an HTTP/HTTPS server URL to the correct Socket.IO WebSocket URL (`wss://host/socket.io/?EIO=4&transport=websocket`).
+`SocketIOClient.webSocketURL(for:)` converts an HTTP/HTTPS server URL to the corresponding Socket.IO WebSocket URL, joining the default `socket.io` path onto the server URL's existing path and preserving any existing query items alongside `EIO` and `transport`. For a server with no path (`https://example.com`), this produces `wss://example.com/socket.io/?EIO=4&transport=websocket`. For a server hosted under a prefix (`https://example.com/api/v2`), this produces `wss://example.com/api/v2/socket.io/?EIO=4&transport=websocket`. Pass `path:` to override the Socket.IO endpoint path.
 
 ## Defining Events
 

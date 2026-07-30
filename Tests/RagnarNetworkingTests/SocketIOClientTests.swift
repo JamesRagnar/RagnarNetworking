@@ -204,11 +204,43 @@ struct SocketIOClientTests {
         #expect(components?.scheme == "wss")
     }
 
-    @Test("webSocketURL ignores existing path and always uses /socket.io/")
-    func urlConstructionIgnoresExistingPath() {
-        let url = SocketIOClient.webSocketURL(for: URL(string: "http://example.com/some/other/path")!)
+    @Test("webSocketURL with no base path produces /socket.io/")
+    func urlConstructionWithNoBasePath() {
+        let url = SocketIOClient.webSocketURL(for: URL(string: "http://example.com")!)
         let components = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
         #expect(components?.path == "/socket.io/")
+    }
+
+    @Test("webSocketURL joins a server URL path prefix rather than discarding it")
+    func urlConstructionJoinsExistingPathPrefix() {
+        let url = SocketIOClient.webSocketURL(for: URL(string: "http://example.com/api/v2")!)
+        let components = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        #expect(components?.path == "/api/v2/socket.io/")
+    }
+
+    @Test("webSocketURL does not produce a doubled separator when the base path has a trailing slash")
+    func urlConstructionAvoidsDoubledSeparator() {
+        let url = SocketIOClient.webSocketURL(for: URL(string: "http://example.com/api/v2/")!)
+        let components = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        #expect(components?.path == "/api/v2/socket.io/")
+    }
+
+    @Test("webSocketURL preserves existing query items alongside EIO and transport")
+    func urlConstructionPreservesExistingQueryItems() {
+        let url = SocketIOClient.webSocketURL(for: URL(string: "http://example.com?tenant=acme")!)
+        let components = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        let queryNames = components?.queryItems?.map(\.name) ?? []
+        #expect(queryNames.contains("tenant"))
+        #expect(queryNames.contains("EIO"))
+        #expect(queryNames.contains("transport"))
+        #expect(components?.queryItems?.first(where: { $0.name == "tenant" })?.value == "acme")
+    }
+
+    @Test("webSocketURL honours a custom path argument")
+    func urlConstructionHonoursCustomPath() {
+        let url = SocketIOClient.webSocketURL(for: URL(string: "http://example.com")!, path: "custom-path")
+        let components = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        #expect(components?.path == "/custom-path/")
     }
 
     // MARK: - Connection Lifecycle
