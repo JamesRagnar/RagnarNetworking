@@ -68,6 +68,11 @@ public actor SocketIOClient {
     private let taskFactory: (@Sendable (URL, URLSession) -> any WebSocketTask)?
     let clock: any SleepClock
 
+    /// Resolves the Socket.IO CONNECT `auth` payload. Called fresh at the start of every
+    /// connection attempt, so a refreshed token is picked up across reconnects rather than
+    /// captured once at init time.
+    private let authProvider: (@Sendable () async -> [String: String])?
+
     private var status: Status = .disconnected
     private var isDisconnecting = false
     private var connectionLoopTask: Task<Void, Never>?
@@ -99,11 +104,16 @@ public actor SocketIOClient {
     ///   - url: The Socket.IO WebSocket URL. Use `webSocketURL(for:)` to derive it from an HTTP/HTTPS server URL.
     ///   - session: The underlying `URLSession`. Defaults to `URLSession.shared`.
     ///   - reconnect: Reconnection policy. Defaults to exponential backoff with a 1–15s range.
+    ///   - auth: Resolves the Socket.IO CONNECT `auth` payload, for example an access token.
+    ///     Called fresh at the start of every connection attempt, so a refreshed token is
+    ///     used on reconnect rather than the value captured at init time. When `nil` or the
+    ///     resolved dictionary is empty, a bare CONNECT frame is sent with no `auth` payload.
     public init(
         url: URL,
         session: URLSession = .shared,
         reconnect: ReconnectPolicy = .init(),
-        logging: RagnarNetworkingLogging = .init()
+        logging: RagnarNetworkingLogging = .init(),
+        auth: (@Sendable () async -> [String: String])? = nil
     ) {
         self.url = url
         self.urlSession = session
@@ -111,6 +121,7 @@ public actor SocketIOClient {
         self.logging = logging
         self.taskFactory = nil
         self.clock = SystemSleepClock()
+        self.authProvider = auth
     }
 
     /// Internal initializer for unit tests - inject a custom WebSocketTask factory and,
@@ -121,6 +132,7 @@ public actor SocketIOClient {
         session: URLSession = .shared,
         reconnect: ReconnectPolicy = .init(),
         logging: RagnarNetworkingLogging = .init(),
+        auth: (@Sendable () async -> [String: String])? = nil,
         taskFactory: @escaping @Sendable (URL, URLSession) -> any WebSocketTask,
         clock: any SleepClock = SystemSleepClock()
     ) {
@@ -130,6 +142,7 @@ public actor SocketIOClient {
         self.logging = logging
         self.taskFactory = taskFactory
         self.clock = clock
+        self.authProvider = auth
     }
 
     // MARK: - Connection
@@ -319,7 +332,7 @@ public actor SocketIOClient {
             rnLog(.socket, logging: logging, "open")
             parseOpenPayload(text)
             resetHeartbeat(generation: generation)
-            try? await currentTask?.send(.string(SocketIOPacketType.connect.enginePrefixedWireValue))
+            try? await currentTask?.send(.string(await connectFrame()))
             return
         }
 
@@ -344,6 +357,23 @@ public actor SocketIOClient {
     private func sendText(_ text: String) async throws {
         guard let task = currentTask else { throw SocketIOError.notConnected }
         try await task.send(.string(text))
+    }
+
+    /// Builds the Socket.IO CONNECT frame, resolving `authProvider` fresh for this
+    /// connection attempt. Falls back to a bare CONNECT frame when no auth is configured,
+    /// the resolved payload is empty, or it fails to encode.
+    private func connectFrame() async -> String {
+        let prefix = SocketIOPacketType.connect.enginePrefixedWireValue
+        guard let authProvider else { return prefix }
+        let payload = await authProvider()
+        guard !payload.isEmpty else { return prefix }
+        guard
+            let data = try? JSONEncoder().encode(payload),
+            let json = String(data: data, encoding: .utf8)
+        else {
+            return prefix
+        }
+        return prefix + json
     }
 
     func setStatus(_ newStatus: Status) {

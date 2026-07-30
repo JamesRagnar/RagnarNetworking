@@ -988,6 +988,112 @@ struct SocketIOClientTests {
         #expect(task2.resumeCount == 0)
     }
 
+    // MARK: - Auth
+
+    @Test("Client configured with an auth payload sends 40{...} instead of a bare 40")
+    func authPayloadSentOnConnect() async {
+        let task = MockWebSocketTask()
+        let socket = SocketIOClient(
+            url: testURL,
+            reconnect: .disabled,
+            auth: { ["token": "abc123"] },
+            taskFactory: { _, _ in task }
+        )
+
+        await socket.connect()
+        task.inject(text: "0{}")
+
+        var attempts = 0
+        while task.sentMessages.isEmpty && attempts < 100 {
+            await Task.yield()
+            attempts += 1
+        }
+
+        if case .string(let text) = task.sentMessages.first {
+            #expect(text == #"40{"token":"abc123"}"#)
+        } else {
+            Issue.record("Expected a string CONNECT message")
+        }
+    }
+
+    @Test("Client with no auth configured still sends a bare 40")
+    func noAuthSendsBareConnectFrame() async {
+        let task = MockWebSocketTask()
+        let socket = makeSocket(tasks: [task])
+
+        await socket.connect()
+        task.inject(text: "0{}")
+
+        var attempts = 0
+        while task.sentMessages.isEmpty && attempts < 100 {
+            await Task.yield()
+            attempts += 1
+        }
+
+        if case .string(let text) = task.sentMessages.first {
+            #expect(text == "40")
+        } else {
+            Issue.record("Expected a string CONNECT message")
+        }
+    }
+
+    @Test("The auth closure is re-evaluated on reconnect, so a refreshed token is used")
+    func authClosureReEvaluatedOnReconnect() async {
+        let task1 = MockWebSocketTask()
+        let task2 = MockWebSocketTask()
+        nonisolated(unsafe) var taskIndex = 0
+        let tasks = [task1, task2]
+        nonisolated(unsafe) var token = "first-token"
+        let socket = SocketIOClient(
+            url: testURL,
+            reconnect: .disabled,
+            auth: { ["token": token] },
+            taskFactory: { _, _ in
+                let t = tasks[taskIndex]
+                taskIndex += 1
+                return t
+            }
+        )
+
+        let statusStream = await socket.statusUpdates()
+        var statusIterator = statusStream.makeAsyncIterator()
+        _ = await statusIterator.next() // .disconnected (initial)
+
+        await socket.connect()
+        task1.inject(text: "0{}")
+        var attempts = 0
+        while task1.sentMessages.isEmpty && attempts < 100 {
+            await Task.yield()
+            attempts += 1
+        }
+        if case .string(let text) = task1.sentMessages.first {
+            #expect(text == #"40{"token":"first-token"}"#)
+        } else {
+            Issue.record("Expected a string CONNECT message")
+        }
+
+        _ = await statusIterator.next() // .connecting
+        task1.inject(text: "40")
+        _ = await statusIterator.next() // .connected
+
+        token = "refreshed-token"
+        task1.simulateDisconnect()
+        _ = await statusIterator.next() // .disconnected
+
+        await socket.connect()
+        task2.inject(text: "0{}")
+        attempts = 0
+        while task2.sentMessages.isEmpty && attempts < 100 {
+            await Task.yield()
+            attempts += 1
+        }
+        if case .string(let text) = task2.sentMessages.first {
+            #expect(text == #"40{"token":"refreshed-token"}"#)
+        } else {
+            Issue.record("Expected a string CONNECT message")
+        }
+    }
+
     @Test("connect() can be called again after a CONNECT_ERROR to retry with fresh credentials")
     func connectAfterConnectErrorStartsANewConnection() async {
         let task1 = MockWebSocketTask()

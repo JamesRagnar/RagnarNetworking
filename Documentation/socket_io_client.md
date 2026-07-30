@@ -96,6 +96,21 @@ let socket = SocketIOClient(url: url, reconnect: ReconnectPolicy(
 ))
 ```
 
+## Authentication
+
+`auth` resolves the Socket.IO CONNECT `auth` payload. It is called fresh at the start of every connection attempt, so a refreshed token is used across reconnects rather than the value captured at init time.
+
+```swift
+let socket = SocketIOClient(
+    url: socketURL,
+    auth: { ["token": await tokenProvider.currentToken()] }
+)
+```
+
+When `auth` is `nil` or resolves to an empty dictionary, a bare CONNECT frame is sent with no payload. This is the correct place to send credentials - unlike `SocketIOURL.webSocketURL(for:)`, which never carries credentials in its query string, the CONNECT payload is not logged by intermediate proxies, servers, or CDNs the way a URL query is.
+
+`auth` is resolved while no further frames are read from the socket, so a slow closure delays the CONNECT frame and eats into the heartbeat window armed at the start of that connection attempt. Keep it fast - a local token read, not a network round trip.
+
 ## Logging
 
 Runtime socket logs are controlled per instance through `RagnarNetworkingLogging`.
