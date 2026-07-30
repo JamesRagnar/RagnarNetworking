@@ -98,11 +98,7 @@ let socket = SocketIOClient(url: url, reconnect: ReconnectPolicy(
 
 ## Logging
 
-Runtime socket logs are controlled per instance through `RagnarNetworkingLogging`.
-
-```swift
-let socket = SocketIOClient(
-    url: url,
-    logging: RagnarNetworkingLogging(enabled: false)
-)
-```
+`SocketIOClient` logs unconditionally via `os.Logger` under the `RagnarNetworking` subsystem,
+category `Socket`. Control verbosity from outside the package with the standard OSLog tools -
+Console.app, `log stream --predicate 'subsystem == "RagnarNetworking"'`, or
+`log config --subsystem RagnarNetworking --mode level:off`.
