@@ -36,7 +36,7 @@ enum SocketIOPacketType: Character, Sendable {
 
 /// An Engine.IO frame decomposed into its packet type, nested Socket.IO packet type
 /// (present only when `engineIOType == .message`), and remaining payload text.
-struct ParsedEngineIOFrame {
+struct ParsedEngineIOFrame: Sendable {
     let engineIOType: EngineIOPacketType
     let socketIOType: SocketIOPacketType?
     let payload: Substring
