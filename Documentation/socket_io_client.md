@@ -8,10 +8,7 @@
 
 ```swift
 let socketURL = SocketIOClient.webSocketURL(for: serverURL)!
-let socket = SocketIOClient(
-    url: socketURL,
-    logging: .disabled
-)
+let socket = SocketIOClient(url: socketURL)
 await socket.connect()
 ```
 

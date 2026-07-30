@@ -225,7 +225,7 @@ public actor SocketIOClient {
                     continue
                 }
                 if case .dropped = typedContinuation.yield(value) {
-                    rnLog(.socket, logging: logging, level: .error, "decoded event dropped due to buffering policy: \(E.name)")
+                    Logger.socket.error("decoded event dropped due to buffering policy: \(E.name, privacy: .private)")
                 }
             }
             typedContinuation.finish()
@@ -383,7 +383,7 @@ public actor SocketIOClient {
         status = newStatus
         for cont in statusContinuations.values {
             if case .dropped = cont.yield(newStatus) {
-                rnLog(.socket, logging: logging, level: .error, "status update dropped due to buffering policy")
+                Logger.socket.error("status update dropped due to buffering policy")
             }
         }
     }

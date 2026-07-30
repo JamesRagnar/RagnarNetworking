@@ -58,7 +58,7 @@ extension SocketIOClient {
                 if let conts = eventContinuations[name] {
                     for cont in conts.values {
                         if case .dropped = cont.yield(eventData) {
-                            rnLog(.socket, logging: logging, level: .error, "event dropped due to buffering policy: \(name)")
+                            Logger.socket.error("event dropped due to buffering policy: \(name, privacy: .private)")
                         }
                     }
                 }
