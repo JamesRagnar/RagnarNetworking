@@ -9,7 +9,7 @@ import Foundation
 @testable import RagnarNetworking
 import Testing
 
-@Suite("DecodingDiagnostics Tests")
+@Suite("DecodingDiagnostics Tests", .timeLimit(.minutes(1)))
 struct DecodingDiagnosticsTests {
 
     struct AnyCodingKey: CodingKey {

@@ -291,7 +291,7 @@ private func makeClient(
 
 // MARK: - Suite
 
-@Suite("APIClient Tests")
+@Suite("APIClient Tests", .timeLimit(.minutes(1)))
 struct APIClientTests {
 
     // MARK: 1. .none auth never calls token

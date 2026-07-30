@@ -9,7 +9,7 @@ import Foundation
 @testable import RagnarNetworking
 import Testing
 
-@Suite("URLRequest+Interface Tests")
+@Suite("URLRequest+Interface Tests", .timeLimit(.minutes(1)))
 struct URLRequestInterfaceTests {
 
     // MARK: - Test Fixtures

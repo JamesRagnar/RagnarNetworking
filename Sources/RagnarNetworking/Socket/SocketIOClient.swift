@@ -64,18 +64,30 @@ public actor SocketIOClient {
     private var url: URL
     private let urlSession: URLSession
     private let reconnectPolicy: ReconnectPolicy
-    private let logging: RagnarNetworkingLogging
+    let logging: RagnarNetworkingLogging
     private let taskFactory: (@Sendable (URL, URLSession) -> any WebSocketTask)?
+    let clock: any SleepClock
 
     private var status: Status = .disconnected
     private var isDisconnecting = false
     private var connectionLoopTask: Task<Void, Never>?
-    private var currentTask: (any WebSocketTask)?
-    private var connectionGeneration: UInt64 = 0
+    var currentTask: (any WebSocketTask)?
+    var connectionGeneration: UInt64 = 0
+
+    /// Engine.IO heartbeat parameters from the current connection's `open` handshake.
+    /// Reset to these defaults at the start of every connection attempt; overwritten
+    /// with the server's actual values once the `open` payload is parsed.
+    var pingInterval: Duration = .seconds(25)
+    var pingTimeout: Duration = .seconds(20)
+
+    /// Watches for the absence of any inbound frame within `pingInterval + pingTimeout`.
+    /// Reset on every inbound frame; a real Socket.IO server pings within `pingInterval`,
+    /// so any silence longer than the combined window means the connection is half-open.
+    var heartbeatTask: Task<Void, Never>?
 
     // Per-event-name fan-out. Keyed by SocketEvent.name so each typed stream receives only its events.
     // These persist across disconnect/reconnect - consumers never need to re-subscribe.
-    private var eventContinuations: [String: [UUID: AsyncStream<Data>.Continuation]] = [:]
+    var eventContinuations: [String: [UUID: AsyncStream<Data>.Continuation]] = [:]
     private var statusContinuations: [UUID: AsyncStream<Status>.Continuation] = [:]
     private var pipeTasks: [UUID: Task<Void, Never>] = [:]
 
@@ -98,21 +110,26 @@ public actor SocketIOClient {
         self.reconnectPolicy = reconnect
         self.logging = logging
         self.taskFactory = nil
+        self.clock = SystemSleepClock()
     }
 
-    /// Internal initializer for unit tests - inject a custom WebSocketTask factory.
+    /// Internal initializer for unit tests - inject a custom WebSocketTask factory and,
+    /// optionally, a replacement clock so reconnect and heartbeat timing are deterministic
+    /// rather than tied to the wall clock.
     init(
         url: URL,
         session: URLSession = .shared,
         reconnect: ReconnectPolicy = .init(),
         logging: RagnarNetworkingLogging = .init(),
-        taskFactory: @escaping @Sendable (URL, URLSession) -> any WebSocketTask
+        taskFactory: @escaping @Sendable (URL, URLSession) -> any WebSocketTask,
+        clock: any SleepClock = SystemSleepClock()
     ) {
         self.url = url
         self.urlSession = session
         self.reconnectPolicy = reconnect
         self.logging = logging
         self.taskFactory = taskFactory
+        self.clock = clock
     }
 
     // MARK: - Connection
@@ -132,6 +149,8 @@ public actor SocketIOClient {
         isDisconnecting = true
         connectionLoopTask?.cancel()
         connectionLoopTask = nil
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
         currentTask?.cancel(with: .goingAway, reason: nil)
         currentTask = nil
         setStatus(.disconnected)
@@ -143,6 +162,8 @@ public actor SocketIOClient {
         isDisconnecting = false
         connectionLoopTask?.cancel()
         connectionLoopTask = nil
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
         currentTask?.cancel(with: .goingAway, reason: nil)
         currentTask = nil
         setStatus(.disconnected)
@@ -233,14 +254,17 @@ public actor SocketIOClient {
 
         while shouldContinueConnectionLoop(for: generation) {
             if let duration = delay {
-                do { try await Task.sleep(for: duration) } catch { return }
+                do { try await clock.sleep(for: duration) } catch { return }
             }
 
             guard generation == connectionGeneration else { return }
             setStatus(.connecting)
+            pingInterval = .seconds(25)
+            pingTimeout = .seconds(20)
             let task = makeWebSocketTask()
             currentTask = task
             task.resume()
+            resetHeartbeat(generation: generation)
 
             var shouldReconnect = false
             while shouldContinueConnectionLoop(for: generation) {
@@ -249,6 +273,8 @@ public actor SocketIOClient {
                     await handleMessage(message, generation: generation)
                 } catch {
                     guard generation == connectionGeneration else { return }
+                    heartbeatTask?.cancel()
+                    heartbeatTask = nil
                     if isDisconnecting || Task.isCancelled { return }
                     setStatus(.disconnected)
                     guard reconnectPolicy.enabled else { return }
@@ -271,6 +297,7 @@ public actor SocketIOClient {
         guard generation == connectionGeneration else { return }
 
         guard case .string(let text) = message else {
+            resetHeartbeat(generation: generation)
             rnLog(
                 .socket,
                 logging: logging,
@@ -280,16 +307,25 @@ public actor SocketIOClient {
         }
 
         guard let frame = ParsedEngineIOFrame.parse(text) else {
+            resetHeartbeat(generation: generation)
             rnLog(.socket, logging: logging, "ignored unrecognized Engine.IO frame")
             return
         }
 
-        switch (frame.engineIOType, frame.socketIOType) {
-        case (.open, _):
-            // Engine.IO OPEN - send Socket.IO CONNECT to default namespace
+        if frame.engineIOType == .open {
+            // Engine.IO OPEN - parse the server's heartbeat timing before arming the
+            // watchdog, so the deadline reflects it immediately, then send Socket.IO
+            // CONNECT to the default namespace
             rnLog(.socket, logging: logging, "open")
+            parseOpenPayload(text)
+            resetHeartbeat(generation: generation)
             try? await currentTask?.send(.string(SocketIOPacketType.connect.enginePrefixedWireValue))
+            return
+        }
 
+        resetHeartbeat(generation: generation)
+
+        switch (frame.engineIOType, frame.socketIOType) {
         case (.ping, _) where frame.payload.isEmpty:
             // Engine.IO PING - respond with PONG
             rnLog(.socket, logging: logging, "ping")
@@ -303,37 +339,6 @@ public actor SocketIOClient {
         }
     }
 
-    private func handleSocketIOPacket(_ type: SocketIOPacketType?, payload: Substring) async {
-        switch type {
-        case .connect:
-            // Socket.IO CONNECT ack
-            rnLog(.socket, logging: logging, "connect")
-            setStatus(.connected)
-
-        case .connectError:
-            // Socket.IO CONNECT_ERROR - the server rejected the connection. Reconnecting
-            // with the same credentials would only be rejected again, so this is terminal
-            // for the current attempt rather than a transient fault to retry.
-            let reason = parseConnectError(String(payload))
-            rnLog(.socket, logging: logging, level: .error, "connect_error: \(reason)")
-            failConnection(reason: reason)
-
-        case .event:
-            if let (name, data) = parseEvent(String(payload)) {
-                rnLog(.socket, logging: logging, "event: \(name)")
-                let eventData = data ?? Data("{}".utf8)
-                if let conts = eventContinuations[name] {
-                    for cont in conts.values { cont.yield(eventData) }
-                }
-            } else {
-                rnLog(.socket, logging: logging, "ignored malformed event frame")
-            }
-
-        case .disconnect, .ack, .binaryEvent, .binaryAck, nil:
-            rnLog(.socket, logging: logging, "ignored unhandled Socket.IO packet \(String(describing: type))")
-        }
-    }
-
     // MARK: - Private: Helpers
 
     private func sendText(_ text: String) async throws {
@@ -341,7 +346,7 @@ public actor SocketIOClient {
         try await task.send(.string(text))
     }
 
-    private func setStatus(_ newStatus: Status) {
+    func setStatus(_ newStatus: Status) {
         status = newStatus
         for cont in statusContinuations.values { cont.yield(newStatus) }
     }
@@ -350,7 +355,7 @@ public actor SocketIOClient {
     /// (`CONNECT_ERROR`) and suppresses automatic reconnection - the same credentials
     /// would only be rejected again. `connect()` or `reconnect(to:)` can still be called
     /// explicitly afterward, for example once fresh credentials are available.
-    private func failConnection(reason: String) {
+    func failConnection(reason: String) {
         isDisconnecting = true
         currentTask?.cancel(with: .goingAway, reason: nil)
         currentTask = nil
@@ -415,56 +420,3 @@ public enum SocketIOError: Error, Sendable {
 }
 
 extension SocketIOClient: SocketClient {}
-
-// MARK: - Private: Frame Parsing
-
-private extension SocketIOClient {
-
-    func parseEvent(_ payload: String) -> (name: String, payload: Data?)? {
-        guard
-            let data = payload.data(using: .utf8),
-            let array = try? JSONSerialization.jsonObject(with: data) as? [Any],
-            let name = array.first as? String
-        else { return nil }
-
-        let eventPayload: Data? = array.count > 1
-            ? try? JSONSerialization.data(withJSONObject: array[1], options: .fragmentsAllowed)
-            : nil
-
-        return (name, eventPayload)
-    }
-
-    func parseConnectError(_ payload: String) -> String {
-        guard let braceIndex = payload.firstIndex(of: "{") else {
-            return payload.isEmpty ? "Connection rejected by server" : payload
-        }
-
-        let json = String(payload[braceIndex...])
-        guard let data = json.data(using: .utf8) else {
-            rnLog(.socket, logging: logging, level: .error, "connect_error payload was not valid UTF-8: \(json)")
-            return "Connection rejected by server"
-        }
-
-        do {
-            let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-            guard let message = object?["message"] as? String else {
-                rnLog(
-                    .socket,
-                    logging: logging,
-                    level: .error,
-                    "connect_error payload had no \"message\" field: \(json)"
-                )
-                return "Connection rejected by server"
-            }
-            return message
-        } catch {
-            rnLog(
-                .socket,
-                logging: logging,
-                level: .error,
-                "failed to parse connect_error payload \(json): \(error)"
-            )
-            return "Connection rejected by server"
-        }
-    }
-}

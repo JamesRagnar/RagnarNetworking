@@ -117,9 +117,70 @@ private func makeSocket(tasks: [MockWebSocketTask]) -> SocketIOClient {
     )
 }
 
+// MARK: - Manual Sleep Clock
+
+/// A `SleepClock` a test controls directly: `sleep(for:)` suspends until the test calls
+/// `advanceLatest()`, and every requested duration is recorded for inspection. Resolving
+/// by "latest still-pending" (rather than call order) is robust to `resetHeartbeat`
+/// cancelling an older pending sleep slightly after a newer one is already registered.
+private actor ManualSleepClock: SleepClock {
+    private var nextID = 0
+    private var pending: [Int: CheckedContinuation<Void, Error>] = [:]
+    private(set) var requestedDurations: [Duration] = []
+
+    func sleep(for duration: Duration) async throws {
+        requestedDurations.append(duration)
+        let id = nextID
+        nextID += 1
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                pending[id] = continuation
+            }
+        } onCancel: {
+            Task { await self.cancel(id) }
+        }
+    }
+
+    /// Resolves the most recently registered still-pending sleep, as if its duration elapsed.
+    func advanceLatest() {
+        guard let latestID = pending.keys.max(), let continuation = pending.removeValue(forKey: latestID) else {
+            return
+        }
+        continuation.resume()
+    }
+
+    private func cancel(_ id: Int) {
+        guard let continuation = pending.removeValue(forKey: id) else { return }
+        continuation.resume(throwing: CancellationError())
+    }
+}
+
+/// Waits until `clock.requestedDurations` stops growing for several consecutive
+/// scheduler turns. `resetHeartbeat` registers its sleep asynchronously (inside a
+/// spawned `Task`), so this gives any in-flight reset a chance to register - and,
+/// crucially, gives any reset it *supersedes* a chance to be cancelled and removed -
+/// before the test calls `advanceLatest()`, so "most recently registered" reliably
+/// means "currently active" rather than racing a stale, not-yet-cleaned-up entry.
+private func waitForClockQuiescence(_ clock: ManualSleepClock) async {
+    var previousCount = -1
+    var stableStreak = 0
+    var attempts = 0
+    while stableStreak < 10 && attempts < 500 {
+        let count = await clock.requestedDurations.count
+        if count == previousCount {
+            stableStreak += 1
+        } else {
+            stableStreak = 0
+            previousCount = count
+        }
+        await Task.yield()
+        attempts += 1
+    }
+}
+
 // MARK: - Suite
 
-@Suite("SocketIOClient Tests")
+@Suite("SocketIOClient Tests", .timeLimit(.minutes(1)))
 struct SocketIOClientTests {
 
     // MARK: - URL Construction
@@ -661,6 +722,150 @@ struct SocketIOClientTests {
         await socket.invalidate()
     }
 
+    // MARK: - Heartbeat Timeout
+
+    @Test("open payload with custom pingInterval/pingTimeout is used for the heartbeat deadline")
+    func heartbeatUsesParsedPingIntervalAndTimeout() async {
+        let task = MockWebSocketTask()
+        let clock = ManualSleepClock()
+        let socket = SocketIOClient(
+            url: testURL,
+            reconnect: .disabled,
+            taskFactory: { _, _ in task },
+            clock: clock
+        )
+
+        await socket.connect()
+        task.inject(text: #"0{"pingInterval":5000,"pingTimeout":3000}"#)
+
+        // resetHeartbeat schedules a Task that calls clock.sleep(for:) - the duration is
+        // recorded asynchronously, not synchronously as part of handling the frame - so
+        // poll for it rather than checking immediately after the "40" send is observed.
+        var durations: [Duration] = []
+        var attempts = 0
+        while durations.last != .seconds(8) && attempts < 100 {
+            await Task.yield()
+            attempts += 1
+            durations = await clock.requestedDurations
+        }
+
+        #expect(durations.last == .seconds(8))
+    }
+
+    @Test("Missing or unparseable open payload falls back to default heartbeat timing")
+    func openPayloadFallsBackToDefaultsWhenUnparseable() async {
+        let task = MockWebSocketTask()
+        let clock = ManualSleepClock()
+        let socket = SocketIOClient(
+            url: testURL,
+            reconnect: .disabled,
+            taskFactory: { _, _ in task },
+            clock: clock
+        )
+
+        await socket.connect()
+        task.inject(text: "0not-json")
+
+        var durations: [Duration] = []
+        var attempts = 0
+        while durations.last != .seconds(45) && attempts < 100 {
+            await Task.yield()
+            attempts += 1
+            durations = await clock.requestedDurations
+        }
+
+        #expect(durations.last == .seconds(45))
+    }
+
+    @Test("Inbound frames within the heartbeat window keep the connection alive")
+    func framesWithinHeartbeatWindowPreventTimeout() async {
+        let task = MockWebSocketTask()
+        let clock = ManualSleepClock()
+        let socket = SocketIOClient(
+            url: testURL,
+            reconnect: .disabled,
+            taskFactory: { _, _ in task },
+            clock: clock
+        )
+
+        // Subscribe before connecting - statusUpdates() only emits the current status
+        // immediately on subscription, so subscribing after the transitions already
+        // happened would only ever see .connected and then hang waiting for a further
+        // transition that never comes.
+        let statusStream = await socket.statusUpdates()
+        await socket.connect()
+        await performHandshake(on: task)
+
+        var iterator = statusStream.makeAsyncIterator()
+        _ = await iterator.next() // .disconnected
+        _ = await iterator.next() // .connecting
+        _ = await iterator.next() // .connected
+
+        // Send several frames instead of letting the heartbeat deadline elapse - each
+        // one resets the watchdog before it can fire.
+        for _ in 0..<3 {
+            let sentBefore = task.sentMessages.count
+            task.inject(text: "2") // Engine.IO PING - client replies "3" (PONG)
+            var attempts = 0
+            while task.sentMessages.count <= sentBefore && attempts < 100 {
+                await Task.yield()
+                attempts += 1
+            }
+        }
+
+        #expect(task.cancelCount == 0)
+    }
+
+    @Test("No inbound frames within pingInterval + pingTimeout triggers a reconnect attempt")
+    func heartbeatTimeoutTriggersReconnect() async {
+        let task1 = MockWebSocketTask()
+        let task2 = MockWebSocketTask()
+        nonisolated(unsafe) var taskIndex = 0
+        let tasks = [task1, task2]
+        let clock = ManualSleepClock()
+        let socket = SocketIOClient(
+            url: testURL,
+            reconnect: .init(enabled: true, initialDelay: .milliseconds(1), maxDelay: .seconds(1), multiplier: 2.0),
+            taskFactory: { _, _ in
+                let t = tasks[taskIndex]
+                taskIndex += 1
+                return t
+            },
+            clock: clock
+        )
+
+        let statusStream = await socket.statusUpdates()
+        await socket.connect()
+        await performHandshake(on: task1)
+
+        var iterator = statusStream.makeAsyncIterator()
+        _ = await iterator.next() // .disconnected
+        _ = await iterator.next() // .connecting
+        _ = await iterator.next() // .connected
+
+        // Simulate the heartbeat deadline elapsing with no further frames - this cancels
+        // task1, whose receive() then throws, routing through the normal disconnect path.
+        await waitForClockQuiescence(clock)
+        await clock.advanceLatest()
+
+        let disconnected = await iterator.next()
+        #expect(disconnected == .disconnected)
+
+        // Let the reconnect delay elapse so the loop attempts task2.
+        await waitForClockQuiescence(clock)
+        await clock.advanceLatest()
+        _ = await iterator.next() // .connecting
+
+        await performHandshake(on: task2)
+        _ = await iterator.next() // .connected
+
+        #expect(task1.resumeCount == 1)
+        #expect(task1.cancelCount == 1)
+        #expect(task2.resumeCount == 1)
+
+        await socket.invalidate()
+    }
+
     // MARK: - Connect Error
 
     @Test("CONNECT_ERROR (44) sets status to .failed with the server's message")
@@ -814,7 +1019,7 @@ struct SocketIOClientTests {
 
 // MARK: - SocketEmptyBody Tests
 
-@Suite("SocketEmptyBody Tests")
+@Suite("SocketEmptyBody Tests", .timeLimit(.minutes(1)))
 struct SocketEmptyBodyTests {
 
     @Test("init() creates an instance")
