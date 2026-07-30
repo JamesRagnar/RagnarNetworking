@@ -19,3 +19,11 @@ extension RagnarNetworkingLogging {
         if enabled { log() }
     }
 }
+
+/// Runs `log` only in DEBUG builds, independent of runtime logging configuration.
+@inline(__always)
+func rnDiagnostic(_ log: () -> Void) {
+    #if DEBUG
+    log()
+    #endif
+}

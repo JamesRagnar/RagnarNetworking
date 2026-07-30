@@ -184,11 +184,11 @@ public extension InterfaceConstructor {
             if currentQueryItems.contains(where: {
                 $0.name.caseInsensitiveCompare("token") == .orderedSame
             }) {
-                #if DEBUG
-                Logger.diagnostics.warning(
-                    "RagnarNetworking: URL authentication overrides an existing 'token' query item from the base URL."
-                )
-                #endif
+                rnDiagnostic {
+                    Logger.diagnostics.warning(
+                        "RagnarNetworking: URL authentication overrides an existing 'token' query item from the base URL."
+                    )
+                }
             }
             currentQueryItems.removeAll {
                 $0.name.caseInsensitiveCompare("token") == .orderedSame
@@ -200,11 +200,11 @@ public extension InterfaceConstructor {
             if queryItems?.contains(where: {
                 $0.name.caseInsensitiveCompare("token") == .orderedSame
             }) == true {
-                #if DEBUG
-                Logger.diagnostics.warning(
-                    "RagnarNetworking: URL auth overrides a 'token' query param in request parameters."
-                )
-                #endif
+                rnDiagnostic {
+                    Logger.diagnostics.warning(
+                        "RagnarNetworking: URL auth overrides a 'token' query param in request parameters."
+                    )
+                }
             }
             newQueryItems = queryItems?
                 .filter { $0.name.caseInsensitiveCompare("token") != .orderedSame }
@@ -268,11 +268,11 @@ public extension InterfaceConstructor {
             for (key, value) in newHeaderFields {
                 if key.caseInsensitiveCompare("Authorization") == .orderedSame {
                     if case .bearer = authentication {
-                        #if DEBUG
-                        Logger.diagnostics.warning(
-                            "RagnarNetworking: custom Authorization header overrides bearer auth for this request."
-                        )
-                        #endif
+                        rnDiagnostic {
+                            Logger.diagnostics.warning(
+                                "RagnarNetworking: custom Authorization header overrides bearer auth for this request."
+                            )
+                        }
                     }
                     currentHeaderFields = currentHeaderFields.filter {
                         $0.key.caseInsensitiveCompare("Authorization") != .orderedSame

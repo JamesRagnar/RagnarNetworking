@@ -37,11 +37,11 @@ public struct ResponseMap: ExpressibleByArrayLiteral, Sendable {
                 if exact[code] == nil {
                     exact[code] = responseCase.outcome
                 } else {
-                    #if DEBUG
-                    Logger.diagnostics.warning(
-                        "RagnarNetworking: duplicate exact response case \(code, privacy: .public). Keeping first."
-                    )
-                    #endif
+                    rnDiagnostic {
+                        Logger.diagnostics.warning(
+                            "RagnarNetworking: duplicate exact response case \(code, privacy: .public). Keeping first."
+                        )
+                    }
                 }
 
             case .range(let range):
