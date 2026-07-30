@@ -47,6 +47,20 @@ for await event in await socket.events(for: ItemUpdatedEvent.self) {
 
 Each call to `events(for:)` returns an independent stream. Multiple consumers of the same event type each get their own stream. Streams persist across reconnection cycles - consumers never need to re-subscribe.
 
+### Buffering
+
+`events(for:)` takes an optional `bufferingPolicy`, defaulting to `.bufferingNewest(64)`. A consumer that stops iterating, or iterates slower than the server sends events, does not grow without bound - once the buffer is full, the oldest unread event is dropped to make room for each new one. Events are dropped silently from the caller's perspective; a `.socket`-category log is emitted when it happens.
+
+```swift
+// Only the latest value matters - drop everything older than 1.
+for await progress in await socket.events(for: DownloadProgressEvent.self, bufferingPolicy: .bufferingNewest(1)) { ... }
+
+// Restore the old unbounded behavior.
+for await event in await socket.events(for: CriticalAuditEvent.self, bufferingPolicy: .unbounded) { ... }
+```
+
+Choose the policy per event type based on whether an intermediate value is safe to lose. Events that are meaningful independently of what came before them (progress updates, presence pings) are a good fit for a small `.bufferingNewest(n)`. Discrete events where every occurrence matters (chat messages, notifications) should use a larger bound or `.unbounded`, since a dropped one is a correctness issue for that consumer, not just a stale read.
+
 ## Emitting Events
 
 ```swift
@@ -65,7 +79,7 @@ for await status in await socket.statusUpdates() {
 }
 ```
 
-`statusUpdates()` emits the current status immediately on subscription, then streams all subsequent changes.
+`statusUpdates()` emits the current status immediately on subscription, then streams all subsequent changes. It uses a fixed `.bufferingNewest(1)` policy - only the current connection state is ever meaningful, so a backlog of stale states is dropped in favor of retaining the latest.
 
 ## Connection Lifecycle
 

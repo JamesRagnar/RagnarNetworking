@@ -68,6 +68,11 @@ private struct EmptyEvent: SocketEvent {
     typealias Schema = SocketEmptyBody
 }
 
+private struct MarkerEvent: SocketEvent {
+    static let name = "test_marker"
+    struct Schema: Codable, Sendable, Equatable { let done: Bool }
+}
+
 // MARK: - Helpers
 
 private let testURL = URL(string: "ws://example.com/socket.io/")!
@@ -687,6 +692,90 @@ struct SocketIOClientTests {
         #expect(event?.message == "valid")
     }
 
+    // MARK: - Buffering Policy
+
+    @Test("events(for:) with .bufferingNewest retains only the most recent events up to the limit")
+    func eventsBufferingNewestRetainsMostRecentUpToLimit() async throws {
+        let task = MockWebSocketTask()
+        let socket = makeSocket(tasks: [task])
+
+        let eventStream = await socket.events(for: PingEvent.self, bufferingPolicy: .bufferingNewest(2))
+        let markerStream = await socket.events(for: MarkerEvent.self)
+        let statusStream = await socket.statusUpdates()
+
+        var statusIterator = statusStream.makeAsyncIterator()
+        await socket.connect()
+        _ = await statusIterator.next() // .disconnected
+        await performHandshake(on: task)
+        _ = await statusIterator.next() // .connecting
+        _ = await statusIterator.next() // .connected
+
+        // Inject more events than the buffer holds without draining eventStream.
+        for i in 0..<5 {
+            let payload = try JSONEncoder().encode(PingEvent.Schema(message: "\(i)"))
+            let json = String(data: payload, encoding: .utf8)!
+            task.inject(text: #"42["\#(PingEvent.name)",\#(json)]"#)
+        }
+
+        // A marker event, processed after the burst, confirms the actor's sequential receive
+        // loop has already handled (and where applicable, dropped) every prior frame - the
+        // frames are handled strictly in order, regardless of whether eventStream is drained.
+        task.inject(text: #"42["\#(MarkerEvent.name)",{"done":true}]"#)
+        var markerIterator = markerStream.makeAsyncIterator()
+        _ = await markerIterator.next()
+
+        var eventIterator = eventStream.makeAsyncIterator()
+        var received: [String] = []
+        for _ in 0..<2 {
+            if let event = await eventIterator.next() {
+                received.append(event.message)
+            }
+        }
+
+        // Bounded: only the buffer's capacity (2) survived, not all 5 injected events.
+        // Newest-wins: the two retained are the most recently yielded, not the earliest.
+        #expect(received == ["3", "4"])
+    }
+
+    @Test("An explicit bufferingPolicy argument overrides the default")
+    func eventsBufferingPolicyArgumentOverridesDefault() async throws {
+        let task = MockWebSocketTask()
+        let socket = makeSocket(tasks: [task])
+
+        let eventStream = await socket.events(for: PingEvent.self, bufferingPolicy: .bufferingOldest(2))
+        let markerStream = await socket.events(for: MarkerEvent.self)
+        let statusStream = await socket.statusUpdates()
+
+        var statusIterator = statusStream.makeAsyncIterator()
+        await socket.connect()
+        _ = await statusIterator.next() // .disconnected
+        await performHandshake(on: task)
+        _ = await statusIterator.next() // .connecting
+        _ = await statusIterator.next() // .connected
+
+        for i in 0..<5 {
+            let payload = try JSONEncoder().encode(PingEvent.Schema(message: "\(i)"))
+            let json = String(data: payload, encoding: .utf8)!
+            task.inject(text: #"42["\#(PingEvent.name)",\#(json)]"#)
+        }
+
+        task.inject(text: #"42["\#(MarkerEvent.name)",{"done":true}]"#)
+        var markerIterator = markerStream.makeAsyncIterator()
+        _ = await markerIterator.next()
+
+        var eventIterator = eventStream.makeAsyncIterator()
+        var received: [String] = []
+        for _ in 0..<2 {
+            if let event = await eventIterator.next() {
+                received.append(event.message)
+            }
+        }
+
+        // .bufferingOldest keeps the earliest events instead of the default's newest-wins
+        // behavior, proving the explicit argument took effect rather than the default.
+        #expect(received == ["0", "1"])
+    }
+
     // MARK: - Invalidate with Active Event Streams
 
     @Test("invalidate() finishes all registered event streams")
@@ -820,16 +909,14 @@ struct SocketIOClientTests {
             clock: clock
         )
 
-        // Subscribe before connecting - statusUpdates() only emits the current status
-        // immediately on subscription, so subscribing after the transitions already
-        // happened would only ever see .connected and then hang waiting for a further
-        // transition that never comes.
+        // Drain each transition as it happens rather than batching reads after the fact -
+        // statusUpdates() uses a single-slot buffer, so a burst of transitions collapses
+        // to just the latest if the consumer isn't already draining when they occur.
         let statusStream = await socket.statusUpdates()
-        await socket.connect()
-        await performHandshake(on: task)
-
         var iterator = statusStream.makeAsyncIterator()
+        await socket.connect()
         _ = await iterator.next() // .disconnected
+        await performHandshake(on: task)
         _ = await iterator.next() // .connecting
         _ = await iterator.next() // .connected
 
@@ -866,12 +953,14 @@ struct SocketIOClientTests {
             clock: clock
         )
 
+        // Drain each transition as it happens rather than batching reads after the fact -
+        // statusUpdates() uses a single-slot buffer, so a burst of transitions collapses
+        // to just the latest if the consumer isn't already draining when they occur.
         let statusStream = await socket.statusUpdates()
-        await socket.connect()
-        await performHandshake(on: task1)
-
         var iterator = statusStream.makeAsyncIterator()
+        await socket.connect()
         _ = await iterator.next() // .disconnected
+        await performHandshake(on: task1)
         _ = await iterator.next() // .connecting
         _ = await iterator.next() // .connected
 
@@ -960,12 +1049,14 @@ struct SocketIOClientTests {
         let task = MockWebSocketTask()
         let socket = makeSocket(tasks: [task])
 
+        // Drain each transition as it happens rather than batching reads after the fact -
+        // statusUpdates() uses a single-slot buffer, so a burst of transitions collapses
+        // to just the latest if the consumer isn't already draining when they occur.
         let statusStream = await socket.statusUpdates()
-        await socket.connect()
-        await performHandshake(on: task)
-
         var statusIterator = statusStream.makeAsyncIterator()
+        await socket.connect()
         _ = await statusIterator.next() // .disconnected
+        await performHandshake(on: task)
         _ = await statusIterator.next() // .connecting
         _ = await statusIterator.next() // .connected
 

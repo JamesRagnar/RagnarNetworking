@@ -197,9 +197,20 @@ public actor SocketIOClient {
     /// Returns a typed `AsyncStream` for the given event type. Multiple independent consumers
     /// are supported - each call registers a new stream. All receive the same events.
     /// The stream persists across disconnect/reconnect cycles.
-    public func events<E: SocketEvent>(for type: E.Type) -> AsyncStream<E.Schema> {
+    ///
+    /// - Parameter bufferingPolicy: Governs both the raw and decoded buffers backing the
+    ///   stream. Defaults to `.bufferingNewest(64)` - a consumer that falls behind drops the
+    ///   oldest unread events rather than growing without bound. Pass `.unbounded` to restore
+    ///   the previous behavior, or a smaller `.bufferingNewest(n)` for event types where only
+    ///   the latest value is meaningful.
+    public func events<E: SocketEvent>(
+        for type: E.Type,
+        bufferingPolicy: AsyncStream<E.Schema>.Continuation.BufferingPolicy = .bufferingNewest(64)
+    ) -> AsyncStream<E.Schema> {
         let id = UUID()
-        let (dataStream, dataContinuation) = AsyncStream<Data>.makeStream()
+        let (dataStream, dataContinuation) = AsyncStream<Data>.makeStream(
+            bufferingPolicy: Self.mapBufferingPolicy(bufferingPolicy)
+        )
 
         eventContinuations[E.name, default: [:]][id] = dataContinuation
 
@@ -207,13 +218,15 @@ public actor SocketIOClient {
             Task { [weak self] in await self?.removeEventContinuation(id, name: E.name) }
         }
 
-        let (typedStream, typedContinuation) = AsyncStream<E.Schema>.makeStream()
+        let (typedStream, typedContinuation) = AsyncStream<E.Schema>.makeStream(bufferingPolicy: bufferingPolicy)
         let pipeTask = Task {
             for await data in dataStream {
                 guard let value = try? JSONDecoder().decode(E.Schema.self, from: data) else {
                     continue
                 }
-                typedContinuation.yield(value)
+                if case .dropped = typedContinuation.yield(value) {
+                    rnLog(.socket, logging: logging, level: .error, "decoded event dropped due to buffering policy: \(E.name)")
+                }
             }
             typedContinuation.finish()
         }
@@ -223,11 +236,27 @@ public actor SocketIOClient {
         return typedStream
     }
 
+    /// Converts a `BufferingPolicy` between `AsyncStream` specializations. The enum's cases
+    /// don't depend on `Element`, but each specialization is a distinct nominal type.
+    private static func mapBufferingPolicy<From, To>(
+        _ policy: AsyncStream<From>.Continuation.BufferingPolicy
+    ) -> AsyncStream<To>.Continuation.BufferingPolicy {
+        switch policy {
+        case .unbounded: return .unbounded
+        case .bufferingOldest(let limit): return .bufferingOldest(limit)
+        case .bufferingNewest(let limit): return .bufferingNewest(limit)
+        @unknown default: return .unbounded
+        }
+    }
+
     /// Returns a stream of connection status changes. Emits the current status immediately.
     /// The stream persists across disconnect/reconnect cycles.
+    ///
+    /// Uses a fixed `.bufferingNewest(1)` policy - only the current connection state is ever
+    /// meaningful, so a backlog of stale states is dropped rather than retained.
     public func statusUpdates() -> AsyncStream<SocketConnectionStatus> {
         let id = UUID()
-        let (stream, continuation) = AsyncStream<SocketConnectionStatus>.makeStream()
+        let (stream, continuation) = AsyncStream<SocketConnectionStatus>.makeStream(bufferingPolicy: .bufferingNewest(1))
         statusContinuations[id] = continuation
         continuation.yield(status)
         continuation.onTermination = { [weak self] _ in
@@ -352,7 +381,11 @@ public actor SocketIOClient {
 
     func setStatus(_ newStatus: Status) {
         status = newStatus
-        for cont in statusContinuations.values { cont.yield(newStatus) }
+        for cont in statusContinuations.values {
+            if case .dropped = cont.yield(newStatus) {
+                rnLog(.socket, logging: logging, level: .error, "status update dropped due to buffering policy")
+            }
+        }
     }
 
     /// Tears down the current connection attempt after a server-rejected connection

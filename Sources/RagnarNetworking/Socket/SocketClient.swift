@@ -38,8 +38,21 @@ public protocol SocketClient: Actor {
     func emit<E: SocketEvent>(_ type: E.Type) async throws
         where E.Schema == SocketEmptyBody
 
-    func events<E: SocketEvent>(for type: E.Type) -> AsyncStream<E.Schema>
+    func events<E: SocketEvent>(
+        for type: E.Type,
+        bufferingPolicy: AsyncStream<E.Schema>.Continuation.BufferingPolicy
+    ) -> AsyncStream<E.Schema>
     func statusUpdates() -> AsyncStream<SocketConnectionStatus>
+
+}
+
+extension SocketClient {
+
+    /// Convenience overload defaulting to `.bufferingNewest(64)` - a consumer that falls
+    /// behind drops the oldest unread events rather than growing without bound.
+    public func events<E: SocketEvent>(for type: E.Type) -> AsyncStream<E.Schema> {
+        events(for: type, bufferingPolicy: .bufferingNewest(64))
+    }
 
 }
 

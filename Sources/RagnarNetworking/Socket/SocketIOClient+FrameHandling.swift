@@ -56,7 +56,11 @@ extension SocketIOClient {
                 Logger.socket.debug("event: \(name, privacy: .private)")
                 let eventData = data ?? Data("{}".utf8)
                 if let conts = eventContinuations[name] {
-                    for cont in conts.values { cont.yield(eventData) }
+                    for cont in conts.values {
+                        if case .dropped = cont.yield(eventData) {
+                            rnLog(.socket, logging: logging, level: .error, "event dropped due to buffering policy: \(name)")
+                        }
+                    }
                 }
             } else {
                 Logger.socket.debug("ignored malformed event frame")
