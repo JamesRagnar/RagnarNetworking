@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import OSLog
 
 // MARK: - Private: Heartbeat and Socket.IO Packet Handling
 
@@ -31,12 +32,12 @@ extension SocketIOClient {
     /// existing disconnect/reconnect handling exactly as a real network failure would.
     func heartbeatTimedOut(generation: UInt64) {
         guard generation == connectionGeneration else { return }
-        rnLog(
-            .socket,
-            logging: logging,
-            level: .error,
-            "heartbeat timeout - no frames received within pingInterval + pingTimeout"
-        )
+        logging.ifEnabled {
+            Logger.socket.log(
+                level: .error,
+                "heartbeat timeout - no frames received within pingInterval + pingTimeout"
+            )
+        }
         currentTask?.cancel(with: .abnormalClosure, reason: nil)
     }
 
@@ -44,7 +45,9 @@ extension SocketIOClient {
         switch type {
         case .connect:
             // Socket.IO CONNECT ack
-            rnLog(.socket, logging: logging, "connect")
+            logging.ifEnabled {
+                Logger.socket.log(level: .debug, "connect")
+            }
             setStatus(.connected)
 
         case .connectError:
@@ -52,22 +55,33 @@ extension SocketIOClient {
             // with the same credentials would only be rejected again, so this is terminal
             // for the current attempt rather than a transient fault to retry.
             let reason = parseConnectError(String(payload))
-            rnLog(.socket, logging: logging, level: .error, "connect_error: \(reason)")
+            logging.ifEnabled {
+                Logger.socket.log(level: .error, "connect_error: \(reason, privacy: .private)")
+            }
             failConnection(reason: reason)
 
         case .event:
             if let (name, data) = parseEvent(String(payload)) {
-                rnLog(.socket, logging: logging, "event: \(name)")
+                logging.ifEnabled {
+                    Logger.socket.log(level: .debug, "event: \(name, privacy: .private)")
+                }
                 let eventData = data ?? Data("{}".utf8)
                 if let conts = eventContinuations[name] {
                     for cont in conts.values { cont.yield(eventData) }
                 }
             } else {
-                rnLog(.socket, logging: logging, "ignored malformed event frame")
+                logging.ifEnabled {
+                    Logger.socket.log(level: .debug, "ignored malformed event frame")
+                }
             }
 
         case .disconnect, .ack, .binaryEvent, .binaryAck, nil:
-            rnLog(.socket, logging: logging, "ignored unhandled Socket.IO packet \(String(describing: type))")
+            logging.ifEnabled {
+                Logger.socket.log(
+                    level: .debug,
+                    "ignored unhandled Socket.IO packet \(String(describing: type), privacy: .public)"
+                )
+            }
         }
     }
 }
@@ -114,29 +128,34 @@ extension SocketIOClient {
 
         let json = String(payload[braceIndex...])
         guard let data = json.data(using: .utf8) else {
-            rnLog(.socket, logging: logging, level: .error, "connect_error payload was not valid UTF-8: \(json)")
+            logging.ifEnabled {
+                Logger.socket.log(
+                    level: .error,
+                    "connect_error payload was not valid UTF-8: \(json, privacy: .private)"
+                )
+            }
             return "Connection rejected by server"
         }
 
         do {
             let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             guard let message = object?["message"] as? String else {
-                rnLog(
-                    .socket,
-                    logging: logging,
-                    level: .error,
-                    "connect_error payload had no \"message\" field: \(json)"
-                )
+                logging.ifEnabled {
+                    Logger.socket.log(
+                        level: .error,
+                        "connect_error payload had no \"message\" field: \(json, privacy: .private)"
+                    )
+                }
                 return "Connection rejected by server"
             }
             return message
         } catch {
-            rnLog(
-                .socket,
-                logging: logging,
-                level: .error,
-                "failed to parse connect_error payload \(json): \(error)"
-            )
+            logging.ifEnabled {
+                Logger.socket.log(
+                    level: .error,
+                    "failed to parse connect_error payload \(json, privacy: .private): \(error, privacy: .private)"
+                )
+            }
             return "Connection rejected by server"
         }
     }

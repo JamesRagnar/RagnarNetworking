@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import OSLog
 
 /// Abstracts `URLSessionWebSocketTask` for test injection.
 protocol WebSocketTask: AnyObject, Sendable {
@@ -298,17 +299,17 @@ public actor SocketIOClient {
 
         guard case .string(let text) = message else {
             resetHeartbeat(generation: generation)
-            rnLog(
-                .socket,
-                logging: logging,
-                "ignored non-text WebSocket frame"
-            )
+            logging.ifEnabled {
+                Logger.socket.log(level: .debug, "ignored non-text WebSocket frame")
+            }
             return
         }
 
         guard let frame = ParsedEngineIOFrame.parse(text) else {
             resetHeartbeat(generation: generation)
-            rnLog(.socket, logging: logging, "ignored unrecognized Engine.IO frame")
+            logging.ifEnabled {
+                Logger.socket.log(level: .debug, "ignored unrecognized Engine.IO frame")
+            }
             return
         }
 
@@ -316,7 +317,9 @@ public actor SocketIOClient {
             // Engine.IO OPEN - parse the server's heartbeat timing before arming the
             // watchdog, so the deadline reflects it immediately, then send Socket.IO
             // CONNECT to the default namespace
-            rnLog(.socket, logging: logging, "open")
+            logging.ifEnabled {
+                Logger.socket.log(level: .debug, "open")
+            }
             parseOpenPayload(text)
             resetHeartbeat(generation: generation)
             try? await currentTask?.send(.string(SocketIOPacketType.connect.enginePrefixedWireValue))
@@ -328,14 +331,21 @@ public actor SocketIOClient {
         switch (frame.engineIOType, frame.socketIOType) {
         case (.ping, _) where frame.payload.isEmpty:
             // Engine.IO PING - respond with PONG
-            rnLog(.socket, logging: logging, "ping")
+            logging.ifEnabled {
+                Logger.socket.log(level: .debug, "ping")
+            }
             try? await currentTask?.send(.string(EngineIOPacketType.pong.wireValue))
 
         case (.message, let socketIOType):
             await handleSocketIOPacket(socketIOType, payload: frame.payload)
 
         default:
-            rnLog(.socket, logging: logging, "ignored unhandled Engine.IO packet \(frame.engineIOType)")
+            logging.ifEnabled {
+                Logger.socket.log(
+                    level: .debug,
+                    "ignored unhandled Engine.IO packet \(String(describing: frame.engineIOType), privacy: .public)"
+                )
+            }
         }
     }
 

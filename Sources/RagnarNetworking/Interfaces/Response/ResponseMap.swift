@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import OSLog
 
 /// A status-code-to-outcome mapping with range support.
 ///
@@ -36,9 +37,11 @@ public struct ResponseMap: ExpressibleByArrayLiteral, Sendable {
                 if exact[code] == nil {
                     exact[code] = responseCase.outcome
                 } else {
-                    rnDiagnostic(
-                        "RagnarNetworking: duplicate exact response case for status code \(code). Keeping first."
+                    #if DEBUG
+                    Logger.diagnostics.warning(
+                        "RagnarNetworking: duplicate exact response case \(code, privacy: .public). Keeping first."
                     )
+                    #endif
                 }
 
             case .range(let range):

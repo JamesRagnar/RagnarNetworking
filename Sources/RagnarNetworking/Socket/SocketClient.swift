@@ -42,4 +42,3 @@ public protocol SocketClient: Actor {
     func statusUpdates() -> AsyncStream<SocketConnectionStatus>
 
 }
-
