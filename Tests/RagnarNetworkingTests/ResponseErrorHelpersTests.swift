@@ -427,6 +427,47 @@ struct ResponseErrorHelpersTests {
         #expect(error.debugDescription.contains("X-Request-ID: 12345"))
     }
 
+    @Test("Debug description redacts Set-Cookie and Authorization headers")
+    func testDebugDescriptionRedactsSensitiveHeaders() {
+        let headers = [
+            "Set-Cookie": "session=abc123",
+            "Authorization": "Bearer server-echoed-token",
+            "Proxy-Authorization": "Basic proxy-secret",
+            "X-Request-ID": "12345"
+        ]
+        let error = ResponseError.unknownResponseCase(
+            Data(),
+            makeSnapshot(from: makeHTTPResponse(statusCode: 400, headers: headers))
+        )
+
+        #expect(error.debugDescription.contains("abc123") == false)
+        #expect(error.debugDescription.contains("server-echoed-token") == false)
+        #expect(error.debugDescription.contains("proxy-secret") == false)
+        #expect(error.debugDescription.contains("X-Request-ID: 12345"))
+
+        // The full, unredacted headers remain available directly.
+        #expect(error.headers?["Set-Cookie"] == "session=abc123")
+        #expect(error.headers?["Authorization"] == "Bearer server-echoed-token")
+    }
+
+    @Test("String interpolation of the error does not expose sensitive headers or the auth token")
+    func testStringInterpolationIsRedacted() {
+        let url = URL(string: "https://api.example.com/test?token=secret-token-value")!
+        let response = HTTPURLResponse(
+            url: url,
+            statusCode: 401,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Set-Cookie": "session=abc123"]
+        )!
+        let error = ResponseError.unknownResponseCase(Data(), makeSnapshot(from: response))
+
+        let interpolated = "\(error)"
+
+        #expect(interpolated.contains("secret-token-value") == false)
+        #expect(interpolated.contains("abc123") == false)
+        #expect(interpolated == error.debugDescription)
+    }
+
     @Test("Debug description includes body preview")
     func testDebugDescriptionIncludesBody() {
         let body = "Error message from server"

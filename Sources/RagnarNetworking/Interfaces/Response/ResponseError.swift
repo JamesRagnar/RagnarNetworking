@@ -11,7 +11,7 @@ import Foundation
 ///
 /// Each error case includes the raw response data and HTTP response for debugging purposes,
 /// allowing you to inspect the actual server response when something goes wrong.
-public enum ResponseError: LocalizedError, Sendable {
+public enum ResponseError: LocalizedError, Sendable, CustomStringConvertible, CustomDebugStringConvertible {
 
     /// The response could not be cast to HTTPURLResponse
     case unknownResponse(Data, HTTPResponseSnapshot)
@@ -34,12 +34,20 @@ public enum ResponseError: LocalizedError, Sendable {
 /// A Sendable snapshot of an HTTP response.
 public struct HTTPResponseSnapshot: Sendable {
 
+    /// Whether the underlying `URLResponse` was an `HTTPURLResponse`. `statusCode` and
+    /// `headers` are only meaningful when this is `true`.
     public let isHTTPResponse: Bool
 
+    /// The HTTP status code, or `nil` if the response was not an `HTTPURLResponse`.
     public let statusCode: Int?
 
+    /// All response headers, keyed by field name. Includes any `Set-Cookie` or
+    /// `Authorization`/`Proxy-Authorization` echo the server sent - unlike
+    /// `ResponseError`'s `debugDescription` and `description`, this property is not redacted.
     public let headers: [String: String]
 
+    /// The request URL, with any `token` query item (case-insensitive, matching `.url`
+    /// authentication) removed so a captured snapshot does not carry an auth token.
     public let url: URL?
 
     public let mimeType: String?
@@ -53,7 +61,7 @@ public struct HTTPResponseSnapshot: Sendable {
         self.isHTTPResponse = httpResponse != nil
         self.statusCode = httpResponse?.statusCode
         self.headers = Self.coerceHeaders(httpResponse?.allHeaderFields ?? [:])
-        self.url = response.url
+        self.url = Self.redactingTokenQueryItem(from: response.url)
         self.mimeType = response.mimeType
         self.expectedContentLength = response.expectedContentLength
         self.textEncodingName = response.textEncodingName
@@ -66,6 +74,24 @@ public struct HTTPResponseSnapshot: Sendable {
             coercedHeaders[String(describing: key)] = String(describing: value)
         }
         return coercedHeaders
+    }
+
+    /// Removes a `token` query item (case-insensitive) from `url`, mirroring the parameter
+    /// name `.url` authentication appends in `InterfaceConstructor.applyQueryItems`.
+    static func redactingTokenQueryItem(from url: URL?) -> URL? {
+        guard let url, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url
+        }
+
+        guard let queryItems = components.queryItems,
+              queryItems.contains(where: { $0.name.caseInsensitiveCompare("token") == .orderedSame })
+        else {
+            return url
+        }
+
+        let redactedQueryItems = queryItems.filter { $0.name.caseInsensitiveCompare("token") != .orderedSame }
+        components.queryItems = redactedQueryItems.isEmpty ? nil : redactedQueryItems
+        return components.url ?? url
     }
 
 }
@@ -181,10 +207,21 @@ public extension ResponseError {
         return (500...599).contains(code) || code == 429
     }
 
+    /// Header field names excluded from `debugDescription` and `description` - present in
+    /// `headers` for consumers who deliberately want them, but not in the string a consumer
+    /// is likely to paste into a log line or a crash/bug report attachment.
+    private static let redactedHeaderNames: Set<String> = [
+        "set-cookie",
+        "authorization",
+        "proxy-authorization"
+    ]
+
     /// A comprehensive debug description including error type, status code, headers, and body preview.
     ///
     /// Provides all relevant error information in a single formatted string, useful for logging.
     /// The response body is truncated to 200 characters to prevent excessive log output.
+    /// Excludes `Set-Cookie`, `Authorization`, and `Proxy-Authorization` headers - read
+    /// `headers` directly if you need those values.
     var debugDescription: String {
         var components: [String] = []
 
@@ -211,10 +248,13 @@ public extension ResponseError {
             components.append("Status: \(code)")
         }
 
-        // Headers
+        // Headers, with sensitive header values redacted
         if let headers = headers, !headers.isEmpty {
-            let headerStrings = headers.map { "\($0.key): \($0.value)" }.joined(separator: ", ")
-            components.append("Headers: [\(headerStrings)]")
+            let redactedHeaders = headers.filter { !Self.redactedHeaderNames.contains($0.key.lowercased()) }
+            if !redactedHeaders.isEmpty {
+                let headerStrings = redactedHeaders.map { "\($0.key): \($0.value)" }.joined(separator: ", ")
+                components.append("Headers: [\(headerStrings)]")
+            }
         }
 
         // Body preview (first 200 characters)
@@ -226,6 +266,11 @@ public extension ResponseError {
 
         return components.joined(separator: " | ")
     }
+
+    /// Equivalent to `debugDescription`, so plain `"\(error)"` string interpolation is also
+    /// safe rather than falling back to the enum's synthesized description, which would
+    /// expose the unredacted `HTTPResponseSnapshot` associated value.
+    var description: String { debugDescription }
 
     /// A concise localized description intended for user-facing display.
     var errorDescription: String? {
