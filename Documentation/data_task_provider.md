@@ -45,7 +45,7 @@ let response = try await URLSession.shared.dataTask(
 )
 ```
 
-Prefer overriding a single `InterfaceConstructor` step and delegating to `URLRequest` for the default behavior when possible. See `Documentation/Interfaces/interface_constructor.md` for invariants and override guidance.
+Overriding a single `InterfaceConstructor` step and delegating to `URLRequest` for the remaining steps limits the change to that step. See `Documentation/Interfaces/interface_constructor.md` for invariants and override behavior.
 
 ## Testing
 
