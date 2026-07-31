@@ -8,12 +8,23 @@
 import Foundation
 
 /// Handles decoding and mapping of responses for an Interface.
-public protocol ResponseHandler {
+///
+/// Handlers are values rather than metatypes, so a handler may carry its own state - a
+/// metrics sink, a header allowlist - without reaching for globals.
+public protocol ResponseHandler: Sendable {
 
     /// Handle a response for a given Interface type.
-    static func handle<T: Interface>(
+    ///
+    /// - Parameters:
+    ///   - response: Tuple containing the response data and URLResponse
+    ///   - interface: The interface type defining the response contract
+    ///   - responseDecoder: The decoder configured for this client. Implementations should
+    ///     use it for every body they decode, including typed error bodies, so a client's
+    ///     decoding rules apply uniformly.
+    func handle<T: Interface>(
         _ response: (data: Data, response: URLResponse),
-        for interface: T.Type
+        for interface: T.Type,
+        responseDecoder: ResponseDecoder
     ) throws(ResponseError) -> T.Response
 
 }

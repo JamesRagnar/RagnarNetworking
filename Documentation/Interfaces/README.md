@@ -6,7 +6,7 @@ This directory documents the Interface modeling layer: how requests are defined,
 
 An `Interface` pairs request parameters with response handling. Most usage follows this flow:
 1. Define `Interface` and nested `Parameters`.
-2. Execute via `APIClient` or directly via `DataTaskProvider`.
+2. Execute via `APIClient` or directly via `RequestPipeline`.
 
 ## Example
 
@@ -80,7 +80,7 @@ static var responseCases: ResponseMap {
 
 - `String`: expects UTF-8 response bodies.
 - `Data`: returns raw bytes (for downloads/streams or no-body fallbacks).
-- `Decodable`: decoded with `JSONDecoder` from the response body.
+- `Decodable`: decoded from the response body using the configured `ResponseDecoder` (defaults to a plain `JSONDecoder`). See [Response Handling](response_handling.md#response-decoder).
 - `EmptyResponse`: represents a successful response with no body.
 - `.noContent`: use when the server returns no body (204/205/304).
 
@@ -102,4 +102,4 @@ Prefer explicit success codes. Use success ranges only when the endpoint truly v
 
 - [Request Parameters](request_parameters.md)
 - [Response Handling](response_handling.md)
-- [Interface Constructor](interface_constructor.md)
+- [Request Builder](request_builder.md)

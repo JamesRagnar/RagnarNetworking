@@ -1,6 +1,6 @@
 # Response Handling
 
-Interfaces map HTTP status codes to outcomes (decode success, throw a predefined error, or decode an error body). The default `handle(_:)` path applies this mapping and decodes the response.
+Interfaces map HTTP status codes to outcomes (decode success, throw a predefined error, or decode an error body). The default `handle(_:responseDecoder:)` path applies this mapping and decodes the response.
 
 ## Response Cases
 
@@ -21,7 +21,7 @@ Response cases can either decode a body or indicate a successful response with n
 - `.decode` expects a response body that can be decoded as the Interface `Response`.
 - `.noContent` marks a success with no body (e.g., 204/205/304).
 
-When `handle(_:)` encounters `.noContent`, the default handler treats it as a success
+When `handle(_:responseDecoder:)` encounters `.noContent`, the default handler treats it as a success
 with an empty body. This succeeds for `Data`, `String`, or `EmptyResponse` responses.
 
 ```swift
@@ -46,30 +46,34 @@ For custom no-content behavior, override the Interface `responseHandler`.
 
 ## Response Handlers
 
-Interfaces can override response handling logic by providing a custom `responseHandler`.
-This allows per-interface decoding rules while keeping a shared default path.
+Interfaces can override response handling logic by providing a custom `responseHandler`. This is
+the single per-endpoint override point for response handling: it keeps a shared default path while
+letting one endpoint interpret its response differently. Handlers are values, so a handler can
+carry its own state.
 
 ```swift
 public struct GetLibraryItemCover: Interface {
-    public static var responseHandler: ResponseHandler.Type {
-        CoverResponseHandler.self
+    public static var responseHandler: any ResponseHandler {
+        CoverResponseHandler()
     }
 }
 
-public enum CoverResponseHandler: ResponseHandler {
-    public static func handle<T: Interface>(
+public struct CoverResponseHandler: ResponseHandler {
+    public func handle<T: Interface>(
         _ response: (data: Data, response: URLResponse),
-        for interface: T.Type
+        for interface: T.Type,
+        responseDecoder: ResponseDecoder
     ) throws(ResponseError) -> T.Response {
+        let body = ResponseBody(response.data, decoder: responseDecoder)
         let snapshot = HTTPResponseSnapshot(response: response.response)
         guard let statusCode = snapshot.statusCode else {
-            throw ResponseError.unknownResponse(response.data, snapshot)
+            throw ResponseError.unknownResponse(body, snapshot)
         }
 
         if statusCode == 204 {
             guard let empty = Data() as? T.Response else {
                 throw ResponseError.decoding(
-                    response.data,
+                    body,
                     snapshot,
                     .custom(message: "Expected Data response type for 204")
                 )
@@ -77,7 +81,7 @@ public enum CoverResponseHandler: ResponseHandler {
             return empty
         }
 
-        return try DefaultResponseHandler.handle(response, for: interface)
+        return try DefaultResponseHandler().handle(response, for: interface, responseDecoder: responseDecoder)
     }
 }
 ```
@@ -86,27 +90,34 @@ public enum CoverResponseHandler: ResponseHandler {
 
 A custom `ResponseHandler` that only needs a targeted addition to the default behavior
 (for example, inspecting a header before decoding) does not need to reimplement status-code
-matching. `DefaultResponseHandler.handleOutcome(_:for:)` performs the same matching `handle`
+matching. `DefaultResponseHandler.handleOutcome(_:for:responseDecoder:)` performs the same matching `handle`
 does, returning a `ResponseOutcomeResult` instead of deciding what to do with a `.noContent`
-result. `DefaultResponseHandler.decode(_:as:)` performs the same type-driven decoding
+result. `DefaultResponseHandler.decode(_:as:responseDecoder:)` performs the same type-driven decoding
 (`EmptyResponse`, `String`, `Data`, or `JSONDecoder`) `handle` uses to finish a `.noContent`
 result.
 
 ```swift
-public enum LoggingResponseHandler: ResponseHandler {
-    public static func handle<T: Interface>(
+public struct LoggingResponseHandler: ResponseHandler {
+    private let base = DefaultResponseHandler()
+
+    public func handle<T: Interface>(
         _ response: (data: Data, response: URLResponse),
-        for interface: T.Type
+        for interface: T.Type,
+        responseDecoder: ResponseDecoder
     ) throws(ResponseError) -> T.Response {
-        switch try DefaultResponseHandler.handleOutcome(response, for: interface) {
+        switch try base.handleOutcome(response, for: interface, responseDecoder: responseDecoder) {
         case .decoded(let value):
             return value
 
         case .noContent:
             do {
-                return try DefaultResponseHandler.decode(Data(), as: interface)
+                return try base.decode(Data(), as: interface, responseDecoder: responseDecoder)
             } catch {
-                throw ResponseError.decoding(response.data, HTTPResponseSnapshot(response: response.response), error)
+                throw ResponseError.decoding(
+                    ResponseBody(response.data, decoder: responseDecoder),
+                    HTTPResponseSnapshot(response: response.response),
+                    error
+                )
             }
         }
     }
@@ -182,16 +193,56 @@ When decoding fails (empty body, non-JSON response, malformed JSON), the error i
 
 The raw response data is always preserved, so you can still inspect `responseBodyString`.
 
+Error bodies decode with the same `ResponseDecoder` as success bodies. `responseCases` is a
+`static var` with no access to a live `ServerConfiguration`, so the decoder is handed to the
+outcome at handling time rather than captured at declaration time: `.decodeError(body:)` receives
+`(Data, ResponseDecoder)`, and `.decodeError(_:)` uses that decoder for you.
+
+```swift
+static var responseCases: ResponseMap {
+    [
+        .code(400, .decodeError(APIErrorBody.self)),
+        .code(418, .decodeError(body: { data, decoder in
+            try decoder.makeJSONDecoder().decode(TeapotError.self, from: data)
+        }))
+    ]
+}
+```
+
+`ResponseError` carries its body as a `ResponseBody` - the raw bytes plus the decoder the
+response was handled with - so `decodeError(as:)` at a catch site needs no decoder argument and
+cannot silently fall back to a plain `JSONDecoder`.
+
+## Response Decoder
+
+`handle(_:responseDecoder:)` decodes bodies using a `ResponseDecoder`, mirroring how requests
+are encoded via `RequestEncoder`. The decoder is a required argument rather than a defaulted one,
+so a caller cannot silently fall back to a plain `JSONDecoder` and lose the client's rules. Going
+through `APIClient` or `RequestPipeline`, it is always `ServerConfiguration.responseDecoder`.
+
+There is no per-Interface decoder override. When one endpoint's field names or date format differ
+from the rest of the API, express that on the `Response` type itself with `CodingKeys` or a custom
+`init(from:)`; reach for `responseHandler` when the *interpretation* of the response differs, not
+just its field names. See [Server Configuration](../server_configuration.md#response-decoder).
+
 ## Decoding Rules
 
-`DefaultResponseHandler.decode(_:as:)` supports:
+`DefaultResponseHandler.decode(_:as:responseDecoder:)` supports:
 - `String` responses (UTF-8)
 - `Data` responses (raw bytes)
-- `Decodable` responses (via `JSONDecoder`)
+- `Decodable` responses (via the configured `ResponseDecoder`)
+
+Structured decoding is JSON-only by design. `ResponseDecoder` wraps a `JSONDecoder` factory rather
+than an open codec abstraction, keeping one decode path and no extra public surface. An endpoint
+that returns something else is served by a `Data` or `String` response and decoding at the call
+site; the request side has the matching escape hatch in `RequestBody`, which carries its own
+`Content-Type`. Generalizing to pluggable codecs is a mechanical change if a real non-JSON API
+appears, and nothing in the current design forecloses it.
 
 ## Response Errors
 
-`ResponseError` captures failures with the raw response data and response metadata:
+`ResponseError` captures failures with the response body (bytes plus the decoder that was
+configured to read them) and response metadata:
 - `.unknownResponse`
 - `.unknownResponseCase`
 - `.decoding`
@@ -214,5 +265,9 @@ catch let error as ResponseError {
     let body = error.responseBodyString
     let retryable = error.isRetryable
     let requestId = error.header("X-Request-ID")
+    let apiError = error.decodeError(as: APIErrorBody.self)
 }
 ```
+
+`error.body` exposes the `ResponseBody` directly (`body.data`, `body.decoder`, `body.stringValue`,
+`body.decode(as:)`) when you need more than the helpers above.

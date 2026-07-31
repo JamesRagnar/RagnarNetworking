@@ -83,14 +83,18 @@ public enum ResponseOutcome: Sendable {
 
     /// Decode the response body as a typed error and throw it.
     /// The decoded error is accessible via ResponseError.decoded.
-    case decodeError(body: @Sendable (Data) throws -> any Error & Sendable)
+    ///
+    /// The closure receives the decoder resolved for the response, so error bodies decode
+    /// with the same rules as success bodies even though `responseCases` is a `static var`
+    /// with no access to a live `ServerConfiguration`.
+    case decodeError(body: @Sendable (Data, ResponseDecoder) throws -> any Error & Sendable)
 
-    /// Convenience: decode error body as the given type using JSONDecoder.
+    /// Convenience: decode error body as the given type using the response's configured decoder.
     public static func decodeError<T: Decodable & Sendable & Error>(
         _ type: T.Type
     ) -> ResponseOutcome {
-        .decodeError(body: { data in
-            try JSONDecoder().decode(T.self, from: data)
+        .decodeError(body: { data, decoder in
+            try decoder.makeJSONDecoder().decode(T.self, from: data)
         })
     }
 

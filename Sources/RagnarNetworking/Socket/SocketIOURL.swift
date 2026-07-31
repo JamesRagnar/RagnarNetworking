@@ -29,7 +29,7 @@ enum SocketIOURL {
     }
 
     /// Joins `path` onto `components`'s existing path, matching
-    /// `InterfaceConstructor.applyPath`'s semantics so the two halves of the package agree
+    /// `RequestBuilder.applyPath`'s semantics so the two halves of the package agree
     /// on how a base URL's path combines with a relative path.
     private static func joinPath(_ path: String, to components: inout URLComponents) {
         let trailingSlashPath = path.hasSuffix("/") ? path : path + "/"

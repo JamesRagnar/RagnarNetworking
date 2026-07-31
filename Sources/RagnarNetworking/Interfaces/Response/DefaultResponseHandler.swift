@@ -17,43 +17,55 @@ import Foundation
 /// and `decode` instead of reimplementing `handle` from scratch:
 ///
 /// ```swift
-/// enum LoggingResponseHandler: ResponseHandler {
-///     static func handle<T: Interface>(
+/// struct LoggingResponseHandler: ResponseHandler {
+///     private let base = DefaultResponseHandler()
+///
+///     func handle<T: Interface>(
 ///         _ response: (data: Data, response: URLResponse),
-///         for interface: T.Type
+///         for interface: T.Type,
+///         responseDecoder: ResponseDecoder
 ///     ) throws(ResponseError) -> T.Response {
 ///         // Inspect the raw response before the default handling runs.
-///         switch try DefaultResponseHandler.handleOutcome(response, for: interface) {
+///         switch try base.handleOutcome(response, for: interface, responseDecoder: responseDecoder) {
 ///         case .decoded(let value):
 ///             return value
 ///         case .noContent:
 ///             do {
-///                 return try DefaultResponseHandler.decode(Data(), as: interface)
+///                 return try base.decode(Data(), as: interface, responseDecoder: responseDecoder)
 ///             } catch {
-///                 throw .decoding(response.data, HTTPResponseSnapshot(response: response.response), error)
+///                 throw .decoding(
+///                     ResponseBody(response.data, decoder: responseDecoder),
+///                     HTTPResponseSnapshot(response: response.response),
+///                     error
+///                 )
 ///             }
 ///         }
 ///     }
 /// }
 /// ```
-public enum DefaultResponseHandler: ResponseHandler {
+public struct DefaultResponseHandler: ResponseHandler {
 
-    public static func handle<T: Interface>(
+    /// Creates the default handler. Stateless; create one wherever you need it.
+    public init() {}
+
+    /// Matches the response's status code against `Interface.responseCases`, then decodes the
+    /// success body, resolves a no-content success, or throws the mapped error.
+    public func handle<T: Interface>(
         _ response: (data: Data, response: URLResponse),
-        for interface: T.Type
+        for interface: T.Type,
+        responseDecoder: ResponseDecoder
     ) throws(ResponseError) -> T.Response {
-        switch try handleOutcome(response, for: interface) {
+        switch try handleOutcome(response, for: interface, responseDecoder: responseDecoder) {
         case .decoded(let value):
             return value
 
         case .noContent:
             do {
-                return try decode(Data(), as: interface)
+                return try decode(Data(), as: interface, responseDecoder: responseDecoder)
             } catch {
-                let responseSnapshot = HTTPResponseSnapshot(response: response.response)
                 throw .decoding(
-                    response.data,
-                    responseSnapshot,
+                    ResponseBody(response.data, decoder: responseDecoder),
+                    HTTPResponseSnapshot(response: response.response),
                     error
                 )
             }
@@ -64,21 +76,24 @@ public enum DefaultResponseHandler: ResponseHandler {
     /// decodes the success body, reports a no-content success, or throws the mapped error -
     /// without deciding what to do for the no-content case, unlike `handle`. Call this first
     /// when composing a custom `ResponseHandler` on top of the default status-code matching.
-    public static func handleOutcome<T: Interface>(
+    public func handleOutcome<T: Interface>(
         _ response: (data: Data, response: URLResponse),
-        for interface: T.Type
+        for interface: T.Type,
+        responseDecoder: ResponseDecoder
     ) throws(ResponseError) -> ResponseOutcomeResult<T.Response> {
         let responseSnapshot = HTTPResponseSnapshot(response: response.response)
+        let responseBody = ResponseBody(response.data, decoder: responseDecoder)
+
         guard let statusCode = responseSnapshot.statusCode else {
             throw .unknownResponse(
-                response.data,
+                responseBody,
                 responseSnapshot
             )
         }
 
         guard let responseCase = interface.responseCases.match(statusCode) else {
             throw .unknownResponseCase(
-                response.data,
+                responseBody,
                 responseSnapshot
             )
         }
@@ -86,10 +101,10 @@ public enum DefaultResponseHandler: ResponseHandler {
         switch responseCase {
         case .decode:
             do {
-                return .decoded(try decode(response.data, as: interface))
+                return .decoded(try decode(response.data, as: interface, responseDecoder: responseDecoder))
             } catch {
                 throw .decoding(
-                    response.data,
+                    responseBody,
                     responseSnapshot,
                     error
                 )
@@ -100,7 +115,7 @@ public enum DefaultResponseHandler: ResponseHandler {
 
         case .error(let error):
             throw .generic(
-                response.data,
+                responseBody,
                 responseSnapshot,
                 error
             )
@@ -110,24 +125,24 @@ public enum DefaultResponseHandler: ResponseHandler {
             // ResponseError.decoding with structured diagnostics when possible.
             let decodedError: any Error & Sendable
             do {
-                decodedError = try decodeBody(response.data)
+                decodedError = try decodeBody(response.data, responseDecoder)
             } catch {
                 if let decodingError = error as? DecodingError {
                     throw .decoding(
-                        response.data,
+                        responseBody,
                         responseSnapshot,
                         .jsonDecoder(.init(decodingError))
                     )
                 }
                 throw .decoding(
-                    response.data,
+                    responseBody,
                     responseSnapshot,
                     .custom(message: String(describing: error))
                 )
             }
 
             throw .decoded(
-                response.data,
+                responseBody,
                 responseSnapshot,
                 decodedError
             )
@@ -135,12 +150,13 @@ public enum DefaultResponseHandler: ResponseHandler {
     }
 
     /// Decodes `data` as `T.Response`, handling the `EmptyResponse`, `String`, and `Data`
-    /// special cases before falling back to `JSONDecoder`. Call this to finish handling
+    /// special cases before falling back to `responseDecoder`. Call this to finish handling
     /// once `handleOutcome` reports `.noContent` (with an empty `Data`) or when composing
     /// custom decoding logic that still needs the default type-driven behavior.
-    public static func decode<T: Interface>(
+    public func decode<T: Interface>(
         _ data: Data,
-        as interface: T.Type
+        as interface: T.Type,
+        responseDecoder: ResponseDecoder
     ) throws(InterfaceDecodingError) -> T.Response {
         if T.Response.self == EmptyResponse.self {
             guard let empty = EmptyResponse() as? T.Response else {
@@ -169,7 +185,7 @@ public enum DefaultResponseHandler: ResponseHandler {
         }
 
         do {
-            return try JSONDecoder().decode(
+            return try responseDecoder.makeJSONDecoder().decode(
                 T.Response.self,
                 from: data
             )

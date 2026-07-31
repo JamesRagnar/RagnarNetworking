@@ -8,14 +8,15 @@ This directory documents the public surface of `RagnarNetworking`.
 - `SocketClient` - actor-based socket transport abstraction for higher-level consumers
 - `SocketIOClient` - typed Socket.IO transport built on `URLSessionWebSocketTask`
 - `SocketIOURL` - Socket.IO WebSocket URL builder from HTTP(S) server URLs
-- `DataTaskProvider` - transport abstraction for interface-driven requests
-- `ServerConfiguration` - base URL, auth token, and request encoding configuration
+- `Transport` - single-requirement abstraction for executing a `URLRequest`
+- `RequestPipeline` - composes `RequestBuilder`, `Transport`, and `ResponseHandler` into one request
+- `ServerConfiguration` - base URL, body coding, and default headers; `RequestContext` pairs one with a per-request token
 - `Interfaces/` - request/response modeling, response mapping, and request construction
 
 ## Guides
 
 - [APIClient](api_client.md)
 - [SocketIOClient](socket_io_client.md)
-- [DataTaskProvider](data_task_provider.md)
+- [RequestPipeline and Transport](request_pipeline.md)
 - [Server Configuration](server_configuration.md)
 - [Interfaces Overview](Interfaces/README.md)

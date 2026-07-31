@@ -25,7 +25,12 @@ public protocol Interface: Sendable {
     static var responseCases: ResponseMap { get }
 
     /// Defines how responses are decoded and mapped to the Interface Response.
-    static var responseHandler: ResponseHandler.Type { get }
+    ///
+    /// This is the single per-endpoint override point for response handling. Decoding rules
+    /// that differ from the rest of the client are better expressed on the `Response` type
+    /// itself (`CodingKeys`, a custom `init(from:)`); reach for a handler when the *response
+    /// interpretation* differs, not just the field names.
+    static var responseHandler: any ResponseHandler { get }
 
 }
 

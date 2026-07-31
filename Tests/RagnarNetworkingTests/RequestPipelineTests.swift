@@ -1,5 +1,5 @@
 //
-//  DataTaskProviderTests.swift
+//  RequestPipelineTests.swift
 //  RagnarNetworking
 //
 //  Created by James Harquail on 2025-01-16.
@@ -9,8 +9,8 @@ import Foundation
 @testable import RagnarNetworking
 import Testing
 
-@Suite("DataTaskProvider Tests", .timeLimit(.minutes(1)))
-struct DataTaskProviderTests {
+@Suite("RequestPipeline Tests", .timeLimit(.minutes(1)))
+struct RequestPipelineTests {
 
     // MARK: - Test Fixtures
 
@@ -44,8 +44,8 @@ struct DataTaskProviderTests {
         case networkError
     }
 
-    // Mock DataTaskProvider that doesn't make real network requests
-    actor MockDataTaskProvider: DataTaskProvider {
+    // Mock Transport that doesn't make real network requests
+    actor MockTransport: Transport {
         var mockResponse: (Data, URLResponse)?
         var shouldThrow: Error?
         var capturedRequest: URLRequest?
@@ -85,76 +85,82 @@ struct DataTaskProviderTests {
         }
     }
 
-    // MARK: - Default Implementation Tests
+    // MARK: - Pipeline Tests
 
-    @Test("Default implementation constructs request and handles response")
-    func testDefaultImplementationSuccess() async throws {
+    @Test("Builds the request, executes it, and handles the response")
+    func testPipelineSuccess() async throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let context = RequestContext(configuration: ServerConfiguration(url: url))
         let params = TestInterface.Parameters(path: "/users/1")
 
         let responseData = """
         {"id": 1, "name": "John Doe"}
         """.data(using: .utf8)!
 
-        let provider = MockDataTaskProvider()
-        await provider.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let transport = MockTransport()
+        await transport.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let pipeline = RequestPipeline(transport: transport)
 
-        let result = try await provider.dataTask(
+        let result = try await pipeline.send(
             TestInterface.self,
             params,
-            config
+            context: context
         )
 
         #expect(result.id == 1)
         #expect(result.name == "John Doe")
 
         // Verify request was constructed correctly
-        let capturedRequest = await provider.capturedRequest
+        let capturedRequest = await transport.capturedRequest
         #expect(capturedRequest?.url?.path == "/users/1")
         #expect(capturedRequest?.httpMethod == "GET")
     }
 
-    @Test("Default implementation handles error responses")
-    func testDefaultImplementationErrorResponse() async throws {
+    @Test("Handles error responses")
+    func testPipelineErrorResponse() async throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let context = RequestContext(configuration: ServerConfiguration(url: url))
         let params = TestInterface.Parameters(path: "/users/999")
 
-        let provider = MockDataTaskProvider()
-        await provider.setMockResponse(data: Data(), statusCode: 404, url: url)
+        let transport = MockTransport()
+        await transport.setMockResponse(data: Data(), statusCode: 404, url: url)
+        let pipeline = RequestPipeline(transport: transport)
 
         await #expect(throws: ResponseError.self) {
-            try await provider.dataTask(
+            try await pipeline.send(
                 TestInterface.self,
                 params,
-                config
+                context: context
             )
         }
     }
 
-    @Test("Default implementation propagates network errors")
-    func testDefaultImplementationNetworkError() async throws {
+    @Test("Propagates network errors")
+    func testPipelineNetworkError() async throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let context = RequestContext(configuration: ServerConfiguration(url: url))
         let params = TestInterface.Parameters(path: "/test")
 
-        let provider = MockDataTaskProvider()
-        await provider.setError(TestError.networkError)
+        let transport = MockTransport()
+        await transport.setError(TestError.networkError)
+        let pipeline = RequestPipeline(transport: transport)
 
         await #expect(throws: TestError.self) {
-            try await provider.dataTask(
+            try await pipeline.send(
                 TestInterface.self,
                 params,
-                config
+                context: context
             )
         }
     }
 
-    @Test("Default implementation passes configuration to request builder")
-    func testDefaultImplementationUsesConfiguration() async throws {
+    @Test("Passes the context's token to the request builder")
+    func testPipelineUsesContextToken() async throws {
         let url = URL(string: "https://custom.api.com")!
-        let config = ServerConfiguration(url: url, authToken: "test-token")
+        let context = RequestContext(
+            configuration: ServerConfiguration(url: url),
+            authToken: "test-token"
+        )
 
         struct AuthInterface: Interface {
             struct Parameters: RequestParameters {
@@ -178,32 +184,33 @@ struct DataTaskProviderTests {
         {"id": 1, "name": "Secure Data"}
         """.data(using: .utf8)!
 
-        let provider = MockDataTaskProvider()
-        await provider.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let transport = MockTransport()
+        await transport.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let pipeline = RequestPipeline(transport: transport)
 
-        let result = try await provider.dataTask(
+        let result = try await pipeline.send(
             AuthInterface.self,
             params,
-            config
+            context: context
         )
 
         #expect(result.name == "Secure Data")
 
         // Verify auth token was added
-        let capturedRequest = await provider.capturedRequest
+        let capturedRequest = await transport.capturedRequest
         #expect(capturedRequest?.value(forHTTPHeaderField: "Authorization") == "Bearer test-token")
     }
 
-    @Test("Uses custom InterfaceConstructor when provided")
-    func testCustomConstructorIsUsed() async throws {
-        struct CustomConstructor: InterfaceConstructor {
-            static func applyHeaders(
-                _ headers: [String: String]?,
+    @Test("Uses a custom RequestBuilder when provided")
+    func testCustomBuilderIsUsed() async throws {
+        struct CustomBuilder: RequestBuilder {
+            func applyHeaders(
+                _ headers: [String: String],
                 authentication: AuthenticationType,
                 authToken: String?,
                 to request: inout URLRequest
             ) throws(RequestError) {
-                try URLRequest.applyHeaders(
+                try URLRequestBuilder().applyHeaders(
                     headers,
                     authentication: authentication,
                     authToken: authToken,
@@ -211,39 +218,203 @@ struct DataTaskProviderTests {
                 )
 
                 var current = request.allHTTPHeaderFields ?? [:]
-                current["X-Test-Constructor"] = "true"
+                current["X-Test-Builder"] = "true"
                 request.allHTTPHeaderFields = current
             }
         }
 
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let context = RequestContext(configuration: ServerConfiguration(url: url))
         let params = TestInterface.Parameters(path: "/users/1")
 
         let responseData = """
         {"id": 1, "name": "John Doe"}
         """.data(using: .utf8)!
 
-        let provider = MockDataTaskProvider()
-        await provider.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let transport = MockTransport()
+        await transport.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let pipeline = RequestPipeline(transport: transport, builder: CustomBuilder())
 
-        _ = try await provider.dataTask(
+        _ = try await pipeline.send(
             TestInterface.self,
             params,
-            config,
-            constructor: CustomConstructor.self
+            context: context
         )
 
-        let capturedRequest = await provider.capturedRequest
-        #expect(capturedRequest?.value(forHTTPHeaderField: "X-Test-Constructor") == "true")
+        let capturedRequest = await transport.capturedRequest
+        #expect(capturedRequest?.value(forHTTPHeaderField: "X-Test-Builder") == "true")
+    }
+
+    @Test("A stateful RequestBuilder can carry its own configuration")
+    func testStatefulBuilder() async throws {
+        struct SigningBuilder: RequestBuilder {
+            let signature: String
+
+            func applyHeaders(
+                _ headers: [String: String],
+                authentication: AuthenticationType,
+                authToken: String?,
+                to request: inout URLRequest
+            ) throws(RequestError) {
+                try URLRequestBuilder().applyHeaders(
+                    headers,
+                    authentication: authentication,
+                    authToken: authToken,
+                    to: &request
+                )
+
+                var current = request.allHTTPHeaderFields ?? [:]
+                current["X-Signature"] = signature
+                request.allHTTPHeaderFields = current
+            }
+        }
+
+        let url = URL(string: "https://api.example.com")!
+        let context = RequestContext(configuration: ServerConfiguration(url: url))
+        let params = TestInterface.Parameters(path: "/users/1")
+
+        let responseData = #"{"id": 1, "name": "John Doe"}"#.data(using: .utf8)!
+
+        let transport = MockTransport()
+        await transport.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let pipeline = RequestPipeline(transport: transport, builder: SigningBuilder(signature: "abc123"))
+
+        _ = try await pipeline.send(TestInterface.self, params, context: context)
+
+        let capturedRequest = await transport.capturedRequest
+        #expect(capturedRequest?.value(forHTTPHeaderField: "X-Signature") == "abc123")
+    }
+
+    @Test("A RequestBuilder that reimplements buildRequest still gets the configuration's defaultHeaders")
+    func testCustomBuildRequestKeepsDefaultHeaders() async throws {
+        // Headers are resolved by ServerConfiguration, not by the default pipeline, so even a
+        // builder that replaces buildRequest wholesale cannot silently drop defaultHeaders.
+        struct ReimplementingBuilder: RequestBuilder {
+            func buildRequest<Parameters: RequestParameters>(
+                _ requestParameters: Parameters,
+                context: RequestContext
+            ) throws(RequestError) -> URLRequest {
+                var components = try makeComponents(context: context)
+                applyPath(requestParameters.path, to: &components)
+                var request = makeRequest(url: try makeURL(from: components))
+                applyMethod(requestParameters.method, to: &request)
+                try applyHeaders(
+                    context.resolvedHeaders(for: requestParameters),
+                    authentication: requestParameters.authentication,
+                    authToken: context.authToken,
+                    to: &request
+                )
+                return request
+            }
+        }
+
+        let url = URL(string: "https://api.example.com")!
+        let context = RequestContext(
+            configuration: ServerConfiguration(
+                url: url,
+                defaultHeaders: ["X-App-Version": "1.0"]
+            )
+        )
+        let params = TestInterface.Parameters(path: "/users/1")
+
+        let responseData = #"{"id": 1, "name": "John Doe"}"#.data(using: .utf8)!
+
+        let transport = MockTransport()
+        await transport.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let pipeline = RequestPipeline(transport: transport, builder: ReimplementingBuilder())
+
+        _ = try await pipeline.send(TestInterface.self, params, context: context)
+
+        let capturedRequest = await transport.capturedRequest
+        #expect(capturedRequest?.value(forHTTPHeaderField: "X-App-Version") == "1.0")
+    }
+
+    @Test("Uses configuration.responseDecoder to decode the response")
+    func testConfiguredResponseDecoderIsUsed() async throws {
+        struct SnakeCaseResponse: Codable, Sendable {
+            let userId: Int
+        }
+
+        struct SnakeCaseInterface: Interface {
+            struct Parameters: RequestParameters {
+                let method: RequestMethod = .get
+                let path = "/snake-case"
+                let queryItems: [URLQueryItem]? = nil
+                let headers: [String: String]? = nil
+                let body: EmptyBody = .init()
+                let authentication: AuthenticationType = .none
+            }
+
+            typealias Response = SnakeCaseResponse
+
+            static var responseCases: ResponseMap {
+                [.code(200, .decode)]
+            }
+        }
+
+        let url = URL(string: "https://api.example.com")!
+        let context = RequestContext(
+            configuration: ServerConfiguration(
+                url: url,
+                responseDecoder: ResponseDecoder(keyDecodingStrategy: .convertFromSnakeCase)
+            )
+        )
+        let params = SnakeCaseInterface.Parameters()
+
+        let responseData = #"{"user_id": 55}"#.data(using: .utf8)!
+
+        let transport = MockTransport()
+        await transport.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let pipeline = RequestPipeline(transport: transport)
+
+        let result = try await pipeline.send(
+            SnakeCaseInterface.self,
+            params,
+            context: context
+        )
+
+        #expect(result.userId == 55)
+    }
+
+    @Test("A thrown ResponseError carries the configured decoder for its error body")
+    func testErrorBodyCarriesConfiguredDecoder() async throws {
+        struct SnakeCaseErrorBody: Decodable {
+            let errorMessage: String
+        }
+
+        let url = URL(string: "https://api.example.com")!
+        let context = RequestContext(
+            configuration: ServerConfiguration(
+                url: url,
+                responseDecoder: ResponseDecoder(keyDecodingStrategy: .convertFromSnakeCase)
+            )
+        )
+        let params = TestInterface.Parameters(path: "/users/999")
+
+        let transport = MockTransport()
+        await transport.setMockResponse(
+            data: #"{"error_message": "not found"}"#.data(using: .utf8)!,
+            statusCode: 404,
+            url: url
+        )
+        let pipeline = RequestPipeline(transport: transport)
+
+        do {
+            _ = try await pipeline.send(TestInterface.self, params, context: context)
+            #expect(Bool(false), "Expected a ResponseError")
+        } catch let error as ResponseError {
+            // No decoder passed at the catch site; the error carries the client's own.
+            let body = error.decodeError(as: SnakeCaseErrorBody.self)
+            #expect(body?.errorMessage == "not found")
+        }
     }
 
     // MARK: - URLSession Conformance Tests
 
-    @Test("URLSession conforms to DataTaskProvider")
+    @Test("URLSession conforms to Transport")
     func testURLSessionConformance() {
         let session = URLSession.shared
-        let _: any DataTaskProvider = session
+        let _: any Transport = session
 
         // Just verify it compiles, proving conformance
     }
@@ -270,18 +441,19 @@ struct DataTaskProviderTests {
         }
 
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let context = RequestContext(configuration: ServerConfiguration(url: url))
         let params = StringInterface.Parameters()
 
         let responseData = "Hello, World!".data(using: .utf8)!
 
-        let provider = MockDataTaskProvider()
-        await provider.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let transport = MockTransport()
+        await transport.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let pipeline = RequestPipeline(transport: transport)
 
-        let result = try await provider.dataTask(
+        let result = try await pipeline.send(
             StringInterface.self,
             params,
-            config
+            context: context
         )
 
         #expect(result == "Hello, World!")
@@ -307,18 +479,19 @@ struct DataTaskProviderTests {
         }
 
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let context = RequestContext(configuration: ServerConfiguration(url: url))
         let params = DataInterface.Parameters()
 
         let responseData = Data([0x00, 0x01, 0x02, 0x03])
 
-        let provider = MockDataTaskProvider()
-        await provider.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let transport = MockTransport()
+        await transport.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let pipeline = RequestPipeline(transport: transport)
 
-        let result = try await provider.dataTask(
+        let result = try await pipeline.send(
             DataInterface.self,
             params,
-            config
+            context: context
         )
 
         #expect(result == responseData)
@@ -353,7 +526,7 @@ struct DataTaskProviderTests {
         }
 
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let context = RequestContext(configuration: ServerConfiguration(url: url))
         let params = ComplexInterface.Parameters()
 
         let responseData = """
@@ -366,13 +539,14 @@ struct DataTaskProviderTests {
         }
         """.data(using: .utf8)!
 
-        let provider = MockDataTaskProvider()
-        await provider.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let transport = MockTransport()
+        await transport.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let pipeline = RequestPipeline(transport: transport)
 
-        let result = try await provider.dataTask(
+        let result = try await pipeline.send(
             ComplexInterface.self,
             params,
-            config
+            context: context
         )
 
         #expect(result.user.id == 42)
@@ -405,7 +579,7 @@ struct DataTaskProviderTests {
         }
 
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let context = RequestContext(configuration: ServerConfiguration(url: url))
         let params = ArrayInterface.Parameters()
 
         let responseData = """
@@ -416,13 +590,14 @@ struct DataTaskProviderTests {
         ]
         """.data(using: .utf8)!
 
-        let provider = MockDataTaskProvider()
-        await provider.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let transport = MockTransport()
+        await transport.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let pipeline = RequestPipeline(transport: transport)
 
-        let result = try await provider.dataTask(
+        let result = try await pipeline.send(
             ArrayInterface.self,
             params,
-            config
+            context: context
         )
 
         #expect(result.count == 3)
@@ -455,7 +630,10 @@ struct DataTaskProviderTests {
         }
 
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url, authToken: "auth-token")
+        let context = RequestContext(
+            configuration: ServerConfiguration(url: url),
+            authToken: "auth-token"
+        )
         let bodyData = "{\"test\":\"data\"}".data(using: .utf8)!
         let params = CompleteParameters(body: BinaryBody(data: bodyData, contentType: "application/octet-stream"))
 
@@ -463,16 +641,17 @@ struct DataTaskProviderTests {
         {"id": 1, "name": "Test"}
         """.data(using: .utf8)!
 
-        let provider = MockDataTaskProvider()
-        await provider.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let transport = MockTransport()
+        await transport.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let pipeline = RequestPipeline(transport: transport)
 
-        _ = try await provider.dataTask(
+        _ = try await pipeline.send(
             CompleteInterface.self,
             params,
-            config
+            context: context
         )
 
-        let capturedRequest = await provider.capturedRequest
+        let capturedRequest = await transport.capturedRequest
 
         #expect(capturedRequest?.httpMethod == "POST")
         #expect(capturedRequest?.url?.path == "/api/resource")
@@ -482,10 +661,10 @@ struct DataTaskProviderTests {
         #expect(capturedRequest?.httpBody == bodyData)
     }
 
-    @Test("Throws RequestError when configuration is invalid")
-    func testInvalidConfiguration() async throws {
+    @Test("Throws RequestError when the context has no token for an authenticated request")
+    func testMissingToken() async throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url) // No auth token
+        let context = RequestContext(configuration: ServerConfiguration(url: url)) // No auth token
 
         struct AuthRequiredInterface: Interface {
             struct Parameters: RequestParameters {
@@ -505,35 +684,36 @@ struct DataTaskProviderTests {
         }
 
         let params = AuthRequiredInterface.Parameters()
-        let provider = MockDataTaskProvider()
+        let pipeline = RequestPipeline(transport: MockTransport())
 
         await #expect(throws: RequestError.self) {
-            try await provider.dataTask(
+            try await pipeline.send(
                 AuthRequiredInterface.self,
                 params,
-                config
+                context: context
             )
         }
     }
 
     // MARK: - Sendable Conformance Tests
 
-    @Test("DataTaskProvider operations are Sendable-safe")
+    @Test("Pipeline operations are Sendable-safe")
     func testSendableConformance() async throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let context = RequestContext(configuration: ServerConfiguration(url: url))
         let params = TestInterface.Parameters(path: "/test")
 
         let responseData = """
         {"id": 1, "name": "Test"}
         """.data(using: .utf8)!
 
-        let provider = MockDataTaskProvider()
-        await provider.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let transport = MockTransport()
+        await transport.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let pipeline = RequestPipeline(transport: transport)
 
         // This compiles and runs, proving Sendable safety
-        async let result1 = provider.dataTask(TestInterface.self, params, config)
-        async let result2 = provider.dataTask(TestInterface.self, params, config)
+        async let result1 = pipeline.send(TestInterface.self, params, context: context)
+        async let result2 = pipeline.send(TestInterface.self, params, context: context)
 
         let (r1, r2) = try await (result1, result2)
 

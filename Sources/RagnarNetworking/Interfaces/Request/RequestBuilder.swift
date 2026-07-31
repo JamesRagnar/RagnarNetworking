@@ -1,5 +1,5 @@
 //
-//  InterfaceConstructor.swift
+//  RequestBuilder.swift
 //  RagnarNetworking
 //
 //  Created by James Harquail on 2024-12-22.
@@ -10,43 +10,50 @@ import OSLog
 
 /// Advanced extension API for constructing `URLRequest` values from typed Interface parameters.
 ///
-/// `InterfaceConstructor` exposes the request-construction pipeline as a set of stable
-/// customization points. `URLRequest` provides the default implementation, and custom
-/// constructors can override individual steps while inheriting the rest of the pipeline.
+/// `RequestBuilder` exposes the request-construction pipeline as a set of stable customization
+/// points. `URLRequestBuilder` provides the default implementation, and custom builders can
+/// override individual steps while inheriting the rest of the pipeline.
 ///
-/// Most consumers should use the default `URLRequest` constructor path. Conform to this
-/// protocol only when you need to change request construction behavior in a targeted way.
+/// Builders are values rather than metatypes, so a builder may carry its own state - a request
+/// signer, a tenant path prefix, a clock - without reaching for globals.
+///
+/// Most consumers should use the default `URLRequestBuilder`. Conform to this protocol only when
+/// you need to change request construction behavior in a targeted way.
 ///
 /// Recommended override style:
 /// - Override the smallest step that solves the problem.
-/// - Call the default `URLRequest` implementation first when you want additive behavior.
+/// - Compose with `URLRequestBuilder` when you want additive behavior.
 /// - Reimplement `buildRequest` only when you need to change pipeline ordering or omit steps.
 ///
-/// Constructor invariants:
+/// Builder invariants:
 /// - Respect the request's declared `AuthenticationType`.
 /// - Preserve explicit `RequestError` failures for malformed configuration or invalid requests.
 /// - Keep body bytes and `Content-Type` in sync.
 /// - Return a fully formed `URLRequest` with a valid URL.
-public protocol InterfaceConstructor {
+///
+/// - Note: `buildRequest` receives headers already resolved by
+///   `ServerConfiguration.resolvedHeaders(for:)`, so overriding any pipeline step - including
+///   `buildRequest` itself - cannot silently drop the configuration's `defaultHeaders`.
+public protocol RequestBuilder: Sendable {
 
-    /// Builds a `URLRequest` using the provided parameters and server configuration.
+    /// Builds a `URLRequest` using the provided parameters and request context.
     ///
     /// Override this only when you need to change the overall construction flow.
-    static func buildRequest<Parameters: RequestParameters>(
-        requestParameters: Parameters,
-        serverConfiguration: ServerConfiguration
+    func buildRequest<Parameters: RequestParameters>(
+        _ requestParameters: Parameters,
+        context: RequestContext
     ) throws(RequestError) -> URLRequest
 
-    /// Creates base `URLComponents` from the server configuration.
-    static func makeComponents(
-        serverConfiguration: ServerConfiguration
+    /// Creates base `URLComponents` from the request context.
+    func makeComponents(
+        context: RequestContext
     ) throws(RequestError) -> URLComponents
 
     /// Applies the request path to the URL components.
     ///
     /// Custom implementations should preserve the default path-joining semantics unless they are
     /// intentionally redefining how interface paths combine with the configured base URL.
-    static func applyPath(
+    func applyPath(
         _ path: String,
         to components: inout URLComponents
     )
@@ -55,7 +62,7 @@ public protocol InterfaceConstructor {
     ///
     /// Custom implementations should ensure `.url` authentication still has a single final
     /// `token` query item when authentication succeeds.
-    static func applyQueryItems(
+    func applyQueryItems(
         _ queryItems: [URLQueryItem]?,
         authentication: AuthenticationType,
         authToken: String?,
@@ -63,23 +70,24 @@ public protocol InterfaceConstructor {
     ) throws(RequestError)
 
     /// Builds a final URL from the components.
-    static func makeURL(from components: URLComponents) throws(RequestError) -> URL
+    func makeURL(from components: URLComponents) throws(RequestError) -> URL
 
     /// Creates the base `URLRequest`.
-    static func makeRequest(url: URL) -> URLRequest
+    func makeRequest(url: URL) -> URLRequest
 
     /// Applies the HTTP method.
-    static func applyMethod(
+    func applyMethod(
         _ method: RequestMethod,
         to request: inout URLRequest
     )
 
     /// Applies headers, including authentication.
     ///
+    /// `headers` arrives already resolved against the configuration's `defaultHeaders`.
     /// Custom implementations should preserve case-insensitive header semantics and define how
     /// caller-supplied headers interact with generated authentication headers.
-    static func applyHeaders(
-        _ headers: [String: String]?,
+    func applyHeaders(
+        _ headers: [String: String],
         authentication: AuthenticationType,
         authToken: String?,
         to request: inout URLRequest
@@ -88,7 +96,7 @@ public protocol InterfaceConstructor {
     /// Encodes and applies the request body with its content type.
     ///
     /// Custom implementations must keep the encoded body bytes and `Content-Type` header aligned.
-    static func applyBody<B: RequestBody>(
+    func applyBody<B: RequestBody>(
         _ body: B,
         encoder: RequestEncoder,
         to request: inout URLRequest
@@ -99,34 +107,34 @@ public protocol InterfaceConstructor {
     /// Custom implementations should preserve the existing-header conflict check unless they
     /// are intentionally redefining how a caller-supplied `Content-Type` interacts with the
     /// body's own.
-    static func applyContentType(
+    func applyContentType(
         _ contentType: String?,
         to request: inout URLRequest
     ) throws(RequestError)
 
     /// Compares two `Content-Type` values for equivalence, ignoring parameters (for example
     /// `charset`) and case. Called by the default `applyContentType`.
-    static func mediaTypesMatch(_ value1: String, _ value2: String) -> Bool
+    func mediaTypesMatch(_ value1: String, _ value2: String) -> Bool
 
 }
 
 // MARK: - Default Pipeline Implementation
 
-public extension InterfaceConstructor {
+public extension RequestBuilder {
 
     /// Default pipeline:
     /// `makeComponents` → `applyPath` → `applyQueryItems` → `makeURL` →
     /// `makeRequest` → `applyMethod` → `applyHeaders` → `applyBody`
-    static func buildRequest<Parameters: RequestParameters>(
-        requestParameters: Parameters,
-        serverConfiguration: ServerConfiguration
+    func buildRequest<Parameters: RequestParameters>(
+        _ requestParameters: Parameters,
+        context: RequestContext
     ) throws(RequestError) -> URLRequest {
-        var components = try makeComponents(serverConfiguration: serverConfiguration)
+        var components = try makeComponents(context: context)
         applyPath(requestParameters.path, to: &components)
         try applyQueryItems(
             requestParameters.queryItems,
             authentication: requestParameters.authentication,
-            authToken: serverConfiguration.authToken,
+            authToken: context.authToken,
             to: &components
         )
 
@@ -135,26 +143,26 @@ public extension InterfaceConstructor {
         applyMethod(requestParameters.method, to: &request)
 
         try applyHeaders(
-            requestParameters.headers,
+            context.resolvedHeaders(for: requestParameters),
             authentication: requestParameters.authentication,
-            authToken: serverConfiguration.authToken,
+            authToken: context.authToken,
             to: &request
         )
 
         try applyBody(
             requestParameters.body,
-            encoder: serverConfiguration.requestEncoder,
+            encoder: context.requestEncoder,
             to: &request
         )
 
         return request
     }
 
-    static func makeComponents(
-        serverConfiguration: ServerConfiguration
+    func makeComponents(
+        context: RequestContext
     ) throws(RequestError) -> URLComponents {
         guard let components = URLComponents(
-            url: serverConfiguration.url,
+            url: context.url,
             resolvingAgainstBaseURL: false
         ) else {
             throw .configuration
@@ -163,7 +171,7 @@ public extension InterfaceConstructor {
         return components
     }
 
-    static func applyPath(
+    func applyPath(
         _ path: String,
         to components: inout URLComponents
     ) {
@@ -186,7 +194,7 @@ public extension InterfaceConstructor {
         }
     }
 
-    static func applyQueryItems(
+    func applyQueryItems(
         _ queryItems: [URLQueryItem]?,
         authentication: AuthenticationType,
         authToken: String?,
@@ -242,7 +250,7 @@ public extension InterfaceConstructor {
         components.queryItems = currentQueryItems.isEmpty ? nil : currentQueryItems
     }
 
-    static func makeURL(from components: URLComponents) throws(RequestError) -> URL {
+    func makeURL(from components: URLComponents) throws(RequestError) -> URL {
         guard let url = components.url else {
             throw .componentsURL
         }
@@ -250,16 +258,16 @@ public extension InterfaceConstructor {
         return url
     }
 
-    static func makeRequest(url: URL) -> URLRequest {
+    func makeRequest(url: URL) -> URLRequest {
         URLRequest(url: url)
     }
 
-    static func applyMethod(_ method: RequestMethod, to request: inout URLRequest) {
+    func applyMethod(_ method: RequestMethod, to request: inout URLRequest) {
         request.httpMethod = method.rawValue
     }
 
-    static func applyHeaders(
-        _ headers: [String: String]?,
+    func applyHeaders(
+        _ headers: [String: String],
         authentication: AuthenticationType,
         authToken: String?,
         to request: inout URLRequest
@@ -274,26 +282,24 @@ public extension InterfaceConstructor {
             currentHeaderFields["Authorization"] = "Bearer \(token)"
         }
 
-        if let newHeaderFields = headers {
-            for (key, value) in newHeaderFields {
-                if key.caseInsensitiveCompare("Authorization") == .orderedSame {
-                    if case .bearer = authentication {
-                        Logger.diagnostics.warning(
-                            "RagnarNetworking: custom Authorization header overrides bearer auth for this request."
-                        )
-                    }
-                    currentHeaderFields = currentHeaderFields.filter {
-                        $0.key.caseInsensitiveCompare("Authorization") != .orderedSame
-                    }
+        for (key, value) in headers {
+            if key.caseInsensitiveCompare("Authorization") == .orderedSame {
+                if case .bearer = authentication {
+                    Logger.diagnostics.warning(
+                        "RagnarNetworking: custom Authorization header overrides bearer auth for this request."
+                    )
                 }
-                currentHeaderFields[key] = value
+                currentHeaderFields = currentHeaderFields.filter {
+                    $0.key.caseInsensitiveCompare("Authorization") != .orderedSame
+                }
             }
+            currentHeaderFields[key] = value
         }
 
         request.allHTTPHeaderFields = currentHeaderFields
     }
 
-    static func applyBody<B: RequestBody>(
+    func applyBody<B: RequestBody>(
         _ body: B,
         encoder: RequestEncoder,
         to request: inout URLRequest
@@ -321,7 +327,7 @@ public extension InterfaceConstructor {
         try applyContentType(encoded.contentType, to: &request)
     }
 
-    static func applyContentType(
+    func applyContentType(
         _ contentType: String?,
         to request: inout URLRequest
     ) throws(RequestError) {
@@ -345,7 +351,7 @@ public extension InterfaceConstructor {
         request.allHTTPHeaderFields = currentHeaderFields
     }
 
-    static func mediaTypesMatch(_ value1: String, _ value2: String) -> Bool {
+    func mediaTypesMatch(_ value1: String, _ value2: String) -> Bool {
         func extractMediaType(_ value: String) -> String {
             let mediaType = value.split(separator: ";").first ?? Substring(value)
             return mediaType.trimmingCharacters(in: .whitespaces).lowercased()
@@ -353,5 +359,16 @@ public extension InterfaceConstructor {
 
         return extractMediaType(value1) == extractMediaType(value2)
     }
+
+}
+
+// MARK: - Default Builder
+
+/// The built-in `RequestBuilder`, using the default pipeline unchanged.
+public struct URLRequestBuilder: RequestBuilder {
+
+    /// Creates the default builder. Stateless; create one wherever you need it, including
+    /// inside a custom builder that delegates to a default pipeline step.
+    public init() {}
 
 }
