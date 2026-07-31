@@ -8,7 +8,7 @@
 import Foundation
 
 /// Specific errors encountered during response decoding.
-public enum InterfaceDecodingError: Error, Sendable {
+public enum InterfaceDecodingError: LocalizedError, Sendable {
 
     /// Expected String response but UTF-8 decoding failed
     case missingString
@@ -21,6 +21,26 @@ public enum InterfaceDecodingError: Error, Sendable {
 
     /// A custom decode closure failed.
     case custom(message: String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .missingString:
+            return "The response was expected to be a UTF-8 string, but decoding failed."
+
+        case .missingData:
+            return "The response was expected to be raw data, but it could not be cast."
+
+        case .jsonDecoder(let diagnostics):
+            if diagnostics.codingPath.isEmpty {
+                return "Failed to decode JSON: \(diagnostics.debugDescription)"
+            }
+            let path = diagnostics.codingPath.joined(separator: ".")
+            return "Failed to decode JSON at \"\(path)\": \(diagnostics.debugDescription)"
+
+        case .custom(let message):
+            return message
+        }
+    }
 
 }
 
