@@ -8,10 +8,7 @@
 
 ```swift
 let socketURL = SocketIOClient.webSocketURL(for: serverURL)!
-let socket = SocketIOClient(
-    url: socketURL,
-    logging: .disabled
-)
+let socket = SocketIOClient(url: socketURL)
 await socket.connect()
 ```
 
@@ -76,6 +73,14 @@ for await status in await socket.statusUpdates() {
 | `reconnect(to:)` | Switches to a new URL and reconnects, preserving all registered streams. |
 | `invalidate()` | Closes the connection and finishes all streams. Use for teardown. |
 
+## Protocol Coverage
+
+Handled Socket.IO packet types: `CONNECT` (marks the connection `.connected`), `CONNECT_ERROR` (marks the connection `.failed(reason:)`), and `EVENT` (dispatched to `events(for:)` streams by event name).
+
+Not handled: `DISCONNECT`, `ACK`, `BINARY_EVENT`, and `BINARY_ACK` packets are received and logged, but otherwise ignored - `emit` never requests an acknowledgement, and there is no API to send or receive binary (non-JSON) event payloads. Only the default Socket.IO namespace (`/`) is supported; events sent by a server on any other namespace are not parsed and are dropped as malformed frames.
+
+`SocketIOClient` opens the WebSocket with `URLSessionWebSocketTask`'s URL-only initializer - it does not send custom headers (such as `Authorization`) on the handshake request. The only way to pass credentials is as a query item on the URL passed to `webSocketURL(for:)` or the client's initializer (for example `?token=...`, subject to the same interception/logging risk as any other URL query parameter), or via cookies already present in the `URLSession`'s cookie storage.
+
 ## Reconnection
 
 By default, the client reconnects with exponential backoff (1s initial, 15s max, 2× multiplier) after an unexpected disconnection. Disconnections triggered by `disconnect()` or `invalidate()` do not reconnect.
@@ -89,7 +94,7 @@ If the server rejects the connection (Socket.IO `CONNECT_ERROR`, for example due
 let socket = SocketIOClient(url: url, reconnect: .disabled)
 
 // Custom policy
-let socket = SocketIOClient(url: url, reconnect: ReconnectPolicy(
+let socket = SocketIOClient(url: url, reconnect: SocketIOClient.ReconnectPolicy(
     initialDelay: .seconds(2),
     maxDelay: .seconds(30),
     multiplier: 1.5

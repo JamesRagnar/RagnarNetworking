@@ -416,11 +416,21 @@ public actor SocketIOClient {
 }
 
 /// Errors thrown by `SocketIOClient`.
-public enum SocketIOError: Error, Sendable {
+public enum SocketIOError: LocalizedError, Sendable {
     /// An emit was attempted while the socket was not connected.
     case notConnected
     /// The event payload could not be serialized to a UTF-8 JSON string.
     case encodingFailed
+
+    public var errorDescription: String? {
+        switch self {
+        case .notConnected:
+            return "Cannot emit an event because the socket is not connected."
+
+        case .encodingFailed:
+            return "The event payload could not be serialized to a UTF-8 JSON string."
+        }
+    }
 }
 
 extension SocketIOClient: SocketClient {}

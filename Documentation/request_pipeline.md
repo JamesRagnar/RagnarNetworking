@@ -70,7 +70,7 @@ let pipeline = RequestPipeline(
 )
 ```
 
-Prefer overriding a single `RequestBuilder` step and delegating to `URLRequestBuilder()` for the default behavior. See [Request Builder](Interfaces/request_builder.md) for invariants and override guidance.
+Overriding a single `RequestBuilder` step and delegating to `URLRequestBuilder()` for the remaining steps limits the change to that step. See [Request Builder](Interfaces/request_builder.md) for invariants and override behavior.
 
 ## Testing
 

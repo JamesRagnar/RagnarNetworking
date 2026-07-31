@@ -126,12 +126,14 @@ struct UpdateUser: RequestBody, Encodable, Sendable {
     let nickname: Nullable<String>?  // nil = omit, .null = explicit null, .value = set
 }
 
-// Omit the field entirely
 UpdateUser(nickname: nil)
-// {"nickname": null}
+// Field omitted entirely
+
 UpdateUser(nickname: .null)
-// {"nickname": "Bob"}
+// {"nickname": null}
+
 UpdateUser(nickname: .value("Bob"))
+// {"nickname": "Bob"}
 ```
 
 ## Authentication

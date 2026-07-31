@@ -24,24 +24,18 @@ The default pipeline is:
 
 `applyBody` encodes the request body using the configured `RequestEncoder`, then calls `applyContentType` to apply the inferred `Content-Type`. If a `Content-Type` header already exists, `applyContentType` calls `mediaTypesMatch` to compare it against the inferred value (case-insensitive, ignoring parameters such as `charset`); a mismatch fails request construction with `RequestError.invalidRequest`.
 
-## When to Use It
+## Scope
 
-Use a custom builder when you need request-construction policy that should live below the Interface definition level, for example:
-- injecting cross-cutting headers
-- changing path or query assembly rules
-- adjusting authentication placement rules
-- customizing body/header interplay
-
-Do not reach for this when a plain `RequestParameters` value or `ServerConfiguration.defaultHeaders` already expresses the behavior you need.
+A custom builder changes request-construction policy below the Interface definition level: cross-cutting headers, path or query assembly rules, authentication placement rules, or body/header interplay. A plain `RequestParameters` value expresses per-request behavior without a custom builder, and `ServerConfiguration.defaultHeaders` expresses cross-cutting headers without one.
 
 ## Override Strategy
 
-Prefer the narrowest possible override:
-- Override `applyHeaders` to add or rewrite headers.
-- Override `applyQueryItems` to change query assembly behavior.
-- Override `applyBody` to change encoding behavior.
-- Override `applyContentType` or `mediaTypesMatch` to change how a body's `Content-Type` is applied or compared against an existing header.
-- Override `buildRequest` only when you need to change the pipeline itself.
+Each pipeline step affects a distinct part of request construction:
+- `applyHeaders` adds or rewrites headers.
+- `applyQueryItems` changes query assembly behavior.
+- `applyBody` changes encoding behavior.
+- `applyContentType` and `mediaTypesMatch` change how a body's `Content-Type` is applied or compared against an existing header.
+- `buildRequest` changes the pipeline itself; the other steps above are called from its default implementation.
 
 For additive behavior, call the corresponding `URLRequestBuilder()` step first and then append your custom logic.
 
@@ -145,4 +139,3 @@ struct ClientTaggedQueryBuilder: RequestBuilder {
 - Overridden methods are used automatically by the default `buildRequest` implementation.
 - You can call `URLRequestBuilder()` step methods to reuse the default behavior before adding custom logic.
 - `applyBody` uses the `RequestEncoder` factory from the context's configuration to create a per-request encoder.
-- Treat this as an advanced customization API. Most consumers should stay on the default `URLRequestBuilder` path.

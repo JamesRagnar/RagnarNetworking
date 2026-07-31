@@ -13,7 +13,7 @@ let context = RequestContext(configuration: config, authToken: "token")
 
 ## Request Encoder
 
-Request bodies are encoded using a `RequestEncoder` factory to keep Swift 6 Sendable conformance (JSONEncoder is not Sendable).
+`RequestEncoder` is a factory that produces a configured `JSONEncoder` per request.
 
 ```swift
 let config = ServerConfiguration(

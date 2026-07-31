@@ -61,7 +61,7 @@ let config = ServerConfiguration(
   - Duplicate exact codes keep the first declaration.
   - In DEBUG builds, duplicate exact codes emit a developer diagnostic.
 - `.decodeError(MyError.self)` decodes structured error bodies and throws `ResponseError.decoded`.
-- Use `.noContent` for no-body success (204/205/304). Prefer `EmptyResponse` as the response type.
+- Use `.noContent` for no-body success (204/205/304). `EmptyResponse` is the `Response` type for that case.
 - Override `responseHandler` when an Interface needs custom response handling logic.
 
 Example:
@@ -84,19 +84,31 @@ static var responseCases: ResponseMap {
 - `EmptyResponse`: represents a successful response with no body.
 - `.noContent`: use when the server returns no body (204/205/304).
 
-## Status Code Guidelines
+## Status Code Mapping Examples
 
-Recommended defaults for Interface definitions:
+- `200 OK`: `.code(200, .decode)` decodes the response body as `Response`.
+- `201 Created`: `.code(201, .decode)` decodes the response body when the server returns the created resource.
+- `202 Accepted`: `.code(202, .noContent)` treats the response as success with no body; a custom `Response` type maps status info if the server returns it instead.
+- `204 No Content`: `.code(204, .noContent)` treats the response as success with no body.
+- `205 Reset Content`: `.code(205, .noContent)` treats the response as success with no body.
+- `206 Partial Content`: `.code(206, .decode)` with `Response = Data` decodes the raw response bytes.
+- `304 Not Modified`: `.code(304, .noContent)` treats the response as success with no body, for Interfaces that send conditional requests.
 
-- `200 OK`: `.code(200, .decode)`
-- `201 Created`: `.code(201, .decode)` when the server returns the created resource
-- `202 Accepted`: use `.code(202, .noContent)` or map to a custom response type if the server returns status info
-- `204 No Content`: `.code(204, .noContent)`
-- `205 Reset Content`: `.code(205, .noContent)`
-- `206 Partial Content`: `.code(206, .decode)` with `Response = Data`
-- `304 Not Modified`: `.code(304, .noContent)` if you opt into conditional requests
+## Interface Genericity
 
-Prefer explicit success codes. Use success ranges only when the endpoint truly varies and your `Response` can safely handle empty bodies.
+`Interface` has two associated types (`Parameters` and `Response`), and `APIClient.send`/`RequestPipeline.send` return `T.Response`. `any Interface` cannot be used as a dispatch type - a heterogeneous collection of Interfaces (for example `[any Interface]`, for a request queue) does not type-check, because the associated types make the protocol non-existential for that purpose.
+
+To hold heterogeneous Interfaces, erase the call site behind a closure instead of the Interface type itself:
+
+```swift
+struct QueuedRequest {
+    let send: (APIClient) async throws -> Void
+}
+
+let queued = QueuedRequest { client in
+    _ = try await client.send(GetUserInterface.self, .init(userId: 123))
+}
+```
 
 ## Guides
 

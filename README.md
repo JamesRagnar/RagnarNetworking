@@ -66,6 +66,8 @@ let user = try await client.send(
 - [Request Parameters](Documentation/Interfaces/request_parameters.md)
 - [Response Handling](Documentation/Interfaces/response_handling.md)
 - [Request Builder](Documentation/Interfaces/request_builder.md)
+- [Error Handling](Documentation/error_handling.md)
+- [Concurrency](Documentation/concurrency.md)
 
 ## Requirements
 
