@@ -9,9 +9,11 @@ import Foundation
 
 /// Runs one Interface request end to end: build → transport → handle.
 ///
-/// The pipeline owns the composition of a `RequestBuilder` and a `Transport`; each of those
-/// owns exactly one job. `APIClient` layers credentials and retry on top, but the pipeline is
-/// usable directly when a caller manages its own token.
+/// The pipeline owns the algorithm and the `Transport`, and nothing else. Everything that
+/// describes the server - builder, coding, headers, default response handler - arrives in the
+/// `RequestContext`, so there is exactly one source of truth for it and no precedence rule to
+/// remember. `APIClient` layers credentials and retry on top, but the pipeline is usable
+/// directly when a caller manages its own token.
 ///
 /// ```swift
 /// let pipeline = RequestPipeline(transport: URLSession.shared)
@@ -23,25 +25,17 @@ public struct RequestPipeline: Sendable {
     /// Executes the built request.
     public let transport: any Transport
 
-    /// Builds the `URLRequest` from Interface parameters.
-    public let builder: any RequestBuilder
-
     /// Creates a pipeline.
-    /// - Parameters:
-    ///   - transport: The underlying transport. Defaults to `URLSession.shared`.
-    ///   - builder: Builds requests from Interface parameters. Defaults to `URLRequestBuilder()`.
-    public init(
-        transport: any Transport = URLSession.shared,
-        builder: any RequestBuilder = URLRequestBuilder()
-    ) {
+    /// - Parameter transport: The underlying transport. Defaults to `URLSession.shared`.
+    public init(transport: any Transport = URLSession.shared) {
         self.transport = transport
-        self.builder = builder
     }
 
     /// Builds, executes, and handles a type-safe Interface request.
     ///
     /// The context's `responseDecoder` is threaded into response handling, so success bodies
-    /// and typed error bodies decode with the same configured rules.
+    /// and typed error bodies decode with the same configured rules. Response handling uses the
+    /// Interface's own `responseHandler` when it declares one, and the context's otherwise.
     ///
     /// - Parameters:
     ///   - interface: The interface type defining the request/response contract
@@ -55,11 +49,15 @@ public struct RequestPipeline: Sendable {
         _ parameters: T.Parameters,
         context: RequestContext
     ) async throws -> T.Response {
-        let request = try builder.buildRequest(parameters, context: context)
+        let request = try context.builder.buildRequest(parameters, context: context)
 
         let response = try await transport.data(for: request)
 
-        return try T.handle(response, responseDecoder: context.responseDecoder)
+        return try T.handle(
+            response,
+            responseDecoder: context.responseDecoder,
+            defaultHandler: context.responseHandler
+        )
     }
 
 }

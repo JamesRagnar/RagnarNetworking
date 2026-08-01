@@ -17,6 +17,18 @@ public protocol RequestParameters: Sendable {
 }
 ```
 
+## Every Member Is Required, Deliberately
+
+None of these members has a protocol-extension default, so a conformance restates all six even
+when four of them are `nil` or empty. This is intentional and not an oversight.
+
+Defaults here fail silently and late. A `queryItems` you meant to populate, or an `authentication`
+you meant to set to `.bearer`, compiles clean and produces a wrong request at runtime - the exact
+class of error this package exists to move to compile time. Writing the member out means the
+declaration is reviewable against the endpoint it models.
+
+`Interface.Response` requires an explicit `InterfaceResponse` conformance for the same reason.
+
 ## Query Items
 
 `queryItems` is an ordered array of `URLQueryItem` values. A `nil` value creates a name-only query item (e.g. `?flag`). If you want to omit a key, leave it out of the array.

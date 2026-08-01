@@ -34,7 +34,6 @@ struct LocalizedErrorConformanceTests {
 
     static let interfaceDecodingErrorCases: [InterfaceDecodingError] = [
         .missingString,
-        .missingData,
         .jsonDecoder(
             DecodingDiagnostics(
                 kind: .keyNotFound,

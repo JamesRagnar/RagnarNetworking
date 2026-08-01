@@ -29,9 +29,10 @@ let client = APIClient(
 
 ## Customizing Request Construction and Response Decoding
 
-`configuration`'s `requestEncoder`, `defaultHeaders`, and `responseDecoder` reach every request
-and response handled by the client. Both initializers also accept a `transport` and a `builder`
-for custom transport and request-construction policy:
+Everything about the server lives on `configuration`: `requestEncoder`, `defaultHeaders`,
+`responseDecoder`, `builder`, and `responseHandler` all reach every request and response handled
+by the client. Both initializers additionally accept a `transport`, which is the one piece that
+describes the process rather than the server:
 
 ```swift
 let client = APIClient(
@@ -54,18 +55,21 @@ let client = APIClient(
 
 ```swift
 let client = APIClient(
-    configuration: config,
+    configuration: ServerConfiguration(
+        url: URL(string: "https://api.example.com")!,
+        builder: ClientTaggingBuilder(clientID: "ios"),
+        responseHandler: EnvelopeUnwrappingHandler()
+    ),
     transport: URLSession.shared,
-    builder: ClientTaggingBuilder(clientID: "ios"),
     token: { try await keychain.accessToken() },
     refresh: { try await authService.refresh() }
 )
 ```
 
 See [Server Configuration](server_configuration.md) for details on `RequestEncoder`,
-`defaultHeaders` precedence, and `ResponseDecoder`; [Request Builder](Interfaces/request_builder.md)
-for building custom request builders; and [RequestPipeline](request_pipeline.md) for using the
-pipeline without `APIClient`.
+`defaultHeaders` precedence, `ResponseDecoder`, and where a given knob belongs;
+[Request Builder](Interfaces/request_builder.md) for building custom request builders; and
+[RequestPipeline](request_pipeline.md) for using the pipeline without `APIClient`.
 
 ## Sending Requests
 

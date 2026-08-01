@@ -7,6 +7,11 @@ A modern, type-safe Swift networking library for building API interfaces with co
 Define a typed interface, then call it through `APIClient`:
 
 ```swift
+struct User: Codable, InterfaceResponse {
+    let id: Int
+    let name: String
+}
+
 struct GetUserInterface: Interface {
     struct Parameters: RequestParameters {
         let method: RequestMethod = .get
@@ -49,7 +54,8 @@ let user = try await client.send(
 - Type-safe endpoints with explicit status code handling (exact codes + ranges)
 - Automatic request construction from declarative parameters
 - Built-in auth strategies (`.none`, `.bearer`, `.url`)
-- Strict request bodies via `RequestBody` with intrinsic content types
+- Strict request bodies via `RequestBody` and response types via `InterfaceResponse`, both open to
+  non-JSON formats without changing the package
 - `APIClient` actor with automatic 401 retry, coalesced token refresh, and terminal invalidation
 - `SocketIOClient` actor with typed event streams and automatic reconnection
 - Testable request execution via `Transport` and socket transport via `SocketClient`

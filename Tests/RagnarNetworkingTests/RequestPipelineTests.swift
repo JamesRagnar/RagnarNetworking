@@ -14,7 +14,7 @@ struct RequestPipelineTests {
 
     // MARK: - Test Fixtures
 
-    struct TestResponse: Codable, Sendable {
+    struct TestResponse: Codable, Sendable, InterfaceResponse {
         let id: Int
         let name: String
     }
@@ -224,7 +224,12 @@ struct RequestPipelineTests {
         }
 
         let url = URL(string: "https://api.example.com")!
-        let context = RequestContext(configuration: ServerConfiguration(url: url))
+        let context = RequestContext(
+            configuration: ServerConfiguration(
+                url: url,
+                builder: CustomBuilder()
+            )
+        )
         let params = TestInterface.Parameters(path: "/users/1")
 
         let responseData = """
@@ -233,7 +238,7 @@ struct RequestPipelineTests {
 
         let transport = MockTransport()
         await transport.setMockResponse(data: responseData, statusCode: 200, url: url)
-        let pipeline = RequestPipeline(transport: transport, builder: CustomBuilder())
+        let pipeline = RequestPipeline(transport: transport)
 
         _ = try await pipeline.send(
             TestInterface.self,
@@ -270,14 +275,19 @@ struct RequestPipelineTests {
         }
 
         let url = URL(string: "https://api.example.com")!
-        let context = RequestContext(configuration: ServerConfiguration(url: url))
+        let context = RequestContext(
+            configuration: ServerConfiguration(
+                url: url,
+                builder: SigningBuilder(signature: "abc123")
+            )
+        )
         let params = TestInterface.Parameters(path: "/users/1")
 
         let responseData = #"{"id": 1, "name": "John Doe"}"#.data(using: .utf8)!
 
         let transport = MockTransport()
         await transport.setMockResponse(data: responseData, statusCode: 200, url: url)
-        let pipeline = RequestPipeline(transport: transport, builder: SigningBuilder(signature: "abc123"))
+        let pipeline = RequestPipeline(transport: transport)
 
         _ = try await pipeline.send(TestInterface.self, params, context: context)
 
@@ -312,7 +322,8 @@ struct RequestPipelineTests {
         let context = RequestContext(
             configuration: ServerConfiguration(
                 url: url,
-                defaultHeaders: ["X-App-Version": "1.0"]
+                defaultHeaders: ["X-App-Version": "1.0"],
+                builder: ReimplementingBuilder()
             )
         )
         let params = TestInterface.Parameters(path: "/users/1")
@@ -321,7 +332,7 @@ struct RequestPipelineTests {
 
         let transport = MockTransport()
         await transport.setMockResponse(data: responseData, statusCode: 200, url: url)
-        let pipeline = RequestPipeline(transport: transport, builder: ReimplementingBuilder())
+        let pipeline = RequestPipeline(transport: transport)
 
         _ = try await pipeline.send(TestInterface.self, params, context: context)
 
@@ -331,7 +342,7 @@ struct RequestPipelineTests {
 
     @Test("Uses configuration.responseDecoder to decode the response")
     func testConfiguredResponseDecoderIsUsed() async throws {
-        struct SnakeCaseResponse: Codable, Sendable {
+        struct SnakeCaseResponse: Codable, Sendable, InterfaceResponse {
             let userId: Int
         }
 
@@ -499,7 +510,7 @@ struct RequestPipelineTests {
 
     @Test("Works with complex nested response types")
     func testComplexNestedResponseType() async throws {
-        struct ComplexResponse: Codable, Sendable {
+        struct ComplexResponse: Codable, Sendable, InterfaceResponse {
             struct User: Codable, Sendable {
                 let id: Int
                 let email: String
@@ -719,6 +730,91 @@ struct RequestPipelineTests {
 
         #expect(r1.id == 1)
         #expect(r2.id == 1)
+    }
+
+    // MARK: - Configuration-owned Response Handler
+
+    /// Tags every decoded response, standing in for a server-wide response concern.
+    struct RewritingResponseHandler: ResponseHandler {
+        func handle<T: Interface>(
+            _ response: (data: Data, response: URLResponse),
+            for interface: T.Type,
+            responseDecoder: ResponseDecoder
+        ) throws(ResponseError) -> T.Response {
+            let rewritten = #"{"id": 99, "name": "from-configuration"}"#.data(using: .utf8)!
+
+            return try DefaultResponseHandler().handle(
+                (data: rewritten, response: response.response),
+                for: interface,
+                responseDecoder: responseDecoder
+            )
+        }
+    }
+
+    @Test("The pipeline uses the configuration's responseHandler for an Interface that declares none")
+    func testPipelineUsesConfigurationResponseHandler() async throws {
+        let url = URL(string: "https://api.example.com")!
+        let context = RequestContext(
+            configuration: ServerConfiguration(
+                url: url,
+                responseHandler: RewritingResponseHandler()
+            )
+        )
+        let params = TestInterface.Parameters(path: "/users/1")
+
+        let responseData = #"{"id": 1, "name": "John Doe"}"#.data(using: .utf8)!
+
+        let transport = MockTransport()
+        await transport.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let pipeline = RequestPipeline(transport: transport)
+
+        let result = try await pipeline.send(TestInterface.self, params, context: context)
+
+        #expect(result.id == 99)
+        #expect(result.name == "from-configuration")
+    }
+
+    @Test("The pipeline uses the configuration's builder without being handed one")
+    func testPipelineUsesConfigurationBuilder() async throws {
+        struct StampingBuilder: RequestBuilder {
+            func applyHeaders(
+                _ headers: [String: String],
+                authentication: AuthenticationType,
+                authToken: String?,
+                to request: inout URLRequest
+            ) throws(RequestError) {
+                try URLRequestBuilder().applyHeaders(
+                    headers,
+                    authentication: authentication,
+                    authToken: authToken,
+                    to: &request
+                )
+
+                var current = request.allHTTPHeaderFields ?? [:]
+                current["X-Stamp"] = "configuration"
+                request.allHTTPHeaderFields = current
+            }
+        }
+
+        let url = URL(string: "https://api.example.com")!
+        let context = RequestContext(
+            configuration: ServerConfiguration(
+                url: url,
+                builder: StampingBuilder()
+            )
+        )
+        let params = TestInterface.Parameters(path: "/users/1")
+
+        let responseData = #"{"id": 1, "name": "John Doe"}"#.data(using: .utf8)!
+
+        let transport = MockTransport()
+        await transport.setMockResponse(data: responseData, statusCode: 200, url: url)
+        let pipeline = RequestPipeline(transport: transport)
+
+        _ = try await pipeline.send(TestInterface.self, params, context: context)
+
+        let capturedRequest = await transport.capturedRequest
+        #expect(capturedRequest?.value(forHTTPHeaderField: "X-Stamp") == "configuration")
     }
 
 }

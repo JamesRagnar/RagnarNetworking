@@ -37,9 +37,11 @@ let user = try await pipeline.send(
 
 The context's `responseDecoder` is threaded into response handling, so success bodies and typed error bodies decode with the same configured rules.
 
+`RequestPipeline` owns the algorithm and the `Transport`, and nothing else. Everything that describes the server - builder, coding, headers, default response handler - arrives on the `RequestContext`, so there is one source of truth for it and no precedence rule to remember.
+
 ## Custom Request Construction
 
-Inject a custom `RequestBuilder` to override how requests are built. Builders are values, so a builder can carry its own state:
+Set a custom `RequestBuilder` on the configuration to override how requests are built. Builders are values, so a builder can carry its own state:
 
 ```swift
 struct ClientTaggingBuilder: RequestBuilder {
@@ -64,10 +66,15 @@ struct ClientTaggingBuilder: RequestBuilder {
     }
 }
 
-let pipeline = RequestPipeline(
-    transport: URLSession.shared,
-    builder: ClientTaggingBuilder(clientID: "ios")
+let context = RequestContext(
+    configuration: ServerConfiguration(
+        url: serverURL,
+        builder: ClientTaggingBuilder(clientID: "ios")
+    ),
+    authToken: token
 )
+
+let pipeline = RequestPipeline(transport: URLSession.shared)
 ```
 
 Overriding a single `RequestBuilder` step and delegating to `URLRequestBuilder()` for the remaining steps limits the change to that step. See [Request Builder](Interfaces/request_builder.md) for invariants and override behavior.

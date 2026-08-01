@@ -986,7 +986,7 @@ struct URLRequestInterfaceTests {
                 let body: EmptyBody = .init()
                 let authentication: AuthenticationType = .none
             }
-            struct Response: Decodable, Sendable {}
+            struct Response: Decodable, Sendable, InterfaceResponse {}
             static var responseCases: ResponseMap { [.code(200, .decode)] }
         }
 

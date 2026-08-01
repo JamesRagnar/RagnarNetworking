@@ -78,32 +78,35 @@ struct ClientTaggingBuilder: RequestBuilder {
 
 ## Using a Custom Builder
 
-Inject a builder into `APIClient` or `RequestPipeline`:
+A builder is part of a server's contract - path joining, header conventions, request signing - so it is set on `ServerConfiguration` rather than passed alongside the transport. Everything that reads a configuration then uses it, with no second place to set it and no precedence rule:
+
+```swift
+let config = ServerConfiguration(
+    url: URL(string: "https://api.example.com")!,
+    builder: ClientTaggingBuilder(clientID: "ios")
+)
+```
 
 ```swift
 let client = APIClient(
     configuration: config,
-    builder: ClientTaggingBuilder(clientID: "ios"),
     token: { try await keychain.accessToken() },
     refresh: { try await authService.refresh() }
 )
 ```
 
 ```swift
-let pipeline = RequestPipeline(
-    transport: URLSession.shared,
-    builder: ClientTaggingBuilder(clientID: "ios")
-)
+let pipeline = RequestPipeline(transport: URLSession.shared)
+let context = RequestContext(configuration: config, authToken: token)
 ```
 
-Or build a single request directly:
+Or build a single request directly, which uses the context's configured builder:
 
 ```swift
 let request = try URLRequest(
     GetUserInterface.self,
     .init(userId: 123),
-    context: context,
-    builder: ClientTaggingBuilder(clientID: "ios")
+    context: context
 )
 ```
 

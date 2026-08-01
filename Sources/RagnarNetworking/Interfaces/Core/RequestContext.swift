@@ -42,6 +42,12 @@ public struct RequestContext: Sendable {
     /// Decoder configuration for the response body.
     public var responseDecoder: ResponseDecoder { configuration.responseDecoder }
 
+    /// The builder that constructs this request.
+    public var builder: any RequestBuilder { configuration.builder }
+
+    /// The handler for this response, unless the Interface overrides it.
+    public var responseHandler: any ResponseHandler { configuration.responseHandler }
+
     /// The configuration's `defaultHeaders` overlaid with the request's own headers.
     public func resolvedHeaders(for parameters: some RequestParameters) -> [String: String] {
         configuration.resolvedHeaders(for: parameters)

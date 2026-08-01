@@ -11,6 +11,11 @@ An `Interface` pairs request parameters with response handling. Most usage follo
 ## Example
 
 ```swift
+struct User: Codable, InterfaceResponse {
+    let id: Int
+    let name: String
+}
+
 struct GetUserInterface: Interface {
     struct Parameters: RequestParameters {
         let method: RequestMethod = .get
@@ -35,20 +40,31 @@ struct GetUserInterface: Interface {
     }
 }
 
-let user = try await URLSession.shared.dataTask(
+let user = try await client.send(
     GetUserInterface.self,
-    .init(userId: 123),
-    config
+    .init(userId: 123)
 )
 ```
 
-`config` comes from:
+`client` comes from:
 
 ```swift
-let config = ServerConfiguration(
-    url: URL(string: "https://api.example.com")!,
-    authToken: token
+let client = APIClient(
+    configuration: ServerConfiguration(
+        url: URL(string: "https://api.example.com")!
+    ),
+    token: { try await keychain.accessToken() },
+    refresh: { try await authService.refresh() }
 )
+```
+
+To send without an `APIClient` managing credentials, use `RequestPipeline` directly with a
+`RequestContext` carrying the token for that request:
+
+```swift
+let pipeline = RequestPipeline()
+let context = RequestContext(configuration: configuration, authToken: token)
+let user = try await pipeline.send(GetUserInterface.self, .init(userId: 123), context: context)
 ```
 
 ## Response Cases Notes
@@ -62,7 +78,7 @@ let config = ServerConfiguration(
   - In DEBUG builds, duplicate exact codes emit a developer diagnostic.
 - `.decodeError(MyError.self)` decodes structured error bodies and throws `ResponseError.decoded`.
 - Use `.noContent` for no-body success (204/205/304). `EmptyResponse` is the `Response` type for that case.
-- Override `responseHandler` when an Interface needs custom response handling logic.
+- Set `ServerConfiguration.responseHandler` for a concern that spans the whole API, and override `Interface.responseHandler` when one endpoint needs its own handling.
 
 Example:
 
@@ -78,11 +94,25 @@ static var responseCases: ResponseMap {
 
 ## Response Type Expectations
 
+An `Interface.Response` conforms to `InterfaceResponse`, which owns how the type is built from response bytes. A `Decodable` type conforms without implementing anything:
+
+```swift
+struct User: Codable, InterfaceResponse {
+    let id: Int
+    let name: String
+}
+```
+
+Built-in conformances:
+
+- `Decodable`: decoded from the response body using the configured `ResponseDecoder` (defaults to a plain `JSONDecoder`). See [Response Handling](response_handling.md#response-decoder).
 - `String`: expects UTF-8 response bodies.
 - `Data`: returns raw bytes (for downloads/streams or no-body fallbacks).
-- `Decodable`: decoded from the response body using the configured `ResponseDecoder` (defaults to a plain `JSONDecoder`). See [Response Handling](response_handling.md#response-decoder).
+- `Array` and `Dictionary` of `Decodable` elements: top-level JSON collections.
 - `EmptyResponse`: represents a successful response with no body.
 - `.noContent`: use when the server returns no body (204/205/304).
+
+Conform directly for a response that is not JSON. See [Response Handling](response_handling.md#non-json-responses).
 
 ## Status Code Mapping Examples
 

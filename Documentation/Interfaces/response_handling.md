@@ -46,14 +46,24 @@ For custom no-content behavior, override the Interface `responseHandler`.
 
 ## Response Handlers
 
-Interfaces can override response handling logic by providing a custom `responseHandler`. This is
-the single per-endpoint override point for response handling: it keeps a shared default path while
-letting one endpoint interpret its response differently. Handlers are values, so a handler can
-carry its own state.
+Response handling is set in two places, and the rule between them is simple:
+
+- **`ServerConfiguration.responseHandler`** handles every response for that server. Use it for a
+  concern that spans the API: unwrapping a `{ "data": ... }` envelope, reading a deprecation
+  header, feeding a metrics sink. Defaults to `DefaultResponseHandler()`.
+- **`Interface.responseHandler`** overrides it for one endpoint. Defaults to `nil`, meaning "use
+  the configured one". Use it for the one-off endpoint whose response does not follow the rest of
+  the API.
+
+An Interface-level handler **replaces** the configured one rather than layering on top of it. An
+endpoint that overrides in an API whose configuration unwraps an envelope has to unwrap that
+envelope itself.
+
+Handlers are values, so a handler can carry its own state.
 
 ```swift
 public struct GetLibraryItemCover: Interface {
-    public static var responseHandler: any ResponseHandler {
+    public static var responseHandler: (any ResponseHandler)? {
         CoverResponseHandler()
     }
 }
@@ -92,9 +102,9 @@ A custom `ResponseHandler` that only needs a targeted addition to the default be
 (for example, inspecting a header before decoding) does not need to reimplement status-code
 matching. `DefaultResponseHandler.handleOutcome(_:for:responseDecoder:)` performs the same matching `handle`
 does, returning a `ResponseOutcomeResult` instead of deciding what to do with a `.noContent`
-result. `DefaultResponseHandler.decode(_:as:responseDecoder:)` performs the same type-driven decoding
-(`EmptyResponse`, `String`, `Data`, or `JSONDecoder`) `handle` uses to finish a `.noContent`
-result.
+result. `DefaultResponseHandler.decode(_:as:responseDecoder:)` performs the same decoding `handle`
+uses to finish a `.noContent` result: it asks `Response` to build itself via `InterfaceResponse`
+and normalizes whatever it throws into an `InterfaceDecodingError`.
 
 ```swift
 public struct LoggingResponseHandler: ResponseHandler {
@@ -227,17 +237,62 @@ just its field names. See [Server Configuration](../server_configuration.md#resp
 
 ## Decoding Rules
 
-`DefaultResponseHandler.decode(_:as:responseDecoder:)` supports:
-- `String` responses (UTF-8)
-- `Data` responses (raw bytes)
-- `Decodable` responses (via the configured `ResponseDecoder`)
+An `Interface.Response` conforms to `InterfaceResponse`, which owns how the type is built from
+response bytes. This mirrors `RequestBody` on the request side: the type that knows the format
+implements the conversion, rather than the handler comparing `Response.self` against a fixed list
+of known types.
 
-Structured decoding is JSON-only by design. `ResponseDecoder` wraps a `JSONDecoder` factory rather
-than an open codec abstraction, keeping one decode path and no extra public surface. An endpoint
-that returns something else is served by a `Data` or `String` response and decoding at the call
-site; the request side has the matching escape hatch in `RequestBody`, which carries its own
-`Content-Type`. Generalizing to pluggable codecs is a mechanical change if a real non-JSON API
-appears, and nothing in the current design forecloses it.
+A `Decodable` type conforms without implementing anything and decodes as JSON with the configured
+`ResponseDecoder`:
+
+```swift
+struct User: Codable, InterfaceResponse {
+    let id: Int
+    let name: String
+}
+```
+
+The package ships conformances for:
+- `String` (UTF-8)
+- `Data` (raw bytes)
+- `EmptyResponse` (no body; succeeds for any bytes, including none)
+- `Array` and `Dictionary` of `Decodable` elements (top-level JSON collections)
+
+The explicit conformance is deliberate, for the same reason `RequestParameters` has no defaulted
+members: an omission should fail at compile time rather than at the first real request.
+
+### Non-JSON Responses
+
+Conform directly when a response is not JSON. Nothing in the package needs to change:
+
+```swift
+struct CSVRows: InterfaceResponse, Sendable {
+    let rows: [[String]]
+
+    static func decode(from data: Data, using decoder: ResponseDecoder) throws -> CSVRows {
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw InterfaceDecodingError.missingString
+        }
+
+        return CSVRows(
+            rows: text.split(separator: "\n").map { $0.split(separator: ",").map(String.init) }
+        )
+    }
+}
+```
+
+A conformance may throw any error type. `DefaultResponseHandler` normalizes what it throws into
+`InterfaceDecodingError`: a `DecodingError` becomes `.jsonDecoder` with structured diagnostics, an
+`InterfaceDecodingError` passes through, and anything else becomes `.custom`.
+
+`ResponseDecoder` still wraps a `JSONDecoder` factory rather than an open codec abstraction, so
+the *default* path is JSON-only by design. `InterfaceResponse` is the extension point for
+everything else, and it is per-type rather than per-client.
+
+- **Note:** `InterfaceResponse` does not itself refine `Sendable`; `Interface.Response` requires
+  `InterfaceResponse & Sendable`. Swift forbids a conditional conformance from depending on a
+  marker protocol, so refining `Sendable` would make the `Array` and `Dictionary` conformances
+  inexpressible. The guarantee is unchanged at the only place it matters.
 
 ## Response Errors
 
@@ -251,7 +306,6 @@ configured to read them) and response metadata:
 
 `InterfaceDecodingError` indicates decoding specifics:
 - `.missingString`
-- `.missingData`
 - `.jsonDecoder(DecodingDiagnostics)`
 - `.custom(message:)`
 

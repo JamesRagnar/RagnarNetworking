@@ -1,8 +1,19 @@
 # Server Configuration
 
-`ServerConfiguration` is pure policy: where the server lives, how bodies are encoded and decoded, and which headers every request carries. It is stable for a client's lifetime.
+`ServerConfiguration` is pure policy: where the server lives, how bodies are encoded and decoded, which headers every request carries, and how requests and responses are shaped. It is stable for a client's lifetime.
 
-Credentials are deliberately not part of it. A per-request token travels in `RequestContext`, which pairs a configuration with the token to use for one request:
+## Where a Knob Belongs
+
+**`ServerConfiguration` describes the server. `RequestPipeline` supplies the machinery. `APIClient` owns credential lifecycle.**
+
+Two things are deliberately not on the configuration:
+
+- **Credentials.** A per-request token travels in `RequestContext`, so a configuration can be shared freely without carrying a volatile secret.
+- **The `Transport`.** A transport answers "what process are we in?" - a live `URLSession`, a mock, a recorded fixture - rather than "which server is this?", so it belongs to `RequestPipeline` and stays available as the test seam.
+
+Everything else that describes the server belongs here: `url`, `requestEncoder`, `responseDecoder`, `defaultHeaders`, `builder`, and `responseHandler`.
+
+A per-request token travels in `RequestContext`, which pairs a configuration with the token to use for one request:
 
 ```swift
 let config = ServerConfiguration(url: URL(string: "https://api.example.com")!)
@@ -89,14 +100,40 @@ let headers = config.resolvedHeaders(for: parameters)
 
 `RequestBuilder.buildRequest` receives headers already resolved, so no custom builder can drop `defaultHeaders` by overriding a pipeline step.
 
+## Request Builder
+
+`builder` constructs every `URLRequest` for this server. See [Request Builder](Interfaces/request_builder.md).
+
+```swift
+let config = ServerConfiguration(
+    url: URL(string: "https://api.example.com")!,
+    builder: ClientTaggingBuilder(clientID: "ios")
+)
+```
+
+## Response Handler
+
+`responseHandler` handles every response for this server, except for Interfaces that declare their own `Interface.responseHandler`. Set it for a concern that spans the whole API - unwrapping a `{ "data": ... }` envelope, reading a deprecation header, feeding a metrics sink - so it is written once instead of on every Interface.
+
+```swift
+let config = ServerConfiguration(
+    url: URL(string: "https://api.example.com")!,
+    responseHandler: EnvelopeUnwrappingHandler()
+)
+```
+
+An Interface-level handler *replaces* this one rather than layering on top of it. See [Response Handling](Interfaces/response_handling.md).
+
 ## Request Context and Auth Token Behavior
 
-`RequestContext` carries the credential and forwards the configuration's `url`, `requestEncoder`, `responseDecoder`, and header resolution:
+`RequestContext` carries the credential and forwards the configuration's `url`, `requestEncoder`, `responseDecoder`, `builder`, `responseHandler`, and header resolution:
 
 ```swift
 let context = RequestContext(configuration: config, authToken: "token")
 context.url                          // config.url
 context.responseDecoder              // config.responseDecoder
+context.builder                      // config.builder
+context.responseHandler              // config.responseHandler
 context.resolvedHeaders(for: params) // defaultHeaders overlaid with the request's own
 ```
 

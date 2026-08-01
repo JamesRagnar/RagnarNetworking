@@ -35,22 +35,21 @@ public actor APIClient {
     /// Creates an `APIClient`.
     ///
     /// - Parameters:
-    ///   - configuration: Server URL, body coding, and default headers for all requests. Stable
-    ///     for the client's lifetime - recreate the client if the server URL changes. Credentials
-    ///     are not part of it; the client pairs it with the current token per request.
+    ///   - configuration: Everything about the server - URL, body coding, default headers,
+    ///     request builder, default response handler. Stable for the client's lifetime -
+    ///     recreate the client if it changes. Credentials are not part of it; the client pairs
+    ///     it with the current token per request.
     ///   - transport: The underlying transport. Defaults to `URLSession.shared`.
-    ///   - builder: The `RequestBuilder` used to build requests. Defaults to `URLRequestBuilder()`.
     ///   - token: Called before each authenticated request. Evaluated lazily to always return the post-refresh value.
     ///   - refresh: Called on 401. Must update whatever state `token` reads from.
     public init(
         configuration: ServerConfiguration,
         transport: any Transport = URLSession.shared,
-        builder: any RequestBuilder = URLRequestBuilder(),
         token: @escaping @Sendable () async throws -> String?,
         refresh: @escaping @Sendable () async throws -> Void
     ) {
         self.configuration = configuration
-        self.pipeline = RequestPipeline(transport: transport, builder: builder)
+        self.pipeline = RequestPipeline(transport: transport)
         self.token = token
         self.refresh = refresh
     }
@@ -64,17 +63,16 @@ public actor APIClient {
     /// will fail with authentication-related errors.
     ///
     /// - Parameters:
-    ///   - configuration: Server URL, body coding, and default headers for all requests. Stable
-    ///     for the client's lifetime - recreate the client if the server URL changes.
+    ///   - configuration: Everything about the server - URL, body coding, default headers,
+    ///     request builder, default response handler. Stable for the client's lifetime -
+    ///     recreate the client if it changes.
     ///   - transport: The underlying transport. Defaults to `URLSession.shared`.
-    ///   - builder: The `RequestBuilder` used to build requests. Defaults to `URLRequestBuilder()`.
     public init(
         configuration: ServerConfiguration,
-        transport: any Transport = URLSession.shared,
-        builder: any RequestBuilder = URLRequestBuilder()
+        transport: any Transport = URLSession.shared
     ) {
         self.configuration = configuration
-        self.pipeline = RequestPipeline(transport: transport, builder: builder)
+        self.pipeline = RequestPipeline(transport: transport)
         self.token = { nil }
         self.refresh = { throw RequestError.authentication }
     }

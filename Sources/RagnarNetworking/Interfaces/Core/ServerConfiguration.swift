@@ -7,12 +7,20 @@
 
 import Foundation
 
-/// How a server is spoken to: where it lives, how bodies are encoded and decoded, and
-/// which headers every request carries.
+/// How a server is spoken to: where it lives, how bodies are encoded and decoded, which
+/// headers every request carries, and how requests and responses are shaped.
 ///
-/// This value is pure policy and is stable for a client's lifetime. Credentials are *not*
-/// part of it - a per-request token travels in `RequestContext` alongside a configuration,
-/// so a configuration can be shared freely without carrying a volatile secret.
+/// This value is pure policy and is stable for a client's lifetime. Two things are
+/// deliberately *not* part of it:
+///
+/// - **Credentials.** A per-request token travels in `RequestContext` alongside a
+///   configuration, so a configuration can be shared freely without carrying a volatile secret.
+/// - **The `Transport`.** A transport answers "what process are we in?" (a live `URLSession`, a
+///   mock, a recorded fixture) rather than "which server is this?", so it belongs to
+///   `RequestPipeline` and stays available as the test seam.
+///
+/// Everything else that describes the server belongs here. That is the rule for deciding where
+/// a new knob goes.
 public struct ServerConfiguration: Sendable {
 
     /// The base URL for all API requests (e.g., "https://api.example.com")
@@ -31,22 +39,43 @@ public struct ServerConfiguration: Sendable {
     /// matched case-insensitively per HTTP semantics.
     public let defaultHeaders: [String: String]
 
+    /// Builds `URLRequest` values from Interface parameters for this server.
+    ///
+    /// Path joining, header conventions, and request signing are all part of a server's
+    /// contract, so the builder lives with the rest of that contract rather than being passed
+    /// alongside the transport.
+    public let builder: any RequestBuilder
+
+    /// Handles responses for Interfaces that do not override `Interface.responseHandler`.
+    ///
+    /// Set this for a concern that applies across the whole API - unwrapping a `{ "data": ... }`
+    /// envelope, reading a deprecation header, feeding a metrics sink - so it is written once
+    /// instead of on every Interface.
+    public let responseHandler: any ResponseHandler
+
     /// Creates a server configuration.
     /// - Parameters:
     ///   - url: The base URL for the API server
     ///   - requestEncoder: Encoder configuration for request bodies
     ///   - responseDecoder: Decoder configuration for response bodies
     ///   - defaultHeaders: Headers applied to every request; per-request `headers` take precedence
+    ///   - builder: Builds requests from Interface parameters. Defaults to `URLRequestBuilder()`.
+    ///   - responseHandler: Handles responses for Interfaces that do not override their own.
+    ///     Defaults to `DefaultResponseHandler()`.
     public init(
         url: URL,
         requestEncoder: RequestEncoder = RequestEncoder(),
         responseDecoder: ResponseDecoder = ResponseDecoder(),
-        defaultHeaders: [String: String] = [:]
+        defaultHeaders: [String: String] = [:],
+        builder: any RequestBuilder = URLRequestBuilder(),
+        responseHandler: any ResponseHandler = DefaultResponseHandler()
     ) {
         self.url = url
         self.requestEncoder = requestEncoder
         self.responseDecoder = responseDecoder
         self.defaultHeaders = defaultHeaders
+        self.builder = builder
+        self.responseHandler = responseHandler
     }
 
     /// The headers a request should be built with: `defaultHeaders` overlaid with the

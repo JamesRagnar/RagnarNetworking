@@ -18,19 +18,31 @@ public protocol Interface: Sendable {
     /// The parameters defining how to construct the network request
     associatedtype Parameters: RequestParameters
 
-    /// The expected response type when the request succeeds
-    associatedtype Response: Decodable, Sendable
+    /// The expected response type when the request succeeds.
+    ///
+    /// A `Decodable` type conforms to `InterfaceResponse` without implementing anything and
+    /// decodes as JSON. `String`, `Data`, and `EmptyResponse` carry built-in conformances.
+    associatedtype Response: InterfaceResponse & Sendable
 
     /// Defines how each HTTP status code should be handled for this interface
     static var responseCases: ResponseMap { get }
 
-    /// Defines how responses are decoded and mapped to the Interface Response.
+    /// Overrides response handling for this endpoint alone.
     ///
-    /// This is the single per-endpoint override point for response handling. Decoding rules
-    /// that differ from the rest of the client are better expressed on the `Response` type
-    /// itself (`CodingKeys`, a custom `init(from:)`); reach for a handler when the *response
-    /// interpretation* differs, not just the field names.
-    static var responseHandler: any ResponseHandler { get }
+    /// `nil` - the default - uses the handler configured on `ServerConfiguration`, so a
+    /// server-wide concern (unwrapping an envelope, reading a deprecation header) is written
+    /// once rather than restated on every Interface. Return a handler for the one-off endpoint
+    /// whose response does not follow the rest of the API.
+    ///
+    /// An Interface-level handler *replaces* the configured one rather than layering on top of
+    /// it. An endpoint that overrides in an API whose configuration unwraps an envelope has to
+    /// unwrap that envelope itself.
+    ///
+    /// Decoding rules that differ from the rest of the client are better expressed on the
+    /// `Response` type itself (`CodingKeys`, a custom `init(from:)`, or an `InterfaceResponse`
+    /// conformance); reach for a handler when the *response interpretation* differs, not just
+    /// the field names.
+    static var responseHandler: (any ResponseHandler)? { get }
 
 }
 

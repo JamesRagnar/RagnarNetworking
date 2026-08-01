@@ -30,7 +30,7 @@ private struct TestInterface: Interface {
         }
     }
 
-    struct Response: Codable, Sendable, Equatable {
+    struct Response: Codable, Sendable, Equatable, InterfaceResponse {
         let value: String
     }
 
@@ -55,7 +55,7 @@ private struct BodyTestInterface: Interface {
         let authentication: AuthenticationType = .none
     }
 
-    struct Response: Codable, Sendable, Equatable {
+    struct Response: Codable, Sendable, Equatable, InterfaceResponse {
         let value: String
     }
 
@@ -76,7 +76,7 @@ private struct SnakeCaseResponseInterface: Interface {
         let authentication: AuthenticationType = .none
     }
 
-    struct Response: Codable, Sendable, Equatable {
+    struct Response: Codable, Sendable, Equatable, InterfaceResponse {
         let userId: Int
     }
 
@@ -902,9 +902,11 @@ struct APIClientTests {
         await mock.enqueue(data: makeResponseData(), statusCode: 200)
 
         let client = APIClient(
-            configuration: ServerConfiguration(url: testServerURL),
-            transport: mock,
-            builder: TaggingBuilder(tag: "tagged")
+            configuration: ServerConfiguration(
+                url: testServerURL,
+                builder: TaggingBuilder(tag: "tagged")
+            ),
+            transport: mock
         )
 
         let params = TestInterface.Parameters(authentication: .none)

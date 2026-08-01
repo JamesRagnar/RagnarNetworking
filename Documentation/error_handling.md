@@ -35,10 +35,9 @@ Every case carries a `ResponseBody` and an `HTTPResponseSnapshot`. `ResponseBody
 
 Only reachable inside `ResponseError.decoding`:
 
-- `.missingString` - the `Response` type expected a UTF-8 string but decoding failed.
-- `.missingData` - the `Response` type expected raw `Data` but the cast failed.
+- `.missingString` - a `String` response body was not valid UTF-8.
 - `.jsonDecoder(DecodingDiagnostics)` - the configured `ResponseDecoder` threw a `DecodingError`. `DecodingDiagnostics` carries a `Kind` (`.keyNotFound`, `.typeMismatch`, `.valueNotFound`, `.dataCorrupted`, `.other`), a `codingPath`, a `debugDescription`, and an optional `underlyingDescription` as strings - the original `DecodingError` is not preserved.
-- `.custom(message: String)` - a custom `responseHandler`'s decode closure threw an error other than a caught `DecodingError`.
+- `.custom(message: String)` - an `InterfaceResponse` conformance, or a custom `responseHandler`'s decode closure, threw an error that was neither a `DecodingError` nor an `InterfaceDecodingError`.
 
 ## APIClientError Cases
 
@@ -48,7 +47,7 @@ Only reachable inside `ResponseError.decoding`:
 
 Programmatically distinguishable without inspecting string content:
 - The four top-level error types (`RequestError`, `URLError`, `ResponseError`, `APIClientError`) via `catch` pattern matching on type.
-- `ResponseError`'s five cases, `RequestError`'s five cases, `InterfaceDecodingError`'s four cases, and `DecodingDiagnostics.Kind`'s five cases, via `switch`/`if case`.
+- `ResponseError`'s five cases, `RequestError`'s five cases, `InterfaceDecodingError`'s three cases, and `DecodingDiagnostics.Kind`'s five cases, via `switch`/`if case`.
 - `ResponseError.statusCode`, for any case, via the `statusCode` property.
 
 Not programmatically distinguishable beyond a type name and description string:

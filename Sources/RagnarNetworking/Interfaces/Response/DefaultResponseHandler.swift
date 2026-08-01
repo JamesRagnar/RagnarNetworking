@@ -10,7 +10,8 @@ import Foundation
 /// The built-in response handler. Matches status codes against `Interface.responseCases`,
 /// decodes success bodies, and throws typed `ResponseError` values for failures.
 ///
-/// Override `Interface.responseHandler` to replace this with custom logic per-interface.
+/// Set `ServerConfiguration.responseHandler` to replace this across a whole API, or override
+/// `Interface.responseHandler` to replace it for one endpoint.
 ///
 /// A custom `ResponseHandler` that wants the default behavior plus a targeted addition
 /// (for example, inspecting a header before decoding) can compose with `handleOutcome`
@@ -149,51 +150,25 @@ public struct DefaultResponseHandler: ResponseHandler {
         }
     }
 
-    /// Decodes `data` as `T.Response`, handling the `EmptyResponse`, `String`, and `Data`
-    /// special cases before falling back to `responseDecoder`. Call this to finish handling
-    /// once `handleOutcome` reports `.noContent` (with an empty `Data`) or when composing
-    /// custom decoding logic that still needs the default type-driven behavior.
+    /// Decodes `data` as `T.Response` by asking the response type itself, and normalizes
+    /// whatever it throws into an `InterfaceDecodingError`. Call this to finish handling once
+    /// `handleOutcome` reports `.noContent` (with an empty `Data`) or when composing custom
+    /// decoding logic that still needs the default type-driven behavior.
     public func decode<T: Interface>(
         _ data: Data,
         as interface: T.Type,
         responseDecoder: ResponseDecoder
     ) throws(InterfaceDecodingError) -> T.Response {
-        if T.Response.self == EmptyResponse.self {
-            guard let empty = EmptyResponse() as? T.Response else {
-                throw .custom(message: "EmptyResponse cast failed for \(T.Response.self)")
-            }
-            return empty
-        }
-
-        if T.Response.self == String.self {
-            guard let response = String(
-                data: data,
-                encoding: .utf8
-            ) as? T.Response else {
-                throw .missingString
-            }
-
-            return response
-        }
-
-        if T.Response.self == Data.self {
-            guard let responseData = data as? T.Response else {
-                throw .missingData
-            }
-
-            return responseData
-        }
-
         do {
-            return try responseDecoder.makeJSONDecoder().decode(
-                T.Response.self,
-                from: data
+            return try T.Response.decode(
+                from: data,
+                using: responseDecoder
             )
+        } catch let error as InterfaceDecodingError {
+            throw error
+        } catch let error as DecodingError {
+            throw .jsonDecoder(.init(error))
         } catch {
-            if let decodingError = error as? DecodingError {
-                throw .jsonDecoder(.init(decodingError))
-            }
-
             throw .custom(message: String(describing: error))
         }
     }

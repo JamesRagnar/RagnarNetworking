@@ -14,7 +14,7 @@ struct InterfaceResponseTests {
 
     // MARK: - Test Fixtures
 
-    struct SuccessResponse: Codable, Sendable {
+    struct SuccessResponse: Codable, Sendable, InterfaceResponse {
         let message: String
         let code: Int
     }
@@ -144,7 +144,7 @@ struct InterfaceResponseTests {
         }
     }
 
-    struct SnakeCaseResponse: Codable, Sendable, Equatable {
+    struct SnakeCaseResponse: Codable, Sendable, Equatable, InterfaceResponse {
         let userId: Int
     }
 
@@ -165,7 +165,7 @@ struct InterfaceResponseTests {
         }
     }
 
-    struct DatedResponse: Codable, Sendable, Equatable {
+    struct DatedResponse: Codable, Sendable, Equatable, InterfaceResponse {
         let createdAt: Date
     }
 
@@ -209,7 +209,7 @@ struct InterfaceResponseTests {
             ]
         }
 
-        static var responseHandler: any ResponseHandler {
+        static var responseHandler: (any ResponseHandler)? {
             CustomHandler()
         }
 
@@ -356,7 +356,7 @@ struct InterfaceResponseTests {
         }
     }
 
-    struct EmptyTolerantResponse: Decodable, Sendable {
+    struct EmptyTolerantResponse: Decodable, Sendable, InterfaceResponse {
         private enum CodingKeys: String, CodingKey {
             case ignored
         }
@@ -1077,7 +1077,7 @@ struct InterfaceResponseTests {
 
     @Test("Handles nested JSON structures")
     func testNestedJSON() throws {
-        struct NestedResponse: Codable, Sendable {
+        struct NestedResponse: Codable, Sendable, InterfaceResponse {
             struct User: Codable, Sendable {
                 let name: String
                 let id: Int
@@ -1549,6 +1549,198 @@ struct InterfaceResponseTests {
                 return
             }
         }
+    }
+
+    // MARK: - Custom InterfaceResponse Conformances
+
+    /// A non-JSON response type. Before `InterfaceResponse`, a response shape outside the
+    /// built-in `Decodable`/`String`/`Data`/`EmptyResponse` set could not be expressed without
+    /// editing the package's decode ladder.
+    struct CSVRows: InterfaceResponse, Sendable, Equatable {
+        let rows: [[String]]
+
+        static func decode(
+            from data: Data,
+            using decoder: ResponseDecoder
+        ) throws -> CSVRows {
+            guard let text = String(data: data, encoding: .utf8) else {
+                throw InterfaceDecodingError.missingString
+            }
+
+            let rows = text
+                .split(separator: "\n")
+                .map { $0.split(separator: ",").map(String.init) }
+
+            return CSVRows(rows: rows)
+        }
+    }
+
+    struct CSVInterface: Interface {
+        struct Parameters: RequestParameters {
+            let method: RequestMethod = .get
+            let path = "/report.csv"
+            let queryItems: [URLQueryItem]? = nil
+            let headers: [String: String]? = nil
+            let body: EmptyBody = .init()
+            let authentication: AuthenticationType = .none
+        }
+
+        typealias Response = CSVRows
+
+        static var responseCases: ResponseMap {
+            [.code(200, .decode)]
+        }
+    }
+
+    @Test("A non-JSON InterfaceResponse conformance decodes without any change to the package")
+    func testCustomInterfaceResponseConformance() throws {
+        let responseData = "a,b\nc,d".data(using: .utf8)!
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        let result = try CSVInterface.handle(
+            (data: responseData, response: httpResponse),
+            responseDecoder: ResponseDecoder()
+        )
+
+        #expect(result == CSVRows(rows: [["a", "b"], ["c", "d"]]))
+    }
+
+    /// An `InterfaceResponse` that throws its own error type, proving a conformance is not
+    /// required to launder failures through `InterfaceDecodingError`.
+    struct StrictlyPositiveCount: InterfaceResponse, Sendable {
+        enum Failure: Error { case notPositive }
+
+        let value: Int
+
+        static func decode(
+            from data: Data,
+            using decoder: ResponseDecoder
+        ) throws -> StrictlyPositiveCount {
+            let value = try decoder.makeJSONDecoder().decode(Int.self, from: data)
+            guard value > 0 else { throw Failure.notPositive }
+            return StrictlyPositiveCount(value: value)
+        }
+    }
+
+    struct CountInterface: Interface {
+        struct Parameters: RequestParameters {
+            let method: RequestMethod = .get
+            let path = "/count"
+            let queryItems: [URLQueryItem]? = nil
+            let headers: [String: String]? = nil
+            let body: EmptyBody = .init()
+            let authentication: AuthenticationType = .none
+        }
+
+        typealias Response = StrictlyPositiveCount
+
+        static var responseCases: ResponseMap {
+            [.code(200, .decode)]
+        }
+    }
+
+    @Test("An InterfaceResponse throwing its own error type surfaces as ResponseError.decoding")
+    func testCustomInterfaceResponseErrorIsNormalized() {
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        do {
+            _ = try CountInterface.handle(
+                (data: "0".data(using: .utf8)!, response: httpResponse),
+                responseDecoder: ResponseDecoder()
+            )
+            Issue.record("Expected ResponseError.decoding to be thrown")
+        } catch {
+            guard case .decoding(_, _, let decodingError) = error else {
+                Issue.record("Expected .decoding, got \(error)")
+                return
+            }
+            guard case .custom(let message) = decodingError else {
+                Issue.record("Expected .custom, got \(decodingError)")
+                return
+            }
+            #expect(message.contains("notPositive"))
+        }
+    }
+
+    // MARK: - Configuration-level Response Handler
+
+    /// A server-wide concern: every response is wrapped in `{ "data": ... }`. Written once on
+    /// the configuration rather than restated on every Interface.
+    struct UnwrappingResponseHandler: ResponseHandler {
+        private let base = DefaultResponseHandler()
+
+        func handle<T: Interface>(
+            _ response: (data: Data, response: URLResponse),
+            for interface: T.Type,
+            responseDecoder: ResponseDecoder
+        ) throws(ResponseError) -> T.Response {
+            let snapshot = HTTPResponseSnapshot(response: response.response)
+            let body = ResponseBody(response.data, decoder: responseDecoder)
+
+            guard
+                let envelope = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+                let inner = envelope["data"],
+                let unwrapped = try? JSONSerialization.data(withJSONObject: inner)
+            else {
+                throw .decoding(body, snapshot, .custom(message: "Missing data envelope"))
+            }
+
+            return try base.handle(
+                (data: unwrapped, response: response.response),
+                for: interface,
+                responseDecoder: responseDecoder
+            )
+        }
+    }
+
+    @Test("A configuration-level responseHandler applies to Interfaces that do not override one")
+    func testConfigurationResponseHandlerApplies() throws {
+        let responseData = #"{"data":{"message":"hello","code":200}}"#.data(using: .utf8)!
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        let result = try TestInterface.handle(
+            (data: responseData, response: httpResponse),
+            responseDecoder: ResponseDecoder(),
+            defaultHandler: UnwrappingResponseHandler()
+        )
+
+        #expect(result.message == "hello")
+    }
+
+    @Test("An Interface's own responseHandler wins over the configuration's")
+    func testInterfaceResponseHandlerOverridesConfiguration() throws {
+        let responseData = #"{"data":{"message":"hello","code":200}}"#.data(using: .utf8)!
+        let httpResponse = HTTPURLResponse(
+            url: URL(string: "https://api.example.com")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        // CustomHandlerInterface declares its own handler, which returns "overridden" for a
+        // 200 and never consults the envelope-unwrapping handler passed as the default.
+        let result = try CustomHandlerInterface.handle(
+            (data: responseData, response: httpResponse),
+            responseDecoder: ResponseDecoder(),
+            defaultHandler: UnwrappingResponseHandler()
+        )
+
+        #expect(result == "overridden")
     }
 
 }

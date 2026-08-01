@@ -13,9 +13,6 @@ public enum InterfaceDecodingError: LocalizedError, Sendable {
     /// Expected String response but UTF-8 decoding failed
     case missingString
 
-    /// Expected Data response but type casting failed
-    case missingData
-
     /// JSON decoding failed with structured diagnostics.
     case jsonDecoder(DecodingDiagnostics)
 
@@ -26,9 +23,6 @@ public enum InterfaceDecodingError: LocalizedError, Sendable {
         switch self {
         case .missingString:
             return "The response was expected to be a UTF-8 string, but decoding failed."
-
-        case .missingData:
-            return "The response was expected to be raw data, but it could not be cast."
 
         case .jsonDecoder(let diagnostics):
             if diagnostics.codingPath.isEmpty {
