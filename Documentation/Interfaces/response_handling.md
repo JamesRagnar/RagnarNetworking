@@ -279,6 +279,51 @@ A key type that is neither `String`, nor `Int`, nor `CodingKeyRepresentable` dec
 **alternating unkeyed array**, not from an object. Conform the key type to
 `CodingKeyRepresentable` when the server sends an object.
 
+### Where a Coding Difference Belongs
+
+"One endpoint decodes differently" is three separate problems with three different homes. Route
+them before reaching for a `ResponseHandler`.
+
+| Difference | Home |
+|---|---|
+| One field's format | `CodingKeys`, a custom `init(from:)`, or a property wrapper on the `Response` type |
+| A type's coding strategy | `InterfaceResponse.decode` plus `ResponseDecoder.modified` |
+| A type's whole wire format (CSV, protobuf) | `InterfaceResponse.decode`, ignoring the decoder |
+| The response's *interpretation* | `Interface.responseHandler` |
+
+Format is a property of the type, not the endpoint. A type returned by four endpoints declares
+its quirk once and no endpoint can forget it.
+
+### Deriving a Decoder
+
+`ResponseDecoder.modified(_:)` returns a copy with one strategy changed and everything else
+intact. Use it rather than building a `JSONDecoder()`, which silently discards the client's
+configuration:
+
+```swift
+struct LegacyOrder: Decodable, InterfaceResponse {
+    let orderId: Int
+    let placedAt: Date
+
+    static func decode(
+        from data: Data,
+        metadata: HTTPResponseSnapshot,
+        using decoder: ResponseDecoder
+    ) throws -> LegacyOrder {
+        try decoder
+            .modified { $0.dateDecodingStrategy = .secondsSince1970 }
+            .decode(LegacyOrder.self, from: data)
+    }
+}
+```
+
+Against a client configured with `.convertFromSnakeCase` and `.iso8601`, this decodes
+`{"order_id": 7, "placed_at": 1700000000}`: the key strategy still applies, only the date
+strategy is replaced. `modified` composes, and the last applied strategy wins.
+
+`RequestEncoder.modified(_:)` is the request-side equivalent. See
+[Request Parameters](request_parameters.md#deriving-an-encoder).
+
 ### Non-JSON Responses
 
 Conform directly when a response is not JSON. Nothing in the package needs to change:

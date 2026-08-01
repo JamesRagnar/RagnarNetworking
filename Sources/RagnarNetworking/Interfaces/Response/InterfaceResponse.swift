@@ -57,7 +57,7 @@ public extension InterfaceResponse where Self: Decodable {
         metadata: HTTPResponseSnapshot,
         using decoder: ResponseDecoder
     ) throws -> Self {
-        try decoder.makeJSONDecoder().decode(
+        try decoder.decode(
             Self.self,
             from: data
         )

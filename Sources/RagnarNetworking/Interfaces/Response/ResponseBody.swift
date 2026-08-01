@@ -43,7 +43,7 @@ public struct ResponseBody: Sendable {
     /// Decodes the body as `type` using the response's own decoder.
     /// - Returns: The decoded value, or `nil` if decoding fails.
     public func decode<T: Decodable>(as type: T.Type) -> T? {
-        try? decoder.makeJSONDecoder().decode(type, from: data)
+        try? decoder.decode(type, from: data)
     }
 
 }

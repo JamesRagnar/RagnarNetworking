@@ -125,9 +125,40 @@ struct Parameters: RequestParameters {
 let params = Parameters(body: EncodableBody(LegacyPayload(id: 1)))
 ```
 
+### Deriving an Encoder
+
+When one body needs a different coding strategy from the rest of the API, use
+`RequestEncoder.modified(_:)` to change one strategy and keep the rest. Building a bare
+`JSONEncoder()` instead silently discards the client's configuration:
+
+```swift
+struct CreateLegacyOrder: Encodable, RequestBody {
+    let orderId: Int
+    let placedAt: Date
+
+    func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody {
+        EncodedBody(
+            data: try encoder
+                .modified { $0.dateEncodingStrategy = .secondsSince1970 }
+                .encode(self),
+            contentType: "application/json"
+        )
+    }
+}
+```
+
+Against a client configured with `.convertToSnakeCase` and `.iso8601`, this emits
+`{"order_id": 7, "placed_at": 1700000000}`: the key strategy still applies, only the date
+strategy is replaced.
+
+Like the response side, the coding format is a property of the body type rather than the
+endpoint, so a body used by several endpoints declares its quirk once. See
+[Response Handling](response_handling.md#deriving-a-decoder) for the mirror.
+
 ### Custom Content-Type
 
-Implement `encodeBody(using:)` for non-JSON payloads.
+Implement `encodeBody(using:)` for non-JSON payloads. The `RequestEncoder` is available but a
+non-JSON body has no use for it:
 
 ```swift
 struct XmlBody: RequestBody, Sendable {

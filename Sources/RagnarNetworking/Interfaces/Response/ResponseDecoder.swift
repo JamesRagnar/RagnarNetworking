@@ -45,3 +45,44 @@ public struct ResponseDecoder: Sendable {
     }
 
 }
+
+// MARK: - Deriving and Decoding
+
+public extension ResponseDecoder {
+
+    /// A copy of this configuration with `configure` applied to each decoder it produces, after
+    /// this configuration's own setup has run.
+    ///
+    /// Use from an `InterfaceResponse` conformance to override one strategy while keeping the
+    /// client's other rules. Building a bare `JSONDecoder()` there instead would silently drop
+    /// them.
+    ///
+    /// ```swift
+    /// try decoder
+    ///     .modified { $0.dateDecodingStrategy = .secondsSince1970 }
+    ///     .decode(LegacyOrder.self, from: data)
+    /// ```
+    func modified(
+        _ configure: @escaping @Sendable (JSONDecoder) -> Void
+    ) -> ResponseDecoder {
+        let base = makeJSONDecoder
+
+        return ResponseDecoder {
+            let decoder = base()
+            configure(decoder)
+            return decoder
+        }
+    }
+
+    /// Decodes `type` from `data` using a decoder from this configuration.
+    func decode<T: Decodable>(
+        _ type: T.Type,
+        from data: Data
+    ) throws -> T {
+        try makeJSONDecoder().decode(
+            type,
+            from: data
+        )
+    }
+
+}

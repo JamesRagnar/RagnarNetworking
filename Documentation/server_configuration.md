@@ -51,6 +51,22 @@ let config = ServerConfiguration(
 )
 ```
 
+### Overriding One Strategy
+
+Both `RequestEncoder` and `ResponseDecoder` have a `modified(_:)` that returns a copy with one
+strategy changed and the rest of the configuration intact:
+
+```swift
+encoder.modified { $0.dateEncodingStrategy = .secondsSince1970 }
+decoder.modified { $0.dateDecodingStrategy = .secondsSince1970 }
+```
+
+This is what a `RequestBody` or `InterfaceResponse` conformance uses when one type's wire format
+differs from the rest of the API. Constructing a bare `JSONEncoder()` or `JSONDecoder()` there
+instead discards the configuration silently. See
+[Deriving an Encoder](Interfaces/request_parameters.md#deriving-an-encoder) and
+[Deriving a Decoder](Interfaces/response_handling.md#deriving-a-decoder).
+
 ## Response Decoder
 
 Response bodies are decoded using a `ResponseDecoder` factory, mirroring `RequestEncoder`.

@@ -26,7 +26,7 @@ public protocol RequestBody: Sendable {
 public extension RequestBody where Self: Encodable {
 
     func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody {
-        let data = try encoder.makeJSONEncoder().encode(self)
+        let data = try encoder.encode(self)
         return EncodedBody(data: data, contentType: "application/json")
     }
 
@@ -90,7 +90,7 @@ public struct ArrayBody<Element: Encodable & Sendable>: RequestBody {
     }
 
     public func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody {
-        let data = try encoder.makeJSONEncoder().encode(items)
+        let data = try encoder.encode(items)
         return EncodedBody(data: data, contentType: "application/json")
     }
 
@@ -106,7 +106,7 @@ public struct EncodableBody<Value: Encodable & Sendable>: RequestBody {
     }
 
     public func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody {
-        let data = try encoder.makeJSONEncoder().encode(value)
+        let data = try encoder.encode(value)
         return EncodedBody(data: data, contentType: "application/json")
     }
 
