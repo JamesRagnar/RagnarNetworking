@@ -35,10 +35,9 @@ public actor APIClient {
     /// Creates an `APIClient`.
     ///
     /// - Parameters:
-    ///   - configuration: Everything about the server - URL, body coding, default headers,
-    ///     request builder, default response handler. Stable for the client's lifetime -
-    ///     recreate the client if it changes. Credentials are not part of it; the client pairs
-    ///     it with the current token per request.
+    ///   - configuration: The server contract: URL, body coding, default headers, request
+    ///     builder, default response handler. Held for the client's lifetime; recreate the
+    ///     client if it changes.
     ///   - transport: The underlying transport. Defaults to `URLSession.shared`.
     ///   - token: Called before each authenticated request. Evaluated lazily to always return the post-refresh value.
     ///   - refresh: Called on 401. Must update whatever state `token` reads from.
@@ -63,9 +62,8 @@ public actor APIClient {
     /// will fail with authentication-related errors.
     ///
     /// - Parameters:
-    ///   - configuration: Everything about the server - URL, body coding, default headers,
-    ///     request builder, default response handler. Stable for the client's lifetime -
-    ///     recreate the client if it changes.
+    ///   - configuration: The server contract: URL, body coding, default headers, request
+    ///     builder, default response handler. Held for the client's lifetime.
     ///   - transport: The underlying transport. Defaults to `URLSession.shared`.
     public init(
         configuration: ServerConfiguration,

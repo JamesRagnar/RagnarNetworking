@@ -10,17 +10,14 @@ import Foundation
 /// Protocol that all request bodies must conform to.
 /// Couples encoding strategy with content-type to prevent mismatches.
 ///
-/// This is the mirror of `InterfaceResponse` on the request side: the type that knows the
-/// format performs the conversion, so a non-JSON body is expressible without changing the
-/// package.
+/// The request-side counterpart of `InterfaceResponse`.
 public protocol RequestBody: Sendable {
 
     /// Encodes the body and returns both data and content-type.
     ///
-    /// - Parameter encoder: The encoder configuration for this request. A JSON body calls
-    ///   `makeJSONEncoder()` to pick up the client's configured strategies. A body in another
-    ///   format is free to ignore it, which is why this is the configuration value rather than
-    ///   a concrete `JSONEncoder` it could not use.
+    /// - Parameter encoder: The request's encoder configuration. A JSON body calls
+    ///   `makeJSONEncoder()` to pick up the client's configured strategies; a body in another
+    ///   format ignores it.
     func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody
 
 }

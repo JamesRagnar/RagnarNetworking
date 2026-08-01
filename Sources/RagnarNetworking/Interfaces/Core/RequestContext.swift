@@ -9,9 +9,9 @@ import Foundation
 
 /// A `ServerConfiguration` paired with the credential to use for a single request.
 ///
-/// Splitting the credential out of `ServerConfiguration` keeps lifetime-stable policy
-/// separate from volatile per-request state: `APIClient` holds one configuration for its
-/// lifetime and pairs it with whatever token is current each time it sends.
+/// `APIClient` holds one configuration for its lifetime and builds a context with the current
+/// token on each send. Construct one directly when calling `RequestPipeline` or `URLRequest`'s
+/// initializers without an `APIClient`.
 public struct RequestContext: Sendable {
 
     /// How the server is spoken to.

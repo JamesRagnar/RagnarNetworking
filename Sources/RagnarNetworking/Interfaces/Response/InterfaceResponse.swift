@@ -7,14 +7,9 @@
 
 import Foundation
 
-/// Protocol that all Interface response types must conform to.
+/// Builds an Interface's `Response` value from a response.
 ///
-/// A response type owns how it is built from a response, mirroring the way `RequestBody` owns
-/// how a request body is encoded. The alternative - the handler comparing `Response.self`
-/// against a fixed list of known types - is closed to extension and pushes what the compiler
-/// already knows into runtime casts.
-///
-/// Conforming a `Decodable` type requires no implementation; the default decodes JSON with the
+/// A `Decodable` type conforms without implementing anything and decodes JSON using the
 /// configured `ResponseDecoder`:
 ///
 /// ```swift
@@ -25,32 +20,25 @@ import Foundation
 /// ```
 ///
 /// Conform directly when a response is not JSON, or when building the value needs the status
-/// code or headers as well as the bytes. The package ships conformances for `String` (UTF-8),
-/// `Data` (raw bytes), `EmptyResponse` (no body), the `Decodable` scalars, `Optional`, and
-/// top-level `Array`/`Dictionary`.
+/// code or headers. The package ships conformances for `String` (UTF-8), `Data` (raw bytes),
+/// `EmptyResponse` (no body), the `Decodable` scalars, `Optional`, and top-level
+/// `Array`/`Dictionary`.
 ///
-/// - Note: This protocol does not itself refine `Sendable`; `Interface.Response` requires
-///   `InterfaceResponse & Sendable` instead. Refining `Sendable` here compiles, but it is
-///   unsound: a conditional conformance cannot depend on a marker protocol, so
-///   `extension Array: InterfaceResponse where Element: Decodable` would grant `Sendable` to
-///   `[T]` without `Array`'s own conditional `Sendable` ever being checked, laundering a
-///   non-`Sendable` element type across a concurrency boundary with no diagnostic. Requiring
-///   `Sendable` at the use site forces that check to happen. The guarantee is stronger this
-///   way, not merely preserved.
+/// - Note: This protocol does not refine `Sendable`. `Interface.Response` requires
+///   `InterfaceResponse & Sendable`, which is what enforces it. Refining it here would compile
+///   but grant `Sendable` to `[T]` for non-`Sendable` `T`, because a conditional conformance
+///   cannot mention a marker protocol. See `Documentation/Interfaces/response_handling.md`.
 public protocol InterfaceResponse {
 
-    /// Builds the response value from the response.
+    /// Builds the response value.
     ///
     /// - Parameters:
     ///   - data: The raw response bytes. Empty for `.noContent` outcomes.
-    ///   - metadata: Status code, headers, and URL for the response the bytes came from,
-    ///     already redacted. Present so a response whose value depends on a header - `ETag`,
-    ///     `Link` pagination, `X-Total-Count`, `Content-Range` - can be built here rather than
-    ///     requiring a whole `ResponseHandler`.
+    ///   - metadata: Status code, headers, and URL, already redacted. Use for responses whose
+    ///     value depends on a header, such as `ETag` or `Link` pagination.
     ///   - decoder: The decoder configured for this response.
-    /// - Throws: Any error. `DefaultResponseHandler` maps `DecodingError` to
-    ///   `InterfaceDecodingError.jsonDecoder` and anything else to `.custom`, so a conformance
-    ///   is free to throw its own error type rather than laundering it through this package's.
+    /// - Throws: Any error type. `DefaultResponseHandler` maps `DecodingError` to
+    ///   `InterfaceDecodingError.jsonDecoder` and anything else to `.custom`.
     static func decode(
         from data: Data,
         metadata: HTTPResponseSnapshot,
@@ -115,14 +103,13 @@ extension Data: InterfaceResponse {
 /// Decodes a top-level JSON array, using the default `Decodable` behavior.
 extension Array: InterfaceResponse where Element: Decodable {}
 
-/// Decodes a top-level JSON collection, using the stdlib's `Dictionary: Decodable` behavior
-/// verbatim.
+/// Decodes a top-level JSON collection, using the stdlib's `Dictionary: Decodable` behavior.
 ///
-/// - Important: That behavior depends on the key type. `String` and `Int` keys, and keys
-///   conforming to `CodingKeyRepresentable`, decode from a JSON **object**. Any other key type
-///   decodes from an **alternating unkeyed array** (`["a", 1, "b", 2]`), not an object, and
-///   throws against an object body. Conform the key type to `CodingKeyRepresentable` if the
-///   server sends an object.
+/// - Important: That behavior depends on the key type. `String` keys, `Int` keys, and keys
+///   conforming to `CodingKeyRepresentable` decode from a JSON object. Any other key type
+///   decodes from an alternating unkeyed array (`["a", 1, "b", 2]`) and throws against an
+///   object body. Conform the key type to `CodingKeyRepresentable` if the server sends an
+///   object.
 extension Dictionary: InterfaceResponse where Key: Decodable, Value: Decodable {}
 
 /// Decodes a top-level JSON `null` or value, using the default `Decodable` behavior.

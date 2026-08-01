@@ -9,10 +9,8 @@ import Foundation
 
 /// A response body paired with the decoder that was configured to read it.
 ///
-/// Carrying the decoder alongside the bytes means a `ResponseError` that escapes into
-/// application code can still decode its body with the client's own rules. The alternative -
-/// asking the catch site to supply a decoder - defaults to plain `JSONDecoder()` and is
-/// silently wrong for any client configured with, say, `.convertFromSnakeCase`.
+/// A `ResponseError` that escapes into application code carries one of these, so `decodeError`
+/// at the catch site reads the body with the client's rules rather than a plain `JSONDecoder`.
 public struct ResponseBody: Sendable {
 
     /// The raw response bytes.

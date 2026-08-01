@@ -10,14 +10,12 @@ import Foundation.NSURLSession
 /// Abstracts the execution of a single `URLRequest`, allowing for dependency injection and testing.
 ///
 /// A transport moves bytes and nothing else. Building requests and interpreting responses belong
-/// to `RequestPipeline`, so there is exactly one thing to implement here and no way for a test
-/// double to accidentally bypass request construction or response handling.
+/// to `RequestPipeline`.
 ///
 /// `URLSession` conforms by default.
 ///
-/// - Note: Bodies are buffered in memory in both directions. Streamed upload from disk and
-///   streamed download are deliberately out of scope; an endpoint that needs either is better
-///   served by using `URLSession` directly than by widening this protocol.
+/// - Note: Bodies are buffered in memory in both directions. Streamed upload and download are
+///   out of scope; use `URLSession` directly for those.
 public protocol Transport: Sendable {
 
     /// Executes a raw URLRequest and returns the response data.

@@ -9,11 +9,9 @@ import Foundation
 
 /// Runs one Interface request end to end: build → transport → handle.
 ///
-/// The pipeline owns the algorithm and the `Transport`, and nothing else. Everything that
-/// describes the server - builder, coding, headers, default response handler - arrives in the
-/// `RequestContext`, so there is exactly one source of truth for it and no precedence rule to
-/// remember. `APIClient` layers credentials and retry on top, but the pipeline is usable
-/// directly when a caller manages its own token.
+/// Holds the `Transport` and nothing else; the builder, coding, headers, and default response
+/// handler all arrive on the `RequestContext`. `APIClient` layers credentials and retry on top,
+/// but the pipeline is usable directly when a caller manages its own token.
 ///
 /// ```swift
 /// let pipeline = RequestPipeline(transport: URLSession.shared)

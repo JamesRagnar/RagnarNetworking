@@ -32,27 +32,20 @@ public protocol Interface: Sendable {
 
     /// Overrides response handling for this endpoint alone.
     ///
-    /// `nil` - the default - uses the handler configured on `ServerConfiguration`, so a
-    /// server-wide concern (unwrapping an envelope, reading a deprecation header) is written
-    /// once rather than restated on every Interface. Return a handler for the one-off endpoint
-    /// whose response does not follow the rest of the API.
+    /// `nil`, the default, uses `ServerConfiguration.responseHandler`. Return a handler for an
+    /// endpoint whose response does not follow the rest of the API.
     ///
-    /// An Interface-level handler *replaces* the configured one rather than layering on top of
-    /// it. An endpoint that overrides in an API whose configuration unwraps an envelope has to
-    /// unwrap that envelope itself.
+    /// An Interface-level handler *replaces* the configured one rather than layering on it. An
+    /// endpoint that overrides in an API whose configuration unwraps an envelope has to unwrap
+    /// that envelope itself.
     ///
-    /// Decoding rules that differ from the rest of the client are better expressed on the
-    /// `Response` type itself (`CodingKeys`, a custom `init(from:)`, or an `InterfaceResponse`
-    /// conformance); reach for a handler when the *response interpretation* differs, not just
-    /// the field names.
+    /// For decoding rules that differ only in field names or date format, use `CodingKeys`, a
+    /// custom `init(from:)`, or an `InterfaceResponse` conformance on the `Response` type.
     ///
-    /// - Warning: This requirement is `Optional`. A declaration written against an earlier
-    ///   version as `static var responseHandler: any ResponseHandler { MyHandler() }` still
-    ///   **compiles**, because it is a valid static property, but it no longer satisfies this
-    ///   requirement - property witness types are invariant, so the non-optional form does not
-    ///   match. The declaration becomes dead and the endpoint silently uses the configured
-    ///   handler. Swift emits no diagnostic for this. Check that every override returns
-    ///   `(any ResponseHandler)?`.
+    /// - Warning: An override written as `static var responseHandler: any ResponseHandler`
+    ///   compiles but does not satisfy this requirement, because property witness types are
+    ///   invariant. It becomes dead and the endpoint silently uses the configured handler.
+    ///   Swift emits no diagnostic. Overrides must return `(any ResponseHandler)?`.
     static var responseHandler: (any ResponseHandler)? { get }
 
 }

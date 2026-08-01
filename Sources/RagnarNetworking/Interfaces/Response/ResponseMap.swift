@@ -19,10 +19,9 @@ import OSLog
 /// - Later duplicates are ignored.
 /// - Duplicates emit a developer diagnostic through `Logger`, in every build configuration.
 ///
-/// - Important: Declare `Interface.responseCases` as a `static let`, not a `static var` with a
-///   computed body. The protocol requirement is `{ get }`, which a `static let` satisfies, and
-///   a computed `static var` rebuilds the whole map - and re-emits any duplicate diagnostic -
-///   on every single response.
+/// - Important: Declare `Interface.responseCases` as a `static let`. A computed `static var`
+///   satisfies the requirement but rebuilds the map, and re-emits any duplicate diagnostic, on
+///   every response.
 public struct ResponseMap: ExpressibleByArrayLiteral, Sendable {
 
     private let exactCases: [Int: ResponseOutcome]

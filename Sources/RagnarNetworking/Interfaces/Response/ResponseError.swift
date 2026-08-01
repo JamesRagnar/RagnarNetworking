@@ -9,10 +9,9 @@ import Foundation
 
 /// Errors that can occur when processing HTTP responses.
 ///
-/// Each error case includes the response body and HTTP response for debugging purposes,
-/// allowing you to inspect the actual server response when something goes wrong. The body
-/// carries the decoder that was configured for the response, so `decodeError(as:)` reads it
-/// with the same rules the success path would have used.
+/// Each case carries the response body and a snapshot of the HTTP response, so the server's
+/// actual response is available at the catch site. The body carries the decoder configured for
+/// the response; `decodeError(as:)` uses it.
 public enum ResponseError: LocalizedError, Sendable, CustomStringConvertible, CustomDebugStringConvertible {
 
     /// The response could not be cast to HTTPURLResponse

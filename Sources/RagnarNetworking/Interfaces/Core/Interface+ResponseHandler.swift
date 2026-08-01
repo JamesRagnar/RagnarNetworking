@@ -19,17 +19,15 @@ public extension Interface {
     /// This method validates the response type, checks the status code against the Interface's
     /// defined response cases, and either decodes a success response or throws the appropriate error.
     ///
+    /// Both configuration arguments are required rather than defaulted, so a caller cannot
+    /// silently fall back to a plain `JSONDecoder` or `DefaultResponseHandler` and lose the
+    /// client's rules.
+    ///
     /// - Parameters:
     ///   - response: Tuple containing the response data and URLResponse
-    ///   - responseDecoder: Decoder to use when decoding the response body, normally the
-    ///     client's configured `ServerConfiguration.responseDecoder`. Required rather than
-    ///     defaulted, so a caller cannot silently fall back to a plain `JSONDecoder` and lose
-    ///     the client's decoding rules.
-    ///   - defaultHandler: The handler to use when the Interface does not override
-    ///     `responseHandler`, normally the client's configured
-    ///     `ServerConfiguration.responseHandler`. Required rather than defaulted, for the same
-    ///     reason `responseDecoder` is: a caller holding the configured decoder is holding the
-    ///     configured handler too, and a default here would silently discard it.
+    ///   - responseDecoder: Normally `ServerConfiguration.responseDecoder`.
+    ///   - defaultHandler: Used when the Interface does not override `responseHandler`.
+    ///     Normally `ServerConfiguration.responseHandler`.
     /// - Returns: The decoded Response type
     /// - Throws: `ResponseError` if the response cannot be processed
     static func handle(

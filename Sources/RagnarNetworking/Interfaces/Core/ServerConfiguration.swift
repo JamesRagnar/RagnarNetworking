@@ -7,23 +7,14 @@
 
 import Foundation
 
-/// How a server is spoken to: where it lives, how bodies are encoded and decoded, which
-/// headers every request carries, and how requests and responses are shaped.
+/// A server's contract: where it lives, how bodies are encoded and decoded, which headers every
+/// request carries, and how requests and responses are shaped. Stable for a client's lifetime.
 ///
-/// This value is pure policy and is stable for a client's lifetime. Two things are
-/// deliberately *not* part of it:
+/// Credentials are not part of it; a per-request token travels in `RequestContext`. Neither is
+/// the `Transport`, which belongs to `RequestPipeline`.
 ///
-/// - **Credentials.** A per-request token travels in `RequestContext` alongside a
-///   configuration, so a configuration can be shared freely without carrying a volatile secret.
-/// - **The `Transport`.** A transport answers "what process are we in?" (a live `URLSession`, a
-///   mock, a recorded fixture) rather than "which server is this?", so it belongs to
-///   `RequestPipeline` and stays available as the test seam.
-///
-/// The rule for a new knob is whether it is part of the *server's contract* - something the
-/// server requires or guarantees, identical for every client talking to it. URL, coding,
-/// headers, request construction, and response interpretation all qualify. Per-request
-/// mechanics that the server neither sees nor cares about - a timeout, a cache policy, a retry
-/// budget - do not, even though they are also "not credentials and not the transport."
+/// A new knob belongs here if the server requires or guarantees it. Per-request mechanics the
+/// server never sees, such as a timeout or a cache policy, do not.
 public struct ServerConfiguration: Sendable {
 
     /// The base URL for all API requests (e.g., "https://api.example.com")
@@ -43,17 +34,12 @@ public struct ServerConfiguration: Sendable {
     public let defaultHeaders: [String: String]
 
     /// Builds `URLRequest` values from Interface parameters for this server.
-    ///
-    /// Path joining, header conventions, and request signing are all part of a server's
-    /// contract, so the builder lives with the rest of that contract rather than being passed
-    /// alongside the transport.
     public let builder: any RequestBuilder
 
     /// Handles responses for Interfaces that do not override `Interface.responseHandler`.
     ///
-    /// Set this for a concern that applies across the whole API - unwrapping a `{ "data": ... }`
-    /// envelope, reading a deprecation header, feeding a metrics sink - so it is written once
-    /// instead of on every Interface.
+    /// Use for concerns that apply across the whole API, such as unwrapping a
+    /// `{ "data": ... }` envelope or reading a deprecation header.
     public let responseHandler: any ResponseHandler
 
     /// Creates a server configuration.

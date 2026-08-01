@@ -31,10 +31,9 @@ import OSLog
 /// - Keep body bytes and `Content-Type` in sync.
 /// - Return a fully formed `URLRequest` with a valid URL.
 ///
-/// - Warning: Do not delegate to `context.builder` from inside a builder. Once a builder is
-///   set on `ServerConfiguration`, `context.builder` *is* the builder currently running, so
-///   calling it recurses until the stack overflows. To reuse default behavior, construct
-///   `URLRequestBuilder()` directly and call the step you want, as the examples below do.
+/// - Warning: Do not delegate to `context.builder` from inside a builder. Once set on
+///   `ServerConfiguration`, `context.builder` is the builder currently running, so calling it
+///   recurses until the stack overflows. Construct `URLRequestBuilder()` directly instead.
 ///
 /// - Note: `buildRequest` receives headers already resolved by
 ///   `ServerConfiguration.resolvedHeaders(for:)`, so overriding any pipeline step - including

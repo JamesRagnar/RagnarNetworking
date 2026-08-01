@@ -18,9 +18,8 @@ public struct EmptyResponse: Decodable, Sendable, Equatable {
 
 extension EmptyResponse: InterfaceResponse {
 
-    /// Succeeds for any bytes, including none. An Interface declaring `EmptyResponse` has
-    /// stated that the body carries nothing worth reading, so a server that sends one anyway
-    /// is not an error.
+    /// Succeeds for any bytes, including none. A body sent against an `EmptyResponse` Interface
+    /// is discarded rather than treated as an error.
     public static func decode(
         from data: Data,
         metadata: HTTPResponseSnapshot,
