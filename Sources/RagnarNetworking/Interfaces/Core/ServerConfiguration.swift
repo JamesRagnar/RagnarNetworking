@@ -19,8 +19,11 @@ import Foundation
 ///   mock, a recorded fixture) rather than "which server is this?", so it belongs to
 ///   `RequestPipeline` and stays available as the test seam.
 ///
-/// Everything else that describes the server belongs here. That is the rule for deciding where
-/// a new knob goes.
+/// The rule for a new knob is whether it is part of the *server's contract* - something the
+/// server requires or guarantees, identical for every client talking to it. URL, coding,
+/// headers, request construction, and response interpretation all qualify. Per-request
+/// mechanics that the server neither sees nor cares about - a timeout, a cache policy, a retry
+/// budget - do not, even though they are also "not credentials and not the transport."
 public struct ServerConfiguration: Sendable {
 
     /// The base URL for all API requests (e.g., "https://api.example.com")

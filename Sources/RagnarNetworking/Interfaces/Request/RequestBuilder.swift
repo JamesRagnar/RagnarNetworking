@@ -31,6 +31,11 @@ import OSLog
 /// - Keep body bytes and `Content-Type` in sync.
 /// - Return a fully formed `URLRequest` with a valid URL.
 ///
+/// - Warning: Do not delegate to `context.builder` from inside a builder. Once a builder is
+///   set on `ServerConfiguration`, `context.builder` *is* the builder currently running, so
+///   calling it recurses until the stack overflows. To reuse default behavior, construct
+///   `URLRequestBuilder()` directly and call the step you want, as the examples below do.
+///
 /// - Note: `buildRequest` receives headers already resolved by
 ///   `ServerConfiguration.resolvedHeaders(for:)`, so overriding any pipeline step - including
 ///   `buildRequest` itself - cannot silently drop the configuration's `defaultHeaders`.
@@ -304,11 +309,9 @@ public extension RequestBuilder {
         encoder: RequestEncoder,
         to request: inout URLRequest
     ) throws(RequestError) {
-        let jsonEncoder = encoder.makeJSONEncoder()
-
         let encoded: EncodedBody
         do {
-            encoded = try body.encodeBody(using: jsonEncoder)
+            encoded = try body.encodeBody(using: encoder)
         } catch {
             throw RequestError.encoding(underlying: ErrorSnapshot(error))
         }

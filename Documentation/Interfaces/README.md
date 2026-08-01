@@ -32,12 +32,10 @@ struct GetUserInterface: Interface {
 
     typealias Response = User
 
-    static var responseCases: ResponseMap {
-        [
-            .code(200, .decode),
-            .code(404, .error(APIError.userNotFound))
-        ]
-    }
+    static let responseCases: ResponseMap = [
+        .code(200, .decode),
+        .code(404, .error(APIError.userNotFound))
+    ]
 }
 
 let user = try await client.send(
@@ -75,7 +73,7 @@ let user = try await pipeline.send(GetUserInterface.self, .init(userId: 123), co
   - Exact code matches are checked first.
   - Then ranges are checked in declaration order.
   - Duplicate exact codes keep the first declaration.
-  - In DEBUG builds, duplicate exact codes emit a developer diagnostic.
+  - Duplicate exact codes emit a developer diagnostic through `Logger`, in every build configuration.
 - `.decodeError(MyError.self)` decodes structured error bodies and throws `ResponseError.decoded`.
 - Use `.noContent` for no-body success (204/205/304). `EmptyResponse` is the `Response` type for that case.
 - Set `ServerConfiguration.responseHandler` for a concern that spans the whole API, and override `Interface.responseHandler` when one endpoint needs its own handling.
@@ -83,18 +81,16 @@ let user = try await pipeline.send(GetUserInterface.self, .init(userId: 123), co
 Example:
 
 ```swift
-static var responseCases: ResponseMap {
-    [
-        .success(.error(APIError.fallbackSuccess)),
-        .code(200, .decode), // exact overrides success range
-        .code(200, .error(APIError.duplicate)) // ignored, DEBUG developer diagnostic
-    ]
-}
+static let responseCases: ResponseMap = [
+    .success(.error(APIError.fallbackSuccess)),
+    .code(200, .decode), // exact overrides success range
+    .code(200, .error(APIError.duplicate)) // ignored, logs a developer diagnostic
+]
 ```
 
 ## Response Type Expectations
 
-An `Interface.Response` conforms to `InterfaceResponse`, which owns how the type is built from response bytes. A `Decodable` type conforms without implementing anything:
+An `Interface.Response` conforms to `InterfaceResponse`, which owns how the type is built from a response. A `Decodable` type conforms without implementing anything:
 
 ```swift
 struct User: Codable, InterfaceResponse {
@@ -108,11 +104,14 @@ Built-in conformances:
 - `Decodable`: decoded from the response body using the configured `ResponseDecoder` (defaults to a plain `JSONDecoder`). See [Response Handling](response_handling.md#response-decoder).
 - `String`: expects UTF-8 response bodies.
 - `Data`: returns raw bytes (for downloads/streams or no-body fallbacks).
-- `Array` and `Dictionary` of `Decodable` elements: top-level JSON collections.
+- `Int`, `Int64`, `Double`, `Bool`: top-level JSON scalars.
+- `Optional`: a top-level `null` decodes as `nil`.
+- `Array`: top-level JSON array.
+- `Dictionary`: behavior depends on the key type, see [Dictionary Key Types](response_handling.md#dictionary-key-types).
 - `EmptyResponse`: represents a successful response with no body.
 - `.noContent`: use when the server returns no body (204/205/304).
 
-Conform directly for a response that is not JSON. See [Response Handling](response_handling.md#non-json-responses).
+Conform directly for a response that is not JSON, or one whose value depends on a header. See [Response Handling](response_handling.md#non-json-responses) and [Responses That Depend on Headers](response_handling.md#responses-that-depend-on-headers).
 
 ## Status Code Mapping Examples
 

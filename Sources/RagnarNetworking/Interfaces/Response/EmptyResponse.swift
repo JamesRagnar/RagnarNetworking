@@ -23,6 +23,7 @@ extension EmptyResponse: InterfaceResponse {
     /// is not an error.
     public static func decode(
         from data: Data,
+        metadata: HTTPResponseSnapshot,
         using decoder: ResponseDecoder
     ) throws -> EmptyResponse {
         EmptyResponse()

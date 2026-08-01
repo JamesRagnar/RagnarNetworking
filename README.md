@@ -28,13 +28,11 @@ struct GetUserInterface: Interface {
 
     typealias Response = User
 
-    static var responseCases: ResponseMap {
-        [
-            .code(200, .decode),
-            .code(404, .error(APIError.userNotFound)),
-            .code(401, .error(APIError.unauthorized))
-        ]
-    }
+    static let responseCases: ResponseMap = [
+        .code(200, .decode),
+        .code(404, .error(APIError.userNotFound)),
+        .code(401, .error(APIError.unauthorized))
+    ]
 }
 
 let client = APIClient(

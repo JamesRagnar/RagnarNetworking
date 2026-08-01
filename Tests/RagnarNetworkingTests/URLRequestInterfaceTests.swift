@@ -413,7 +413,7 @@ struct URLRequestInterfaceTests {
     @Test("Content-Type mismatch with different media type fails")
     func testContentTypeMismatchFails() throws {
         struct XmlBody: RequestBody, Sendable {
-            func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody {
+            func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody {
                 EncodedBody(data: Data("<xml/>".utf8), contentType: "application/xml")
             }
         }
@@ -577,7 +577,7 @@ struct URLRequestInterfaceTests {
         struct CustomBody: RequestBody, Sendable {
             let data: String
 
-            func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody {
+            func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody {
                 EncodedBody(
                     data: Data(data.utf8),
                     contentType: "application/xml"
@@ -630,7 +630,7 @@ struct URLRequestInterfaceTests {
         struct TextBody: RequestBody, Sendable {
             let text: String
 
-            func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody {
+            func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody {
                 EncodedBody(
                     data: Data(text.utf8),
                     contentType: "text/plain; charset=utf-8"
@@ -666,7 +666,7 @@ struct URLRequestInterfaceTests {
                 }
             }
 
-            func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody {
+            func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody {
                 throw TestError()
             }
         }

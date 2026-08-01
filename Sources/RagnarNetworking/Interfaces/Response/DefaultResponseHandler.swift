@@ -31,12 +31,18 @@ import Foundation
 ///         case .decoded(let value):
 ///             return value
 ///         case .noContent:
+///             let snapshot = HTTPResponseSnapshot(response: response.response)
 ///             do {
-///                 return try base.decode(Data(), as: interface, responseDecoder: responseDecoder)
+///                 return try base.decode(
+///                     Data(),
+///                     as: interface,
+///                     metadata: snapshot,
+///                     responseDecoder: responseDecoder
+///                 )
 ///             } catch {
 ///                 throw .decoding(
 ///                     ResponseBody(response.data, decoder: responseDecoder),
-///                     HTTPResponseSnapshot(response: response.response),
+///                     snapshot,
 ///                     error
 ///                 )
 ///             }
@@ -61,12 +67,18 @@ public struct DefaultResponseHandler: ResponseHandler {
             return value
 
         case .noContent:
+            let snapshot = HTTPResponseSnapshot(response: response.response)
             do {
-                return try decode(Data(), as: interface, responseDecoder: responseDecoder)
+                return try decode(
+                    Data(),
+                    as: interface,
+                    metadata: snapshot,
+                    responseDecoder: responseDecoder
+                )
             } catch {
                 throw .decoding(
                     ResponseBody(response.data, decoder: responseDecoder),
-                    HTTPResponseSnapshot(response: response.response),
+                    snapshot,
                     error
                 )
             }
@@ -102,7 +114,14 @@ public struct DefaultResponseHandler: ResponseHandler {
         switch responseCase {
         case .decode:
             do {
-                return .decoded(try decode(response.data, as: interface, responseDecoder: responseDecoder))
+                return .decoded(
+                    try decode(
+                        response.data,
+                        as: interface,
+                        metadata: responseSnapshot,
+                        responseDecoder: responseDecoder
+                    )
+                )
             } catch {
                 throw .decoding(
                     responseBody,
@@ -154,14 +173,19 @@ public struct DefaultResponseHandler: ResponseHandler {
     /// whatever it throws into an `InterfaceDecodingError`. Call this to finish handling once
     /// `handleOutcome` reports `.noContent` (with an empty `Data`) or when composing custom
     /// decoding logic that still needs the default type-driven behavior.
+    ///
+    /// - Parameter metadata: Passed through to `InterfaceResponse.decode`, for response types
+    ///   whose value depends on a header or the status code.
     public func decode<T: Interface>(
         _ data: Data,
         as interface: T.Type,
+        metadata: HTTPResponseSnapshot,
         responseDecoder: ResponseDecoder
     ) throws(InterfaceDecodingError) -> T.Response {
         do {
             return try T.Response.decode(
                 from: data,
+                metadata: metadata,
                 using: responseDecoder
             )
         } catch let error as InterfaceDecodingError {

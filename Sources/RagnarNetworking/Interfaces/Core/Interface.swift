@@ -24,7 +24,10 @@ public protocol Interface: Sendable {
     /// decodes as JSON. `String`, `Data`, and `EmptyResponse` carry built-in conformances.
     associatedtype Response: InterfaceResponse & Sendable
 
-    /// Defines how each HTTP status code should be handled for this interface
+    /// Defines how each HTTP status code should be handled for this interface.
+    ///
+    /// Declare this as a `static let`. A computed `static var` rebuilds the map on every
+    /// response.
     static var responseCases: ResponseMap { get }
 
     /// Overrides response handling for this endpoint alone.
@@ -42,6 +45,14 @@ public protocol Interface: Sendable {
     /// `Response` type itself (`CodingKeys`, a custom `init(from:)`, or an `InterfaceResponse`
     /// conformance); reach for a handler when the *response interpretation* differs, not just
     /// the field names.
+    ///
+    /// - Warning: This requirement is `Optional`. A declaration written against an earlier
+    ///   version as `static var responseHandler: any ResponseHandler { MyHandler() }` still
+    ///   **compiles**, because it is a valid static property, but it no longer satisfies this
+    ///   requirement - property witness types are invariant, so the non-optional form does not
+    ///   match. The declaration becomes dead and the endpoint silently uses the configured
+    ///   handler. Swift emits no diagnostic for this. Check that every override returns
+    ///   `(any ResponseHandler)?`.
     static var responseHandler: (any ResponseHandler)? { get }
 
 }

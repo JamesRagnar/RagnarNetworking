@@ -27,13 +27,15 @@ public extension Interface {
     ///     the client's decoding rules.
     ///   - defaultHandler: The handler to use when the Interface does not override
     ///     `responseHandler`, normally the client's configured
-    ///     `ServerConfiguration.responseHandler`.
+    ///     `ServerConfiguration.responseHandler`. Required rather than defaulted, for the same
+    ///     reason `responseDecoder` is: a caller holding the configured decoder is holding the
+    ///     configured handler too, and a default here would silently discard it.
     /// - Returns: The decoded Response type
     /// - Throws: `ResponseError` if the response cannot be processed
     static func handle(
         _ response: (data: Data, response: URLResponse),
         responseDecoder: ResponseDecoder,
-        defaultHandler: any ResponseHandler = DefaultResponseHandler()
+        defaultHandler: any ResponseHandler
     ) throws(ResponseError) -> Response {
         let handler = responseHandler ?? defaultHandler
 

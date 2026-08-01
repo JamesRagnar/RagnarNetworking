@@ -14,6 +14,10 @@ import Foundation.NSURLSession
 /// double to accidentally bypass request construction or response handling.
 ///
 /// `URLSession` conforms by default.
+///
+/// - Note: Bodies are buffered in memory in both directions. Streamed upload from disk and
+///   streamed download are deliberately out of scope; an endpoint that needs either is better
+///   served by using `URLSession` directly than by widening this protocol.
 public protocol Transport: Sendable {
 
     /// Executes a raw URLRequest and returns the response data.

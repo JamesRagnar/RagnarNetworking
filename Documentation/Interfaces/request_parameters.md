@@ -23,9 +23,14 @@ None of these members has a protocol-extension default, so a conformance restate
 when four of them are `nil` or empty. This is intentional and not an oversight.
 
 Defaults here fail silently and late. A `queryItems` you meant to populate, or an `authentication`
-you meant to set to `.bearer`, compiles clean and produces a wrong request at runtime - the exact
-class of error this package exists to move to compile time. Writing the member out means the
-declaration is reviewable against the endpoint it models.
+you meant to set to `.bearer`, produces a wrong request at runtime with nothing to look at.
+
+To be precise about what this buys: requiring the member does **not** move that error to compile
+time. `let queryItems: [URLQueryItem]? = nil` still compiles, and an interpolated `path` that
+forgets to use its parameter still compiles. What it does is force every part of the request to
+appear in the declaration, so a wrong request is visible in the source and in the diff rather than
+inferred from an absence. That is a review guarantee, not a compiler guarantee, and it is worth
+the six lines.
 
 `Interface.Response` requires an explicit `InterfaceResponse` conformance for the same reason.
 
@@ -41,7 +46,7 @@ All bodies must conform to `RequestBody`, which couples the encoded data with it
 
 ```swift
 public protocol RequestBody: Sendable {
-    func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody
+    func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody
 }
 
 public struct EncodedBody: Sendable {
@@ -49,6 +54,11 @@ public struct EncodedBody: Sendable {
     public let contentType: String?
 }
 ```
+
+`encodeBody` receives the configuration's `RequestEncoder`, not a concrete `JSONEncoder`. A JSON
+body calls `encoder.makeJSONEncoder()` to pick up the client's configured strategies; a body in
+another format ignores it. This mirrors `InterfaceResponse.decode` on the response side, and it
+means a non-JSON body is not handed a `JSONEncoder` it has no use for.
 
 ### JSON Body (Default)
 
@@ -123,7 +133,7 @@ Implement `encodeBody(using:)` for non-JSON payloads.
 struct XmlBody: RequestBody, Sendable {
     let xml: String
 
-    func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody {
+    func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody {
         EncodedBody(data: Data(xml.utf8), contentType: "application/xml")
     }
 }

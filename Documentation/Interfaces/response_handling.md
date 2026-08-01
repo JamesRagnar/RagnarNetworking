@@ -5,13 +5,11 @@ Interfaces map HTTP status codes to outcomes (decode success, throw a predefined
 ## Response Cases
 
 ```swift
-static var responseCases: ResponseMap {
-    [
-        .code(200, .decode),
-        .code(404, .error(APIError.userNotFound)),
-        .clientError(.decodeError(APIErrorBody.self))
-    ]
-}
+static let responseCases: ResponseMap = [
+    .code(200, .decode),
+    .code(404, .error(APIError.userNotFound)),
+    .clientError(.decodeError(APIErrorBody.self))
+]
 ```
 
 ## Success Outcomes
@@ -37,9 +35,7 @@ struct DeleteUser: Interface {
 
     typealias Response = EmptyResponse
 
-    static var responseCases: ResponseMap {
-        [.code(204, .noContent)]
-    }
+    static let responseCases: ResponseMap = [.code(204, .noContent)]
 }
 ```
 For custom no-content behavior, override the Interface `responseHandler`.
@@ -60,6 +56,13 @@ endpoint that overrides in an API whose configuration unwraps an envelope has to
 envelope itself.
 
 Handlers are values, so a handler can carry its own state.
+
+> **Upgrading:** this requirement is `Optional`. An override written against an earlier version as
+> `static var responseHandler: any ResponseHandler { MyHandler() }` still **compiles**, because it
+> is a valid static property, but it no longer satisfies the requirement: property witness types
+> are invariant, so the non-optional form does not match. The declaration becomes dead and the
+> endpoint silently uses the configured handler. Swift emits no diagnostic. Check that every
+> override returns `(any ResponseHandler)?`.
 
 ```swift
 public struct GetLibraryItemCover: Interface {
@@ -102,9 +105,9 @@ A custom `ResponseHandler` that only needs a targeted addition to the default be
 (for example, inspecting a header before decoding) does not need to reimplement status-code
 matching. `DefaultResponseHandler.handleOutcome(_:for:responseDecoder:)` performs the same matching `handle`
 does, returning a `ResponseOutcomeResult` instead of deciding what to do with a `.noContent`
-result. `DefaultResponseHandler.decode(_:as:responseDecoder:)` performs the same decoding `handle`
-uses to finish a `.noContent` result: it asks `Response` to build itself via `InterfaceResponse`
-and normalizes whatever it throws into an `InterfaceDecodingError`.
+result. `DefaultResponseHandler.decode(_:as:metadata:responseDecoder:)` performs the same decoding
+`handle` uses to finish a `.noContent` result: it asks `Response` to build itself via
+`InterfaceResponse` and normalizes whatever it throws into an `InterfaceDecodingError`.
 
 ```swift
 public struct LoggingResponseHandler: ResponseHandler {
@@ -120,12 +123,18 @@ public struct LoggingResponseHandler: ResponseHandler {
             return value
 
         case .noContent:
+            let snapshot = HTTPResponseSnapshot(response: response.response)
             do {
-                return try base.decode(Data(), as: interface, responseDecoder: responseDecoder)
+                return try base.decode(
+                    Data(),
+                    as: interface,
+                    metadata: snapshot,
+                    responseDecoder: responseDecoder
+                )
             } catch {
                 throw ResponseError.decoding(
                     ResponseBody(response.data, decoder: responseDecoder),
-                    HTTPResponseSnapshot(response: response.response),
+                    snapshot,
                     error
                 )
             }
@@ -139,17 +148,15 @@ public struct LoggingResponseHandler: ResponseHandler {
 - Exact status codes match first.
 - Range matches are evaluated in the order they are defined.
 - Duplicate exact codes keep the first declaration. Later duplicates are ignored.
-- In DEBUG builds, duplicate exact codes emit a developer diagnostic.
+- Duplicate exact codes emit a developer diagnostic through `Logger`, in every build configuration.
 
 This means you can declare a fallback range and still override specific status codes later:
 
 ```swift
-static var responseCases: ResponseMap {
-    [
-        .clientError(.error(APIError.genericClientError)),
-        .code(401, .error(APIError.unauthorized))
-    ]
-}
+static let responseCases: ResponseMap = [
+    .clientError(.error(APIError.genericClientError)),
+    .code(401, .error(APIError.unauthorized))
+]
 ```
 
 ### Resolution Rules (Quick Reference)
@@ -163,33 +170,27 @@ Examples:
 
 ```swift
 // Exact beats range
-static var responseCases: ResponseMap {
-    [
-        .success(.error(APIError.genericSuccess)),
-        .code(200, .decode) // wins for 200
-    ]
-}
+static let responseCases: ResponseMap = [
+    .success(.error(APIError.genericSuccess)),
+    .code(200, .decode) // wins for 200
+]
 ```
 
 ```swift
 // Range order matters
-static var responseCases: ResponseMap {
-    [
-        .range(400..<500, .error(APIError.client)),
-        .range(400..<600, .error(APIError.clientOrServer))
-        // 404 resolves to APIError.client (first matching range)
-    ]
-}
+static let responseCases: ResponseMap = [
+    .range(400..<500, .error(APIError.client)),
+    .range(400..<600, .error(APIError.clientOrServer))
+    // 404 resolves to APIError.client (first matching range)
+]
 ```
 
 ```swift
 // Duplicate exact codes: first wins
-static var responseCases: ResponseMap {
-    [
-        .code(401, .error(APIError.unauthorized)),
-        .code(401, .error(APIError.sessionExpired)) // ignored, DEBUG developer diagnostic
-    ]
-}
+static let responseCases: ResponseMap = [
+    .code(401, .error(APIError.unauthorized)),
+    .code(401, .error(APIError.sessionExpired)) // ignored, logs a developer diagnostic
+]
 ```
 
 ### decodeError Behavior
@@ -209,14 +210,12 @@ outcome at handling time rather than captured at declaration time: `.decodeError
 `(Data, ResponseDecoder)`, and `.decodeError(_:)` uses that decoder for you.
 
 ```swift
-static var responseCases: ResponseMap {
-    [
-        .code(400, .decodeError(APIErrorBody.self)),
-        .code(418, .decodeError(body: { data, decoder in
-            try decoder.makeJSONDecoder().decode(TeapotError.self, from: data)
-        }))
-    ]
-}
+static let responseCases: ResponseMap = [
+    .code(400, .decodeError(APIErrorBody.self)),
+    .code(418, .decodeError(body: { data, decoder in
+        try decoder.makeJSONDecoder().decode(TeapotError.self, from: data)
+    }))
+]
 ```
 
 `ResponseError` carries its body as a `ResponseBody` - the raw bytes plus the decoder the
@@ -237,8 +236,8 @@ just its field names. See [Server Configuration](../server_configuration.md#resp
 
 ## Decoding Rules
 
-An `Interface.Response` conforms to `InterfaceResponse`, which owns how the type is built from
-response bytes. This mirrors `RequestBody` on the request side: the type that knows the format
+An `Interface.Response` conforms to `InterfaceResponse`, which owns how the type is built from a
+response. This mirrors `RequestBody` on the request side: the type that knows the format
 implements the conversion, rather than the handler comparing `Response.self` against a fixed list
 of known types.
 
@@ -256,10 +255,29 @@ The package ships conformances for:
 - `String` (UTF-8)
 - `Data` (raw bytes)
 - `EmptyResponse` (no body; succeeds for any bytes, including none)
-- `Array` and `Dictionary` of `Decodable` elements (top-level JSON collections)
+- `Int`, `Int64`, `Double`, `Bool` (top-level JSON scalars)
+- `Optional` of a `Decodable` wrapped type (a top-level `null` decodes as `nil`)
+- `Array` of `Decodable` elements (top-level JSON array)
+- `Dictionary` of `Decodable` keys and values, with the caveat below
 
 The explicit conformance is deliberate, for the same reason `RequestParameters` has no defaulted
-members: an omission should fail at compile time rather than at the first real request.
+members: it keeps the response contract stated rather than inferred.
+
+### Dictionary Key Types
+
+The `Dictionary` conformance inherits the standard library's `Dictionary: Decodable` behavior
+verbatim, and that behavior depends on the key type:
+
+| `Response` | `{"a": 1}` | `["a", 1]` |
+|---|---|---|
+| `[String: Int]` | decodes | throws |
+| `[Int: String]` (against `{"1": "x"}`) | decodes | throws |
+| `[MyEnum: Int]` | **throws** | decodes |
+| `[MyEnum: Int]` where `MyEnum: CodingKeyRepresentable` | decodes | throws |
+
+A key type that is neither `String`, nor `Int`, nor `CodingKeyRepresentable` decodes from an
+**alternating unkeyed array**, not from an object. Conform the key type to
+`CodingKeyRepresentable` when the server sends an object.
 
 ### Non-JSON Responses
 
@@ -269,7 +287,11 @@ Conform directly when a response is not JSON. Nothing in the package needs to ch
 struct CSVRows: InterfaceResponse, Sendable {
     let rows: [[String]]
 
-    static func decode(from data: Data, using decoder: ResponseDecoder) throws -> CSVRows {
+    static func decode(
+        from data: Data,
+        metadata: HTTPResponseSnapshot,
+        using decoder: ResponseDecoder
+    ) throws -> CSVRows {
         guard let text = String(data: data, encoding: .utf8) else {
             throw InterfaceDecodingError.missingString
         }
@@ -289,10 +311,56 @@ A conformance may throw any error type. `DefaultResponseHandler` normalizes what
 the *default* path is JSON-only by design. `InterfaceResponse` is the extension point for
 everything else, and it is per-type rather than per-client.
 
-- **Note:** `InterfaceResponse` does not itself refine `Sendable`; `Interface.Response` requires
-  `InterfaceResponse & Sendable`. Swift forbids a conditional conformance from depending on a
-  marker protocol, so refining `Sendable` would make the `Array` and `Dictionary` conformances
-  inexpressible. The guarantee is unchanged at the only place it matters.
+### Responses That Depend on Headers
+
+`decode` receives an `HTTPResponseSnapshot` alongside the bytes, so a response whose value depends
+on the status code or a header can be built here rather than requiring a whole `ResponseHandler`:
+
+```swift
+struct PagedNames: InterfaceResponse, Sendable {
+    let names: [String]
+    let totalCount: Int?
+
+    static func decode(
+        from data: Data,
+        metadata: HTTPResponseSnapshot,
+        using decoder: ResponseDecoder
+    ) throws -> PagedNames {
+        PagedNames(
+            names: try decoder.makeJSONDecoder().decode([String].self, from: data),
+            totalCount: metadata.headers
+                .first { $0.key.caseInsensitiveCompare("X-Total-Count") == .orderedSame }
+                .flatMap { Int($0.value) }
+        )
+    }
+}
+```
+
+This covers `ETag`, `Link` pagination, `X-Total-Count`, and `Content-Range`. The snapshot is the
+same redacted value `ResponseError` carries, and it is available on the `.noContent` path too.
+
+### Why InterfaceResponse Does Not Refine Sendable
+
+`Interface.Response` requires `InterfaceResponse & Sendable` rather than `InterfaceResponse`
+refining `Sendable` directly. The refinement **compiles**, but it is unsound.
+
+A conditional conformance cannot depend on a marker protocol, so the `Array` conformance has to be
+written `where Element: Decodable`, without `Sendable`. If `InterfaceResponse` refined `Sendable`,
+`[T]` would then satisfy `Sendable` through that conformance without `Array`'s own conditional
+`Sendable` ever being checked. A non-`Sendable` element type would cross a concurrency boundary
+with no diagnostic:
+
+```swift
+final class Box: Decodable { var v = 0 }   // not Sendable
+
+// With `protocol InterfaceResponse: Sendable`, this compiles clean:
+func ship<T: InterfaceResponse>(_ value: T, to sink: Sink) async {
+    await sink.take(value)                  // T: Sendable "for free"
+}
+```
+
+Requiring `Sendable` at the use site forces the real `Array<Box>: Sendable` check, which fails as
+it should. The guarantee is **stronger** this way, not merely preserved.
 
 ## Response Errors
 
