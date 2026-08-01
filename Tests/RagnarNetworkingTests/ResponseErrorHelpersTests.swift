@@ -38,13 +38,70 @@ struct ResponseErrorHelpersTests {
         HTTPResponseSnapshot(response: response)
     }
 
+    // MARK: - Body Accessor Tests
+
+    @Test("body exposes the ResponseBody for every error case")
+    func testBodyAccessorForAllCases() {
+        let data = "payload".data(using: .utf8)!
+        let snapshot = makeSnapshot(from: makeHTTPResponse(statusCode: 400))
+        let underlying = NSError(domain: "test", code: 1)
+
+        let errors: [ResponseError] = [
+            .unknownResponse(ResponseBody(data), snapshot),
+            .unknownResponseCase(ResponseBody(data), snapshot),
+            .decoding(ResponseBody(data), snapshot, .missingString),
+            .generic(ResponseBody(data), snapshot, underlying),
+            .decoded(ResponseBody(data), snapshot, underlying)
+        ]
+
+        for error in errors {
+            #expect(error.body.data == data)
+            #expect(error.responseData == data)
+        }
+    }
+
+    @Test("body carries the decoder the response was handled with")
+    func testBodyCarriesDecoder() {
+        struct SnakeCasePayload: Decodable, Equatable {
+            let errorCode: Int
+        }
+
+        let error = ResponseError.unknownResponseCase(
+            ResponseBody(
+                #"{"error_code": 7}"#.data(using: .utf8)!,
+                decoder: ResponseDecoder(keyDecodingStrategy: .convertFromSnakeCase)
+            ),
+            makeSnapshot(from: makeHTTPResponse(statusCode: 400))
+        )
+
+        // Reached through the error's own body, with no decoder supplied at the catch site.
+        #expect(error.body.decode(as: SnakeCasePayload.self) == SnakeCasePayload(errorCode: 7))
+        #expect(error.decodeError(as: SnakeCasePayload.self) == SnakeCasePayload(errorCode: 7))
+    }
+
+    @Test("decodeError returns the already-decoded error without re-decoding")
+    func testDecodeErrorReturnsStoredValue() {
+        struct StoredError: Decodable, Error, Equatable {
+            let code: Int
+        }
+
+        // An empty body: decoding it would fail, so a returned value can only be the stored one.
+        let error = ResponseError.decoded(
+            ResponseBody(Data()),
+            makeSnapshot(from: makeHTTPResponse(statusCode: 400)),
+            StoredError(code: 9)
+        )
+
+        #expect(error.decodeError(as: StoredError.self) == StoredError(code: 9))
+    }
+
     // MARK: - Status Code Tests
 
     @Test("Returns status code for unknownResponseCase")
     func testStatusCodeUnknownResponseCase() {
         let data = Data()
         let response = makeHTTPResponse(statusCode: 404)
-        let error = ResponseError.unknownResponseCase(data, makeSnapshot(from: response))
+        let error = ResponseError.unknownResponseCase(ResponseBody(data), makeSnapshot(from: response))
 
         #expect(error.statusCode == 404)
     }
@@ -54,7 +111,7 @@ struct ResponseErrorHelpersTests {
         let data = Data()
         let response = makeHTTPResponse(statusCode: 200)
         let decodingError = InterfaceDecodingError.missingString
-        let error = ResponseError.decoding(data, makeSnapshot(from: response), decodingError)
+        let error = ResponseError.decoding(ResponseBody(data), makeSnapshot(from: response), decodingError)
 
         #expect(error.statusCode == 200)
     }
@@ -63,7 +120,7 @@ struct ResponseErrorHelpersTests {
     func testStatusCodeGenericError() {
         let data = Data()
         let response = makeHTTPResponse(statusCode: 500)
-        let error = ResponseError.generic(data, makeSnapshot(from: response), NSError(domain: "test", code: 1))
+        let error = ResponseError.generic(ResponseBody(data), makeSnapshot(from: response), NSError(domain: "test", code: 1))
 
         #expect(error.statusCode == 500)
     }
@@ -72,7 +129,7 @@ struct ResponseErrorHelpersTests {
     func testStatusCodeUnknownResponse() {
         let data = Data()
         let response = makeURLResponse()
-        let error = ResponseError.unknownResponse(data, makeSnapshot(from: response))
+        let error = ResponseError.unknownResponse(ResponseBody(data), makeSnapshot(from: response))
 
         #expect(error.statusCode == nil)
     }
@@ -82,7 +139,7 @@ struct ResponseErrorHelpersTests {
         let statusCodes = [200, 201, 400, 401, 403, 404, 500, 502, 503]
 
         for code in statusCodes {
-            let error = ResponseError.unknownResponseCase(Data(), makeSnapshot(from: makeHTTPResponse(statusCode: code)))
+            let error = ResponseError.unknownResponseCase(ResponseBody(Data()), makeSnapshot(from: makeHTTPResponse(statusCode: code)))
             #expect(error.statusCode == code)
         }
     }
@@ -94,7 +151,7 @@ struct ResponseErrorHelpersTests {
         let bodyString = "Error message from server"
         let data = bodyString.data(using: .utf8)!
         let response = makeHTTPResponse(statusCode: 400)
-        let error = ResponseError.unknownResponseCase(data, makeSnapshot(from: response))
+        let error = ResponseError.unknownResponseCase(ResponseBody(data), makeSnapshot(from: response))
 
         #expect(error.responseBodyString == bodyString)
     }
@@ -106,7 +163,7 @@ struct ResponseErrorHelpersTests {
         """
         let data = jsonString.data(using: .utf8)!
         let response = makeHTTPResponse(statusCode: 400)
-        let error = ResponseError.unknownResponseCase(data, makeSnapshot(from: response))
+        let error = ResponseError.unknownResponseCase(ResponseBody(data), makeSnapshot(from: response))
 
         #expect(error.responseBodyString == jsonString)
     }
@@ -115,7 +172,7 @@ struct ResponseErrorHelpersTests {
     func testInvalidUTF8ResponseBody() {
         let data = Data([0xFF, 0xFE, 0xFD]) // Invalid UTF-8
         let response = makeHTTPResponse(statusCode: 500)
-        let error = ResponseError.generic(data, makeSnapshot(from: response), NSError(domain: "test", code: 1))
+        let error = ResponseError.generic(ResponseBody(data), makeSnapshot(from: response), NSError(domain: "test", code: 1))
 
         #expect(error.responseBodyString == nil)
     }
@@ -124,7 +181,7 @@ struct ResponseErrorHelpersTests {
     func testEmptyResponseBody() {
         let data = Data()
         let response = makeHTTPResponse(statusCode: 204)
-        let error = ResponseError.unknownResponseCase(data, makeSnapshot(from: response))
+        let error = ResponseError.unknownResponseCase(ResponseBody(data), makeSnapshot(from: response))
 
         #expect(error.responseBodyString == "")
     }
@@ -135,10 +192,10 @@ struct ResponseErrorHelpersTests {
         let data = bodyString.data(using: .utf8)!
 
         let errors: [ResponseError] = [
-            .unknownResponse(data, makeSnapshot(from: makeURLResponse())),
-            .unknownResponseCase(data, makeSnapshot(from: makeHTTPResponse(statusCode: 404))),
-            .decoding(data, makeSnapshot(from: makeHTTPResponse(statusCode: 200)), .missingString),
-            .generic(data, makeSnapshot(from: makeHTTPResponse(statusCode: 500)), NSError(domain: "test", code: 1))
+            .unknownResponse(ResponseBody(data), makeSnapshot(from: makeURLResponse())),
+            .unknownResponseCase(ResponseBody(data), makeSnapshot(from: makeHTTPResponse(statusCode: 404))),
+            .decoding(ResponseBody(data), makeSnapshot(from: makeHTTPResponse(statusCode: 200)), .missingString),
+            .generic(ResponseBody(data), makeSnapshot(from: makeHTTPResponse(statusCode: 500)), NSError(domain: "test", code: 1))
         ]
 
         for error in errors {
@@ -160,7 +217,7 @@ struct ResponseErrorHelpersTests {
         """
         let data = errorJSON.data(using: .utf8)!
         let response = makeHTTPResponse(statusCode: 401)
-        let error = ResponseError.unknownResponseCase(data, makeSnapshot(from: response))
+        let error = ResponseError.unknownResponseCase(ResponseBody(data), makeSnapshot(from: response))
 
         let decodedError = error.decodeError(as: APIError.self)
 
@@ -176,7 +233,7 @@ struct ResponseErrorHelpersTests {
 
         let data = "not json".data(using: .utf8)!
         let response = makeHTTPResponse(statusCode: 400)
-        let error = ResponseError.unknownResponseCase(data, makeSnapshot(from: response))
+        let error = ResponseError.unknownResponseCase(ResponseBody(data), makeSnapshot(from: response))
 
         let decodedError = error.decodeError(as: APIError.self)
 
@@ -195,7 +252,7 @@ struct ResponseErrorHelpersTests {
         """
         let data = errorJSON.data(using: .utf8)!
         let response = makeHTTPResponse(statusCode: 400)
-        let error = ResponseError.unknownResponseCase(data, makeSnapshot(from: response))
+        let error = ResponseError.unknownResponseCase(ResponseBody(data), makeSnapshot(from: response))
 
         let decodedError = error.decodeError(as: ExpectedError.self)
 
@@ -215,7 +272,7 @@ struct ResponseErrorHelpersTests {
         let data = #"{"code":123}"#.data(using: .utf8)!
         let response = makeHTTPResponse(statusCode: 400)
         let stored = StoredError(message: "stored")
-        let error = ResponseError.decoded(data, makeSnapshot(from: response), stored)
+        let error = ResponseError.decoded(ResponseBody(data), makeSnapshot(from: response), stored)
 
         let decoded = error.decodeError(as: ExpectedError.self)
 
@@ -244,7 +301,7 @@ struct ResponseErrorHelpersTests {
         """
         let data = errorJSON.data(using: .utf8)!
         let response = makeHTTPResponse(statusCode: 422)
-        let error = ResponseError.unknownResponseCase(data, makeSnapshot(from: response))
+        let error = ResponseError.unknownResponseCase(ResponseBody(data), makeSnapshot(from: response))
 
         let decodedError = error.decodeError(as: DetailedError.self)
 
@@ -265,7 +322,7 @@ struct ResponseErrorHelpersTests {
         ]
         let data = Data()
         let response = makeHTTPResponse(statusCode: 500, headers: headers)
-        let error = ResponseError.generic(data, makeSnapshot(from: response), NSError(domain: "test", code: 1))
+        let error = ResponseError.generic(ResponseBody(data), makeSnapshot(from: response), NSError(domain: "test", code: 1))
 
         #expect(error.headers?["Content-Type"] == "application/json")
         #expect(error.headers?["X-Request-ID"] == "12345")
@@ -276,7 +333,7 @@ struct ResponseErrorHelpersTests {
     func testHeadersNilForUnknownResponse() {
         let data = Data()
         let response = makeURLResponse()
-        let error = ResponseError.unknownResponse(data, makeSnapshot(from: response))
+        let error = ResponseError.unknownResponse(ResponseBody(data), makeSnapshot(from: response))
 
         #expect(error.headers == nil)
     }
@@ -285,7 +342,7 @@ struct ResponseErrorHelpersTests {
     func testEmptyHeadersDictionary() {
         let data = Data()
         let response = makeHTTPResponse(statusCode: 200)
-        let error = ResponseError.unknownResponseCase(data, makeSnapshot(from: response))
+        let error = ResponseError.unknownResponseCase(ResponseBody(data), makeSnapshot(from: response))
 
         // HTTPURLResponse may have some default headers, so just check it's not nil
         #expect(error.headers != nil)
@@ -298,7 +355,7 @@ struct ResponseErrorHelpersTests {
         let headers = ["X-Request-ID": "abc-123", "X-Rate-Limit": "100"]
         let data = Data()
         let response = makeHTTPResponse(statusCode: 429, headers: headers)
-        let error = ResponseError.unknownResponseCase(data, makeSnapshot(from: response))
+        let error = ResponseError.unknownResponseCase(ResponseBody(data), makeSnapshot(from: response))
 
         #expect(error.header("X-Request-ID") == "abc-123")
         #expect(error.header("X-Rate-Limit") == "100")
@@ -308,7 +365,7 @@ struct ResponseErrorHelpersTests {
     func testNonExistentHeader() {
         let data = Data()
         let response = makeHTTPResponse(statusCode: 200)
-        let error = ResponseError.unknownResponseCase(data, makeSnapshot(from: response))
+        let error = ResponseError.unknownResponseCase(ResponseBody(data), makeSnapshot(from: response))
 
         #expect(error.header("X-Nonexistent") == nil)
     }
@@ -318,7 +375,7 @@ struct ResponseErrorHelpersTests {
         let headers = ["Content-Type": "application/json"]
         let data = Data()
         let response = makeHTTPResponse(statusCode: 200, headers: headers)
-        let error = ResponseError.unknownResponseCase(data, makeSnapshot(from: response))
+        let error = ResponseError.unknownResponseCase(ResponseBody(data), makeSnapshot(from: response))
 
         #expect(error.header("Content-Type") == "application/json")
         #expect(error.header("content-type") == "application/json")
@@ -333,7 +390,7 @@ struct ResponseErrorHelpersTests {
 
         for statusCode in serverErrors {
             let error = ResponseError.unknownResponseCase(
-                Data(),
+                ResponseBody(Data()),
                 makeSnapshot(from: makeHTTPResponse(statusCode: statusCode))
             )
             #expect(error.isRetryable == true, "Status \(statusCode) should be retryable")
@@ -343,7 +400,7 @@ struct ResponseErrorHelpersTests {
     @Test("Returns true for 429 Too Many Requests")
     func testRetryable429() {
         let error = ResponseError.unknownResponseCase(
-            Data(),
+            ResponseBody(Data()),
             makeSnapshot(from: makeHTTPResponse(statusCode: 429))
         )
 
@@ -356,7 +413,7 @@ struct ResponseErrorHelpersTests {
 
         for statusCode in clientErrors {
             let error = ResponseError.unknownResponseCase(
-                Data(),
+                ResponseBody(Data()),
                 makeSnapshot(from: makeHTTPResponse(statusCode: statusCode))
             )
             #expect(error.isRetryable == false, "Status \(statusCode) should not be retryable")
@@ -371,7 +428,7 @@ struct ResponseErrorHelpersTests {
         for statusCode in successCodes {
             let decodingError = InterfaceDecodingError.missingString
             let error = ResponseError.decoding(
-                Data(),
+                ResponseBody(Data()),
                 makeSnapshot(from: makeHTTPResponse(statusCode: statusCode)),
                 decodingError
             )
@@ -381,7 +438,7 @@ struct ResponseErrorHelpersTests {
 
     @Test("Returns false for unknownResponse")
     func testNotRetryableUnknownResponse() {
-        let error = ResponseError.unknownResponse(Data(), makeSnapshot(from: makeURLResponse()))
+        let error = ResponseError.unknownResponse(ResponseBody(Data()), makeSnapshot(from: makeURLResponse()))
 
         #expect(error.isRetryable == false)
     }
@@ -392,7 +449,7 @@ struct ResponseErrorHelpersTests {
 
         for statusCode in redirectCodes {
             let error = ResponseError.unknownResponseCase(
-                Data(),
+                ResponseBody(Data()),
                 makeSnapshot(from: makeHTTPResponse(statusCode: statusCode))
             )
             #expect(error.isRetryable == false, "Status \(statusCode) should not be retryable")
@@ -403,14 +460,14 @@ struct ResponseErrorHelpersTests {
 
     @Test("Debug description includes error type")
     func testDebugDescriptionIncludesErrorType() {
-        let error = ResponseError.unknownResponseCase(Data(), makeSnapshot(from: makeHTTPResponse(statusCode: 404)))
+        let error = ResponseError.unknownResponseCase(ResponseBody(Data()), makeSnapshot(from: makeHTTPResponse(statusCode: 404)))
 
         #expect(error.debugDescription.contains("unknownResponseCase"))
     }
 
     @Test("Debug description includes status code")
     func testDebugDescriptionIncludesStatusCode() {
-        let error = ResponseError.unknownResponseCase(Data(), makeSnapshot(from: makeHTTPResponse(statusCode: 500)))
+        let error = ResponseError.unknownResponseCase(ResponseBody(Data()), makeSnapshot(from: makeHTTPResponse(statusCode: 500)))
 
         #expect(error.debugDescription.contains("Status: 500"))
     }
@@ -419,7 +476,7 @@ struct ResponseErrorHelpersTests {
     func testDebugDescriptionIncludesHeaders() {
         let headers = ["X-Request-ID": "12345"]
         let error = ResponseError.unknownResponseCase(
-            Data(),
+            ResponseBody(Data()),
             makeSnapshot(from: makeHTTPResponse(statusCode: 400, headers: headers))
         )
 
@@ -436,7 +493,7 @@ struct ResponseErrorHelpersTests {
             "X-Request-ID": "12345"
         ]
         let error = ResponseError.unknownResponseCase(
-            Data(),
+            ResponseBody(Data()),
             makeSnapshot(from: makeHTTPResponse(statusCode: 400, headers: headers))
         )
 
@@ -459,7 +516,7 @@ struct ResponseErrorHelpersTests {
             httpVersion: "HTTP/1.1",
             headerFields: ["Set-Cookie": "session=abc123"]
         )!
-        let error = ResponseError.unknownResponseCase(Data(), makeSnapshot(from: response))
+        let error = ResponseError.unknownResponseCase(ResponseBody(Data()), makeSnapshot(from: response))
 
         let interpolated = "\(error)"
 
@@ -473,7 +530,7 @@ struct ResponseErrorHelpersTests {
         let body = "Error message from server"
         let data = body.data(using: .utf8)!
         let error = ResponseError.unknownResponseCase(
-            data,
+            ResponseBody(data),
             makeSnapshot(from: makeHTTPResponse(statusCode: 400))
         )
 
@@ -486,7 +543,7 @@ struct ResponseErrorHelpersTests {
         let longBody = String(repeating: "x", count: 250)
         let data = longBody.data(using: .utf8)!
         let error = ResponseError.unknownResponseCase(
-            data,
+            ResponseBody(data),
             makeSnapshot(from: makeHTTPResponse(statusCode: 500))
         )
 
@@ -504,7 +561,7 @@ struct ResponseErrorHelpersTests {
             )
         )
         let error = ResponseError.decoding(
-            Data(),
+            ResponseBody(Data()),
             makeSnapshot(from: makeHTTPResponse(statusCode: 200)),
             decodingError
         )
@@ -516,7 +573,7 @@ struct ResponseErrorHelpersTests {
     func testDebugDescriptionGenericError() {
         let underlyingError = NSError(domain: "TestDomain", code: 42)
         let error = ResponseError.generic(
-            Data(),
+            ResponseBody(Data()),
             makeSnapshot(from: makeHTTPResponse(statusCode: 500)),
             underlyingError
         )
@@ -529,7 +586,7 @@ struct ResponseErrorHelpersTests {
         let body = "test body"
         let data = body.data(using: .utf8)!
         let error = ResponseError.unknownResponse(
-            data,
+            ResponseBody(data),
             makeSnapshot(from: makeURLResponse())
         )
 
@@ -542,7 +599,7 @@ struct ResponseErrorHelpersTests {
     @Test("Debug description with empty body")
     func testDebugDescriptionEmptyBody() {
         let error = ResponseError.unknownResponseCase(
-            Data(),
+            ResponseBody(Data()),
             makeSnapshot(from: makeHTTPResponse(statusCode: 204))
         )
 
@@ -563,7 +620,7 @@ struct ResponseErrorHelpersTests {
             "X-Request-ID": "req-123"
         ]
         let error = ResponseError.unknownResponseCase(
-            data,
+            ResponseBody(data),
             makeSnapshot(from: makeHTTPResponse(statusCode: 404, headers: headers))
         )
 
@@ -582,7 +639,7 @@ struct ResponseErrorHelpersTests {
     @Test("errorDescription is concise for unknownResponseCase")
     func testErrorDescriptionUnknownResponseCase() {
         let error = ResponseError.unknownResponseCase(
-            Data(),
+            ResponseBody(Data()),
             makeSnapshot(from: makeHTTPResponse(statusCode: 404))
         )
 
@@ -594,7 +651,7 @@ struct ResponseErrorHelpersTests {
     @Test("errorDescription remains concise for decoding errors")
     func testErrorDescriptionDecoding() {
         let error = ResponseError.decoding(
-            Data("oops".utf8),
+            ResponseBody(Data("oops".utf8)),
             makeSnapshot(from: makeHTTPResponse(statusCode: 200)),
             .missingString
         )

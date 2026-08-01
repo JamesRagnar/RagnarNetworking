@@ -189,13 +189,33 @@ struct ResponseMapTests {
         switch outcome {
         case .decodeError(let decodeBody):
             let data = #"{"message":"fail"}"#.data(using: .utf8)!
-            let decoded = try decodeBody(data)
+            let decoded = try decodeBody(data, ResponseDecoder())
             let typed = decoded as? DecodedError
             #expect(typed?.message == "fail")
 
         default:
             #expect(Bool(false), "Expected decodeError outcome")
         }
+    }
+
+    @Test("decodeError outcome decodes with the decoder it is handed")
+    func testDecodeErrorOutcomeUsesSuppliedDecoder() throws {
+        struct SnakeCaseError: Decodable, Sendable, Error {
+            let errorMessage: String
+        }
+
+        let map: ResponseMap = [
+            .code(400, .decodeError(SnakeCaseError.self))
+        ]
+
+        guard case .decodeError(let decodeBody)? = map.match(400) else {
+            #expect(Bool(false), "Expected decodeError outcome")
+            return
+        }
+
+        let data = #"{"error_message":"fail"}"#.data(using: .utf8)!
+        let decoded = try decodeBody(data, ResponseDecoder(keyDecodingStrategy: .convertFromSnakeCase))
+        #expect((decoded as? SnakeCaseError)?.errorMessage == "fail")
     }
 
     @Test("noContent outcome is preserved")

@@ -7,6 +7,11 @@ A modern, type-safe Swift networking library for building API interfaces with co
 Define a typed interface, then call it through `APIClient`:
 
 ```swift
+struct User: Codable, InterfaceResponse {
+    let id: Int
+    let name: String
+}
+
 struct GetUserInterface: Interface {
     struct Parameters: RequestParameters {
         let method: RequestMethod = .get
@@ -23,17 +28,15 @@ struct GetUserInterface: Interface {
 
     typealias Response = User
 
-    static var responseCases: ResponseMap {
-        [
-            .code(200, .decode),
-            .code(404, .error(APIError.userNotFound)),
-            .code(401, .error(APIError.unauthorized))
-        ]
-    }
+    static let responseCases: ResponseMap = [
+        .code(200, .decode),
+        .code(404, .error(APIError.userNotFound)),
+        .code(401, .error(APIError.unauthorized))
+    ]
 }
 
 let client = APIClient(
-    baseURL: URL(string: "https://api.example.com")!,
+    configuration: ServerConfiguration(url: URL(string: "https://api.example.com")!),
     token: { try await keychain.accessToken() },
     refresh: { try await authService.refresh() }
 )
@@ -49,23 +52,26 @@ let user = try await client.send(
 - Type-safe endpoints with explicit status code handling (exact codes + ranges)
 - Automatic request construction from declarative parameters
 - Built-in auth strategies (`.none`, `.bearer`, `.url`)
-- Strict request bodies via `RequestBody` with intrinsic content types
+- Strict request bodies via `RequestBody` and response types via `InterfaceResponse`, both open to
+  non-JSON formats without changing the package
 - `APIClient` actor with automatic 401 retry, coalesced token refresh, and terminal invalidation
 - `SocketIOClient` actor with typed event streams and automatic reconnection
-- Testable request execution via `DataTaskProvider` and socket transport via `SocketClient`
-- Advanced request-construction extension API via `InterfaceConstructor`
+- Testable request execution via `Transport` and socket transport via `SocketClient`
+- Advanced request-construction extension API via `RequestBuilder`
 
 ## Documentation
 
 - [Documentation Overview](Documentation/README.md)
 - [APIClient](Documentation/api_client.md)
 - [SocketIOClient](Documentation/socket_io_client.md)
-- [DataTaskProvider](Documentation/data_task_provider.md)
+- [RequestPipeline and Transport](Documentation/request_pipeline.md)
 - [Server Configuration](Documentation/server_configuration.md)
 - [Interfaces Overview](Documentation/Interfaces/README.md)
 - [Request Parameters](Documentation/Interfaces/request_parameters.md)
 - [Response Handling](Documentation/Interfaces/response_handling.md)
-- [Interface Constructor](Documentation/Interfaces/interface_constructor.md)
+- [Request Builder](Documentation/Interfaces/request_builder.md)
+- [Error Handling](Documentation/error_handling.md)
+- [Concurrency](Documentation/concurrency.md)
 
 ## Requirements
 

@@ -6,16 +6,78 @@ import Testing
 
 private struct TestInterface: Interface {
     struct Parameters: RequestParameters {
+        let method: RequestMethod
+        let path: String
+        let queryItems: [URLQueryItem]?
+        let headers: [String: String]?
+        let body: EmptyBody
+        let authentication: AuthenticationType
+
+        init(
+            method: RequestMethod = .get,
+            path: String = "/test",
+            queryItems: [URLQueryItem]? = nil,
+            headers: [String: String]? = nil,
+            body: EmptyBody = .init(),
+            authentication: AuthenticationType
+        ) {
+            self.method = method
+            self.path = path
+            self.queryItems = queryItems
+            self.headers = headers
+            self.body = body
+            self.authentication = authentication
+        }
+    }
+
+    struct Response: Codable, Sendable, Equatable, InterfaceResponse {
+        let value: String
+    }
+
+    static var responseCases: ResponseMap {
+        [.code(200, .decode)]
+    }
+}
+
+// MARK: - Body Test Interface
+
+private struct BodyTestInterface: Interface {
+    struct Payload: Codable, Sendable {
+        let userId: Int
+    }
+
+    struct Parameters: RequestParameters {
+        let method: RequestMethod = .post
+        let path: String = "/body-test"
+        let queryItems: [URLQueryItem]? = nil
+        let headers: [String: String]? = nil
+        let body: EncodableBody<Payload>
+        let authentication: AuthenticationType = .none
+    }
+
+    struct Response: Codable, Sendable, Equatable, InterfaceResponse {
+        let value: String
+    }
+
+    static var responseCases: ResponseMap {
+        [.code(200, .decode)]
+    }
+}
+
+// MARK: - Snake Case Response Interface
+
+private struct SnakeCaseResponseInterface: Interface {
+    struct Parameters: RequestParameters {
         let method: RequestMethod = .get
-        let path: String = "/test"
+        let path: String = "/snake-case"
         let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EmptyBody = .init()
-        let authentication: AuthenticationType
+        let authentication: AuthenticationType = .none
     }
 
-    struct Response: Codable, Sendable, Equatable {
-        let value: String
+    struct Response: Codable, Sendable, Equatable, InterfaceResponse {
+        let userId: Int
     }
 
     static var responseCases: ResponseMap {
@@ -47,9 +109,9 @@ private actor Counter {
     func increment() { value += 1 }
 }
 
-// MARK: - Mock Data Task Provider
+// MARK: - Mock Transport
 
-private actor MockDataTaskProvider: DataTaskProvider {
+private actor MockTransport: Transport {
     private var queue: [Result<(Data, URLResponse), Error>] = []
     private(set) var callCount: Int = 0
     private(set) var capturedRequests: [URLRequest] = []
@@ -143,11 +205,11 @@ private actor CancellationLatch {
     }
 }
 
-// MARK: - Blocking Data Task Provider
+// MARK: - Blocking Transport
 
 /// A provider whose `data(for:)` blocks until the request is cancelled, letting a
 /// test observe an in-flight transport request and then cancel it deterministically.
-private actor BlockingDataTaskProvider: DataTaskProvider {
+private actor BlockingTransport: Transport {
     private let started = Signal()
     private let latch = CancellationLatch()
     private(set) var completed = false
@@ -219,14 +281,14 @@ private actor SwitchingTokenStore {
     }
 }
 
-// MARK: - Staggered Data Task Provider
+// MARK: - Staggered Transport
 
 /// A provider whose first two calls both fail with 401, but whose second call does not
 /// return until `refreshCompleted` fires. Combined with `Barrier2`, this reproduces a
 /// staggered 401 deterministically: both requests reach transport before either 401 is
 /// observed by the client, and the second 401 is only observed after a refresh
 /// triggered by the first has already completed.
-private actor StaggeredDataTaskProvider: DataTaskProvider {
+private actor StaggeredTransport: Transport {
     private let baseURL = URL(string: "https://api.example.com")!
     private var callIndex = 0
     private(set) var callCount = 0
@@ -276,14 +338,16 @@ private func makeResponseData(value: String = "ok") -> Data {
     try! JSONEncoder().encode(TestInterface.Response(value: value))
 }
 
+private let testServerURL = URL(string: "https://api.example.com")!
+
 private func makeClient(
-    mock: any DataTaskProvider,
+    mock: any Transport,
     token: @escaping @Sendable () async throws -> String?,
     refresh: @escaping @Sendable () async throws -> Void = {}
 ) -> APIClient {
     APIClient(
-        baseURL: URL(string: "https://api.example.com")!,
-        session: mock,
+        configuration: ServerConfiguration(url: testServerURL),
+        transport: mock,
         token: token,
         refresh: refresh
     )
@@ -298,7 +362,7 @@ struct APIClientTests {
 
     @Test(".none auth never calls the token closure")
     func noneAuthDoesNotCallToken() async throws {
-        let mock = MockDataTaskProvider()
+        let mock = MockTransport()
         await mock.enqueue(data: makeResponseData(), statusCode: 200)
 
         let tokenCounter = Counter()
@@ -315,12 +379,12 @@ struct APIClientTests {
 
     @Test("Unauthenticated convenience initializer supports .none requests")
     func unauthenticatedInitializerSupportsNoneAuth() async throws {
-        let mock = MockDataTaskProvider()
+        let mock = MockTransport()
         await mock.enqueue(data: makeResponseData(value: "public"), statusCode: 200)
 
         let client = APIClient(
-            baseURL: URL(string: "https://api.example.com")!,
-            session: mock
+            configuration: ServerConfiguration(url: testServerURL),
+            transport: mock
         )
 
         let params = TestInterface.Parameters(authentication: .none)
@@ -334,7 +398,7 @@ struct APIClientTests {
 
     @Test(".bearer auth calls token and sets Authorization: Bearer header")
     func bearerAuthSetsAuthorizationHeader() async throws {
-        let mock = MockDataTaskProvider()
+        let mock = MockTransport()
         await mock.enqueue(data: makeResponseData(), statusCode: 200)
 
         let tokenCounter = Counter()
@@ -356,7 +420,7 @@ struct APIClientTests {
 
     @Test(".url auth calls token and appends token= query parameter")
     func urlAuthAppendsTokenQueryParam() async throws {
-        let mock = MockDataTaskProvider()
+        let mock = MockTransport()
         await mock.enqueue(data: makeResponseData(), statusCode: 200)
 
         let tokenCounter = Counter()
@@ -381,7 +445,7 @@ struct APIClientTests {
 
     @Test("Successful request decodes the response body")
     func successfulRequestDecodesResponse() async throws {
-        let mock = MockDataTaskProvider()
+        let mock = MockTransport()
         await mock.enqueue(data: makeResponseData(value: "hello"), statusCode: 200)
 
         let client = makeClient(mock: mock, token: { "tok" })
@@ -396,7 +460,7 @@ struct APIClientTests {
 
     @Test("401 triggers refresh then retries with a fresh token")
     func fourOhOneTriggerRefreshAndRetry() async throws {
-        let mock = MockDataTaskProvider()
+        let mock = MockTransport()
         await mock.enqueue(data: Data(), statusCode: 401)
         await mock.enqueue(data: makeResponseData(value: "retried"), statusCode: 200)
 
@@ -422,7 +486,7 @@ struct APIClientTests {
 
     @Test("Non-401 errors are not retried and refresh is not called")
     func nonFourOhOneErrorIsNotRetried() async throws {
-        let mock = MockDataTaskProvider()
+        let mock = MockTransport()
         await mock.enqueue(data: Data(), statusCode: 500)
 
         let refreshCounter = Counter()
@@ -445,7 +509,7 @@ struct APIClientTests {
 
     @Test("Refresh failure propagates to the caller")
     func refreshFailurePropagates() async throws {
-        let mock = MockDataTaskProvider()
+        let mock = MockTransport()
         await mock.enqueue(data: Data(), statusCode: 401)
 
         struct RefreshError: Error, Equatable {}
@@ -466,7 +530,7 @@ struct APIClientTests {
 
     @Test("After a successful refresh the retry uses the new token value")
     func retryUsesNewTokenAfterRefresh() async throws {
-        let mock = MockDataTaskProvider()
+        let mock = MockTransport()
         await mock.enqueue(data: Data(), statusCode: 401)
         await mock.enqueue(data: makeResponseData(), statusCode: 200)
 
@@ -491,7 +555,7 @@ struct APIClientTests {
 
     @Test("Concurrent 401s coalesce into a single refresh call")
     func concurrent401sCoalesceRefresh() async throws {
-        let mock = MockDataTaskProvider()
+        let mock = MockTransport()
         await mock.enqueue(data: Data(), statusCode: 401)
         await mock.enqueue(data: Data(), statusCode: 401)
         await mock.enqueue(data: Data(), statusCode: 401)
@@ -538,7 +602,7 @@ struct APIClientTests {
 
         // Call order: two initial sends both fail 401 using the stale token (the second
         // is held back until refreshCompleted fires), then two retries both succeed 200.
-        let mock = StaggeredDataTaskProvider(
+        let mock = StaggeredTransport(
             responses: [
                 (Data(), 401),
                 (Data(), 401),
@@ -584,7 +648,7 @@ struct APIClientTests {
 
     @Test("A second 401 after refresh and retry is not retried again")
     func secondConsecutive401IsNotRetriedAgain() async throws {
-        let mock = MockDataTaskProvider()
+        let mock = MockTransport()
         await mock.enqueue(data: Data(), statusCode: 401)
         await mock.enqueue(data: Data(), statusCode: 401)
 
@@ -608,7 +672,7 @@ struct APIClientTests {
 
     @Test("Invalidating before send prevents token and transport work")
     func invalidateBeforeSendPreventsWork() async throws {
-        let mock = MockDataTaskProvider()
+        let mock = MockTransport()
         await mock.enqueue(data: makeResponseData(), statusCode: 200)
 
         let tokenCounter = Counter()
@@ -632,7 +696,7 @@ struct APIClientTests {
 
     @Test("Invalidating during transport cancels or suppresses completion")
     func invalidateDuringTransportSuppressesCompletion() async throws {
-        let mock = BlockingDataTaskProvider(data: makeResponseData(), statusCode: 200)
+        let mock = BlockingTransport(data: makeResponseData(), statusCode: 200)
         let client = makeClient(mock: mock, token: { "tok" })
 
         let params = TestInterface.Parameters(authentication: .bearer)
@@ -653,7 +717,7 @@ struct APIClientTests {
 
     @Test("Invalidating during refresh cancels the refresh and prevents retry")
     func invalidateDuringRefreshPreventsRetry() async throws {
-        let mock = MockDataTaskProvider()
+        let mock = MockTransport()
         await mock.enqueue(data: Data(), statusCode: 401)
         // A retry, if it happened, would consume this success response.
         await mock.enqueue(data: makeResponseData(), statusCode: 200)
@@ -693,7 +757,7 @@ struct APIClientTests {
 
     @Test("Repeated invalidation is idempotent")
     func repeatedInvalidationIsIdempotent() async throws {
-        let mock = MockDataTaskProvider()
+        let mock = MockTransport()
         let client = makeClient(mock: mock, token: { "tok" })
 
         await client.invalidate()
@@ -711,11 +775,11 @@ struct APIClientTests {
 
     @Test("A separately created replacement client is unaffected")
     func replacementClientIsUnaffected() async throws {
-        let mockA = MockDataTaskProvider()
+        let mockA = MockTransport()
         let clientA = makeClient(mock: mockA, token: { "a" })
         await clientA.invalidate()
 
-        let mockB = MockDataTaskProvider()
+        let mockB = MockTransport()
         await mockB.enqueue(data: makeResponseData(value: "b"), statusCode: 200)
         let clientB = makeClient(mock: mockB, token: { "b" })
 
@@ -730,7 +794,7 @@ struct APIClientTests {
 
     @Test("Cancelling during transport throws CancellationError and does not complete the request")
     func cancelDuringTransportThrowsCancellationError() async throws {
-        let mock = BlockingDataTaskProvider(data: makeResponseData(), statusCode: 200)
+        let mock = BlockingTransport(data: makeResponseData(), statusCode: 200)
         let client = makeClient(mock: mock, token: { "token" })
 
         let params = TestInterface.Parameters(authentication: .none)
@@ -749,7 +813,7 @@ struct APIClientTests {
 
     @Test("Cancelling during refresh throws CancellationError without cancelling the refresh or retrying")
     func cancelDuringRefreshThrowsCancellationErrorWithoutRetrying() async throws {
-        let mock = MockDataTaskProvider()
+        let mock = MockTransport()
         await mock.enqueue(data: Data(), statusCode: 401)
 
         let refreshStarted = Signal()
@@ -782,5 +846,126 @@ struct APIClientTests {
         // The refresh itself was not cancelled by the caller giving up on it.
         await allowRefreshToFinish.fire()
         await refreshFinished.wait()
+    }
+
+    // MARK: 19. A configured RequestEncoder reaches request bodies
+
+    @Test("APIClient configured with a RequestEncoder applies it to request bodies")
+    func requestEncoderIsAppliedToRequestBodies() async throws {
+        let mock = MockTransport()
+        await mock.enqueue(data: makeResponseData(), statusCode: 200)
+
+        let client = APIClient(
+            configuration: ServerConfiguration(
+                url: testServerURL,
+                requestEncoder: RequestEncoder(keyEncodingStrategy: .convertToSnakeCase)
+            ),
+            transport: mock
+        )
+
+        let params = BodyTestInterface.Parameters(body: .init(BodyTestInterface.Payload(userId: 42)))
+        _ = try await client.send(BodyTestInterface.self, params)
+
+        let requests = await mock.capturedRequests
+        let body = try #require(requests.first?.httpBody)
+        let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(json["user_id"] as? Int == 42)
+        #expect(json["userId"] == nil)
+    }
+
+    // MARK: 20. A configured RequestBuilder is used instead of the default
+
+    @Test("APIClient configured with a custom RequestBuilder uses it rather than URLRequestBuilder")
+    func customBuilderIsUsedByAPIClient() async throws {
+        struct TaggingBuilder: RequestBuilder {
+            let tag: String
+
+            func applyHeaders(
+                _ headers: [String: String],
+                authentication: AuthenticationType,
+                authToken: String?,
+                to request: inout URLRequest
+            ) throws(RequestError) {
+                try URLRequestBuilder().applyHeaders(
+                    headers,
+                    authentication: authentication,
+                    authToken: authToken,
+                    to: &request
+                )
+                var current = request.allHTTPHeaderFields ?? [:]
+                current["X-Custom-Builder"] = tag
+                request.allHTTPHeaderFields = current
+            }
+        }
+
+        let mock = MockTransport()
+        await mock.enqueue(data: makeResponseData(), statusCode: 200)
+
+        let client = APIClient(
+            configuration: ServerConfiguration(
+                url: testServerURL,
+                builder: TaggingBuilder(tag: "tagged")
+            ),
+            transport: mock
+        )
+
+        let params = TestInterface.Parameters(authentication: .none)
+        _ = try await client.send(TestInterface.self, params)
+
+        let requests = await mock.capturedRequests
+        #expect(requests.first?.value(forHTTPHeaderField: "X-Custom-Builder") == "tagged")
+    }
+
+    // MARK: 21. Default headers are applied, with per-request headers taking precedence
+
+    @Test("APIClient configured with defaultHeaders applies them, with per-request headers taking precedence")
+    func defaultHeadersAreAppliedAndOverridableByRequestHeaders() async throws {
+        let mock = MockTransport()
+        await mock.enqueue(data: makeResponseData(), statusCode: 200)
+        await mock.enqueue(data: makeResponseData(), statusCode: 200)
+
+        let client = APIClient(
+            configuration: ServerConfiguration(
+                url: testServerURL,
+                defaultHeaders: ["X-App-Version": "1.0", "Accept-Language": "en-US"]
+            ),
+            transport: mock
+        )
+
+        let params = TestInterface.Parameters(authentication: .none)
+        _ = try await client.send(TestInterface.self, params)
+
+        let overriding = TestInterface.Parameters(
+            headers: ["Accept-Language": "fr-FR"],
+            authentication: .none
+        )
+        _ = try await client.send(TestInterface.self, overriding)
+
+        let requests = await mock.capturedRequests
+        #expect(requests[0].value(forHTTPHeaderField: "X-App-Version") == "1.0")
+        #expect(requests[0].value(forHTTPHeaderField: "Accept-Language") == "en-US")
+        #expect(requests[1].value(forHTTPHeaderField: "X-App-Version") == "1.0")
+        #expect(requests[1].value(forHTTPHeaderField: "Accept-Language") == "fr-FR")
+    }
+
+    // MARK: 22. A configured ResponseDecoder reaches response decoding
+
+    @Test("APIClient configured with a ResponseDecoder applies it to response bodies")
+    func responseDecoderIsAppliedToResponseBodies() async throws {
+        let mock = MockTransport()
+        await mock.enqueue(data: #"{"user_id": 55}"#.data(using: .utf8)!, statusCode: 200)
+
+        let client = APIClient(
+            configuration: ServerConfiguration(
+                url: testServerURL,
+                responseDecoder: ResponseDecoder(keyDecodingStrategy: .convertFromSnakeCase)
+            ),
+            transport: mock
+        )
+
+        let params = SnakeCaseResponseInterface.Parameters()
+        let result = try await client.send(SnakeCaseResponseInterface.self, params)
+
+        #expect(result.userId == 55)
     }
 }

@@ -9,18 +9,23 @@ import Foundation
 
 /// Protocol that all request bodies must conform to.
 /// Couples encoding strategy with content-type to prevent mismatches.
+///
+/// The request-side counterpart of `InterfaceResponse`.
 public protocol RequestBody: Sendable {
 
     /// Encodes the body and returns both data and content-type.
-    /// - Parameter encoder: The JSON encoder to use (with configured strategies)
-    func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody
+    ///
+    /// - Parameter encoder: The request's encoder configuration. A JSON body calls
+    ///   `makeJSONEncoder()` to pick up the client's configured strategies; a body in another
+    ///   format ignores it.
+    func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody
 
 }
 
 /// Default implementation: JSON encoding with application/json content type
 public extension RequestBody where Self: Encodable {
 
-    func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody {
+    func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody {
         let data = try encoder.encode(self)
         return EncodedBody(data: data, contentType: "application/json")
     }
@@ -49,7 +54,7 @@ public struct EmptyBody: RequestBody {
 
     public init() {}
 
-    public func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody {
+    public func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody {
         EncodedBody(data: Data(), contentType: nil)
     }
 
@@ -69,7 +74,7 @@ public struct BinaryBody: RequestBody {
         self.contentType = contentType
     }
 
-    public func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody {
+    public func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody {
         EncodedBody(data: data, contentType: contentType)
     }
 
@@ -84,7 +89,7 @@ public struct ArrayBody<Element: Encodable & Sendable>: RequestBody {
         self.items = items
     }
 
-    public func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody {
+    public func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody {
         let data = try encoder.encode(items)
         return EncodedBody(data: data, contentType: "application/json")
     }
@@ -100,7 +105,7 @@ public struct EncodableBody<Value: Encodable & Sendable>: RequestBody {
         self.value = value
     }
 
-    public func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody {
+    public func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody {
         let data = try encoder.encode(value)
         return EncodedBody(data: data, contentType: "application/json")
     }

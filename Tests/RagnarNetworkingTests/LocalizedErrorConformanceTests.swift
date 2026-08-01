@@ -34,7 +34,6 @@ struct LocalizedErrorConformanceTests {
 
     static let interfaceDecodingErrorCases: [InterfaceDecodingError] = [
         .missingString,
-        .missingData,
         .jsonDecoder(
             DecodingDiagnostics(
                 kind: .keyNotFound,
@@ -96,7 +95,7 @@ struct LocalizedErrorConformanceTests {
             headerFields: nil
         )!
         let snapshot = HTTPResponseSnapshot(response: response)
-        let error = ResponseError.unknownResponseCase(Data(), snapshot)
+        let error = ResponseError.unknownResponseCase(ResponseBody(Data()), snapshot)
 
         #expect(error.errorDescription == "Received an unhandled HTTP status code (418).")
     }

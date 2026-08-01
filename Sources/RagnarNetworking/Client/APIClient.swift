@@ -13,8 +13,8 @@ import Foundation
 /// valid again - create a new client for a new connection generation.
 public actor APIClient {
 
-    private let baseURL: URL
-    private let session: any DataTaskProvider
+    private let configuration: ServerConfiguration
+    private let pipeline: RequestPipeline
     private let token: @Sendable () async throws -> String?
     private let refresh: @Sendable () async throws -> Void
     private var ongoingRefresh: Task<Void, Error>?
@@ -35,18 +35,20 @@ public actor APIClient {
     /// Creates an `APIClient`.
     ///
     /// - Parameters:
-    ///   - baseURL: Base URL for all requests. Stable for the client's lifetime - recreate if the server URL changes.
-    ///   - session: The underlying transport. Defaults to `URLSession.shared`.
+    ///   - configuration: The server contract: URL, body coding, default headers, request
+    ///     builder, default response handler. Held for the client's lifetime; recreate the
+    ///     client if it changes.
+    ///   - transport: The underlying transport. Defaults to `URLSession.shared`.
     ///   - token: Called before each authenticated request. Evaluated lazily to always return the post-refresh value.
     ///   - refresh: Called on 401. Must update whatever state `token` reads from.
     public init(
-        baseURL: URL,
-        session: any DataTaskProvider = URLSession.shared,
+        configuration: ServerConfiguration,
+        transport: any Transport = URLSession.shared,
         token: @escaping @Sendable () async throws -> String?,
         refresh: @escaping @Sendable () async throws -> Void
     ) {
-        self.baseURL = baseURL
-        self.session = session
+        self.configuration = configuration
+        self.pipeline = RequestPipeline(transport: transport)
         self.token = token
         self.refresh = refresh
     }
@@ -60,14 +62,15 @@ public actor APIClient {
     /// will fail with authentication-related errors.
     ///
     /// - Parameters:
-    ///   - baseURL: Base URL for all requests. Stable for the client's lifetime - recreate if the server URL changes.
-    ///   - session: The underlying transport. Defaults to `URLSession.shared`.
+    ///   - configuration: The server contract: URL, body coding, default headers, request
+    ///     builder, default response handler. Held for the client's lifetime.
+    ///   - transport: The underlying transport. Defaults to `URLSession.shared`.
     public init(
-        baseURL: URL,
-        session: any DataTaskProvider = URLSession.shared
+        configuration: ServerConfiguration,
+        transport: any Transport = URLSession.shared
     ) {
-        self.baseURL = baseURL
-        self.session = session
+        self.configuration = configuration
+        self.pipeline = RequestPipeline(transport: transport)
         self.token = { nil }
         self.refresh = { throw RequestError.authentication }
     }
@@ -130,7 +133,7 @@ public actor APIClient {
     /// - New `send` calls fail with `APIClientError.invalidated`.
     /// - Any coalesced refresh owned by the client is cancelled.
     /// - Tracked in-flight transport tasks are cancelled. Cancellation reaches the
-    ///   underlying transport when the configured `DataTaskProvider` honors task
+    ///   underlying transport when the configured `Transport` honors task
     ///   cancellation (as `URLSession` does); otherwise the in-flight result is
     ///   suppressed at the post-transport checkpoint.
     ///
@@ -163,8 +166,8 @@ public actor APIClient {
     ) async throws -> T.Response {
         try checkValid()
 
-        let config = ServerConfiguration(
-            url: baseURL,
+        let context = RequestContext(
+            configuration: configuration,
             authToken: token
         )
 
@@ -172,7 +175,7 @@ public actor APIClient {
         // from another task. The cancellation handler also forwards cancellation of
         // the caller's own task to the child.
         let task = Task {
-            try await session.dataTask(type, params, config)
+            try await pipeline.send(type, params, context: context)
         }
         let id = UUID()
         inFlightCancellers[id] = { task.cancel() }

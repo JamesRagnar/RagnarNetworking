@@ -18,14 +18,35 @@ public protocol Interface: Sendable {
     /// The parameters defining how to construct the network request
     associatedtype Parameters: RequestParameters
 
-    /// The expected response type when the request succeeds
-    associatedtype Response: Decodable, Sendable
+    /// The expected response type when the request succeeds.
+    ///
+    /// A `Decodable` type conforms to `InterfaceResponse` without implementing anything and
+    /// decodes as JSON. `String`, `Data`, and `EmptyResponse` carry built-in conformances.
+    associatedtype Response: InterfaceResponse & Sendable
 
-    /// Defines how each HTTP status code should be handled for this interface
+    /// Defines how each HTTP status code should be handled for this interface.
+    ///
+    /// Declare this as a `static let`. A computed `static var` rebuilds the map on every
+    /// response.
     static var responseCases: ResponseMap { get }
 
-    /// Defines how responses are decoded and mapped to the Interface Response.
-    static var responseHandler: ResponseHandler.Type { get }
+    /// Overrides response handling for this endpoint alone.
+    ///
+    /// `nil`, the default, uses `ServerConfiguration.responseHandler`. Return a handler for an
+    /// endpoint whose response does not follow the rest of the API.
+    ///
+    /// An Interface-level handler *replaces* the configured one rather than layering on it. An
+    /// endpoint that overrides in an API whose configuration unwraps an envelope has to unwrap
+    /// that envelope itself.
+    ///
+    /// For decoding rules that differ only in field names or date format, use `CodingKeys`, a
+    /// custom `init(from:)`, or an `InterfaceResponse` conformance on the `Response` type.
+    ///
+    /// - Warning: An override written as `static var responseHandler: any ResponseHandler`
+    ///   compiles but does not satisfy this requirement, because property witness types are
+    ///   invariant. It becomes dead and the endpoint silently uses the configured handler.
+    ///   Swift emits no diagnostic. Overrides must return `(any ResponseHandler)?`.
+    static var responseHandler: (any ResponseHandler)? { get }
 
 }
 

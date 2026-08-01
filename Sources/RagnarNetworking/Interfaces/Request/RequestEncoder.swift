@@ -48,3 +48,37 @@ public struct RequestEncoder: Sendable {
     }
 
 }
+
+// MARK: - Deriving and Encoding
+
+public extension RequestEncoder {
+
+    /// A copy of this configuration with `configure` applied to each encoder it produces, after
+    /// this configuration's own setup has run.
+    ///
+    /// Use from a `RequestBody` conformance to override one strategy while keeping the client's
+    /// other rules. Building a bare `JSONEncoder()` there instead would silently drop them.
+    ///
+    /// ```swift
+    /// try encoder
+    ///     .modified { $0.dateEncodingStrategy = .secondsSince1970 }
+    ///     .encode(self)
+    /// ```
+    func modified(
+        _ configure: @escaping @Sendable (JSONEncoder) -> Void
+    ) -> RequestEncoder {
+        let base = makeJSONEncoder
+
+        return RequestEncoder {
+            let encoder = base()
+            configure(encoder)
+            return encoder
+        }
+    }
+
+    /// Encodes `value` using an encoder from this configuration.
+    func encode<T: Encodable>(_ value: T) throws -> Data {
+        try makeJSONEncoder().encode(value)
+    }
+
+}

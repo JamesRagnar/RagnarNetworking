@@ -8,9 +8,9 @@ Both actors are reentrant at `await` points, per standard Swift actor semantics:
 
 ## APIClient Cancellation
 
-Cancelling the `Task` that called `send` cancels that call's in-flight transport task (`withTaskCancellationHandler` forwards cancellation to the child `Task` running `DataTaskProvider.dataTask`). It does not cancel a token refresh that call triggered, if other calls are also waiting on that refresh - only the cancelled call stops waiting for it (`CancellableTaskWait`), and it still throws `CancellationError` promptly rather than waiting for the refresh to finish. If invalidate() was the cause, the caller instead receives `APIClientError.invalidated`, since invalidation is checked immediately after a caught error.
+Cancelling the `Task` that called `send` cancels that call's in-flight transport task (`withTaskCancellationHandler` forwards cancellation to the child `Task` running `RequestPipeline.send`). It does not cancel a token refresh that call triggered, if other calls are also waiting on that refresh - only the cancelled call stops waiting for it (`CancellableTaskWait`), and it still throws `CancellationError` promptly rather than waiting for the refresh to finish. If invalidate() was the cause, the caller instead receives `APIClientError.invalidated`, since invalidation is checked immediately after a caught error.
 
-`invalidate()` cancels every tracked in-flight transport task and any in-progress refresh across all outstanding `send` calls. A custom `DataTaskProvider` conformance that does not observe `Task` cancellation continues to run to completion, but its result is discarded at the post-transport check.
+`invalidate()` cancels every tracked in-flight transport task and any in-progress refresh across all outstanding `send` calls. A custom `Transport` conformance that does not observe `Task` cancellation continues to run to completion, but its result is discarded at the post-transport check.
 
 ## SocketIOClient Cancellation
 
@@ -18,6 +18,6 @@ Each call to `events(for:)` or `statusUpdates()` returns an independent `AsyncSt
 
 `connect()`, `disconnect()`, `reconnect(to:)`, and `invalidate()` are not tied to caller task cancellation - they run to completion once called.
 
-## DataTaskProvider Thread Safety
+## Transport Thread Safety
 
-`APIClient.send` can have multiple calls in flight concurrently, each running its own transport `Task` against the configured `DataTaskProvider`. A `DataTaskProvider` conformance must support concurrent invocations of `dataTask(_:_:_:)` and `data(for:)` from multiple tasks at once. `URLSession` satisfies this.
+`APIClient.send` can have multiple calls in flight concurrently, each running its own transport `Task` against the configured `Transport`. A `Transport` conformance must support concurrent invocations of `data(for:)` from multiple tasks at once. `URLSession` satisfies this.

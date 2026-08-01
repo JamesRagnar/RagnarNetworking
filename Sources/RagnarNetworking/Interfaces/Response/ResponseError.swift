@@ -9,25 +9,26 @@ import Foundation
 
 /// Errors that can occur when processing HTTP responses.
 ///
-/// Each error case includes the raw response data and HTTP response for debugging purposes,
-/// allowing you to inspect the actual server response when something goes wrong.
+/// Each case carries the response body and a snapshot of the HTTP response, so the server's
+/// actual response is available at the catch site. The body carries the decoder configured for
+/// the response; `decodeError(as:)` uses it.
 public enum ResponseError: LocalizedError, Sendable, CustomStringConvertible, CustomDebugStringConvertible {
 
     /// The response could not be cast to HTTPURLResponse
-    case unknownResponse(Data, HTTPResponseSnapshot)
+    case unknownResponse(ResponseBody, HTTPResponseSnapshot)
 
     /// The HTTP status code is not defined in the Interface's response cases
-    case unknownResponseCase(Data, HTTPResponseSnapshot)
+    case unknownResponseCase(ResponseBody, HTTPResponseSnapshot)
 
-    /// The response data could not be decoded to the expected type
-    case decoding(Data, HTTPResponseSnapshot, InterfaceDecodingError)
+    /// The response body could not be decoded to the expected type
+    case decoding(ResponseBody, HTTPResponseSnapshot, InterfaceDecodingError)
 
     /// A predefined error was returned for this status code
-    case generic(Data, HTTPResponseSnapshot, any Error & Sendable)
+    case generic(ResponseBody, HTTPResponseSnapshot, any Error & Sendable)
 
     /// A decoded error body was returned for this status code
     /// - Note: The decoded error is stored for type-safe access without re-decoding.
-    case decoded(Data, HTTPResponseSnapshot, any Error & Sendable)
+    case decoded(ResponseBody, HTTPResponseSnapshot, any Error & Sendable)
 
 }
 
@@ -77,7 +78,7 @@ public struct HTTPResponseSnapshot: Sendable {
     }
 
     /// Removes a `token` query item (case-insensitive) from `url`, mirroring the parameter
-    /// name `.url` authentication appends in `InterfaceConstructor.applyQueryItems`.
+    /// name `.url` authentication appends in `RequestBuilder.applyQueryItems`.
     static func redactingTokenQueryItem(from url: URL?) -> URL? {
         guard let url, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return url
@@ -118,26 +119,26 @@ public extension ResponseError {
         }
     }
 
+    /// The response body, paired with the decoder configured for the response it came from.
+    var body: ResponseBody {
+        switch self {
+        case .unknownResponse(let responseBody, _),
+             .unknownResponseCase(let responseBody, _),
+             .decoding(let responseBody, _, _),
+             .generic(let responseBody, _, _),
+             .decoded(let responseBody, _, _):
+            return responseBody
+        }
+    }
+
+    /// The raw response bytes.
+    var responseData: Data { body.data }
+
     /// The response body as a UTF-8 string.
     ///
     /// Useful for logging or displaying error messages from the server.
     /// Returns `nil` if the data cannot be decoded as UTF-8.
-    var responseBodyString: String? {
-        let data: Data
-        switch self {
-        case .unknownResponse(let responseData, _),
-             .unknownResponseCase(let responseData, _),
-             .decoding(let responseData, _, _),
-             .generic(let responseData, _, _),
-             .decoded(let responseData, _, _):
-            data = responseData
-        }
-
-        return .init(
-            data: data,
-            encoding: .utf8
-        )
-    }
+    var responseBodyString: String? { body.stringValue }
 
     /// Attempts to decode the error response body as a structured error type.
     ///
@@ -145,7 +146,8 @@ public extension ResponseError {
     /// return the already-decoded error when it matches the requested type.
     ///
     /// Many APIs return structured error responses (e.g., `{"error": "message", "code": 123}`).
-    /// This method attempts to decode the raw response data as your custom error type.
+    /// This method decodes the raw response body as your custom error type, using the decoder
+    /// the response was handled with - no need to re-supply the client's configuration here.
     ///
     /// - Parameter type: The Decodable type representing your API's error structure
     /// - Returns: The decoded error instance, or `nil` if decoding fails
@@ -155,17 +157,7 @@ public extension ResponseError {
             return typed
         }
 
-        let data: Data
-        switch self {
-        case .unknownResponse(let responseData, _),
-             .unknownResponseCase(let responseData, _),
-             .decoding(let responseData, _, _),
-             .generic(let responseData, _, _),
-             .decoded(let responseData, _, _):
-            data = responseData
-        }
-
-        return try? JSONDecoder().decode(type, from: data)
+        return body.decode(as: type)
     }
 
     /// All HTTP headers from the response.

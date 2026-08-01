@@ -1,5 +1,5 @@
 //
-//  URLRequest+InterfaceConstructor.swift
+//  URLRequest+RequestBuilder.swift
 //  RagnarNetworking
 //
 //  Created by James Harquail on 2026-02-03.
@@ -16,39 +16,40 @@ public extension URLRequest {
     /// - Parameters:
     ///   - interface: The interface type (used for type inference)
     ///   - parameters: The Interface parameters defining the request
-    ///   - configuration: The server configuration with base URL and auth token
+    ///   - context: The server configuration and credential for this request. The
+    ///     configuration's `builder` constructs the request.
     /// - Throws: `RequestError` if the request cannot be constructed
     init<T: Interface>(
         _ interface: T.Type,
         _ parameters: T.Parameters,
-        _ configuration: ServerConfiguration
+        context: RequestContext
     ) throws(RequestError) {
         try self.init(
             requestParameters: parameters,
-            serverConfiguration: configuration
+            context: context
         )
     }
 
-    /// Constructs a URLRequest from Interface parameters and server configuration.
+    /// Constructs a URLRequest from Interface parameters and a request context.
     ///
-    /// This initializer builds a complete URLRequest by combining the base server configuration
+    /// This initializer builds a complete URLRequest by combining the server configuration
     /// with request-specific parameters. It handles authentication, query parameters, headers,
     /// and body data according to the Interface specification.
     ///
     /// - Parameters:
     ///   - requestParameters: The Interface parameters defining the request
-    ///   - serverConfiguration: The server configuration with base URL and auth token
+    ///   - context: The server configuration and credential for this request. The
+    ///     configuration's `builder` constructs the request; set
+    ///     `ServerConfiguration.builder` to change how.
     /// - Throws: `RequestError` if the request cannot be constructed
     init<Parameters: RequestParameters>(
         requestParameters: Parameters,
-        serverConfiguration: ServerConfiguration
+        context: RequestContext
     ) throws(RequestError) {
-        self = try Self.buildRequest(
-            requestParameters: requestParameters,
-            serverConfiguration: serverConfiguration
+        self = try context.builder.buildRequest(
+            requestParameters,
+            context: context
         )
     }
 
 }
-
-extension URLRequest: InterfaceConstructor {}

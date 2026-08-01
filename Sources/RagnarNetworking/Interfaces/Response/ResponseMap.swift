@@ -17,7 +17,11 @@ import OSLog
 /// Duplicate exact-code behavior:
 /// - The first exact case wins.
 /// - Later duplicates are ignored.
-/// - In DEBUG builds, duplicates emit a developer diagnostic.
+/// - Duplicates emit a developer diagnostic through `Logger`, in every build configuration.
+///
+/// - Important: Declare `Interface.responseCases` as a `static let`. A computed `static var`
+///   satisfies the requirement but rebuilds the map, and re-emits any duplicate diagnostic, on
+///   every response.
 public struct ResponseMap: ExpressibleByArrayLiteral, Sendable {
 
     private let exactCases: [Int: ResponseOutcome]
@@ -83,14 +87,18 @@ public enum ResponseOutcome: Sendable {
 
     /// Decode the response body as a typed error and throw it.
     /// The decoded error is accessible via ResponseError.decoded.
-    case decodeError(body: @Sendable (Data) throws -> any Error & Sendable)
+    ///
+    /// The closure receives the decoder resolved for the response, so error bodies decode with
+    /// the same rules as success bodies even though `responseCases` is static and has no access
+    /// to a live `ServerConfiguration`.
+    case decodeError(body: @Sendable (Data, ResponseDecoder) throws -> any Error & Sendable)
 
-    /// Convenience: decode error body as the given type using JSONDecoder.
+    /// Convenience: decode error body as the given type using the response's configured decoder.
     public static func decodeError<T: Decodable & Sendable & Error>(
         _ type: T.Type
     ) -> ResponseOutcome {
-        .decodeError(body: { data in
-            try JSONDecoder().decode(T.self, from: data)
+        .decodeError(body: { data, decoder in
+            try decoder.decode(T.self, from: data)
         })
     }
 

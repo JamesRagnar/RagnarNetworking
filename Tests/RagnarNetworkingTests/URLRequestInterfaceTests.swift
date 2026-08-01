@@ -47,12 +47,12 @@ struct URLRequestInterfaceTests {
     @Test("Constructs basic GET request")
     func testBasicGETRequest() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = BasicParameters(path: "/test")
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         // URLComponents may add a trailing ? even with no query items
@@ -64,7 +64,7 @@ struct URLRequestInterfaceTests {
     @Test("Constructs request with different HTTP methods")
     func testDifferentHTTPMethods() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
 
         let methods: [RequestMethod] = [.get, .post, .put, .delete, .patch, .head, .options]
 
@@ -81,7 +81,7 @@ struct URLRequestInterfaceTests {
             let params = TestParams(method: method)
             let request = try URLRequest(
                 requestParameters: params,
-                serverConfiguration: config
+                context: config
             )
 
             #expect(request.httpMethod == method.rawValue)
@@ -93,12 +93,12 @@ struct URLRequestInterfaceTests {
     @Test("Adds bearer token to headers")
     func testBearerAuthentication() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url, authToken: "secret-token")
+        let config = RequestContext(configuration: ServerConfiguration(url: url), authToken: "secret-token")
         let params = AuthenticatedParameters(authentication: .bearer)
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer secret-token")
@@ -107,12 +107,12 @@ struct URLRequestInterfaceTests {
     @Test("Adds token to URL query parameters")
     func testURLAuthentication() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url, authToken: "url-token")
+        let config = RequestContext(configuration: ServerConfiguration(url: url), authToken: "url-token")
         let params = AuthenticatedParameters(authentication: .url)
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         #expect(request.url?.query?.contains("token=url-token") == true)
@@ -121,13 +121,13 @@ struct URLRequestInterfaceTests {
     @Test("Throws authentication error when bearer token is missing")
     func testMissingBearerToken() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url) // No token
+        let config = RequestContext(configuration: ServerConfiguration(url: url)) // No token
         let params = AuthenticatedParameters(authentication: .bearer)
 
         #expect(throws: RequestError.self) {
             try URLRequest(
                 requestParameters: params,
-                serverConfiguration: config
+                context: config
             )
         }
     }
@@ -135,13 +135,13 @@ struct URLRequestInterfaceTests {
     @Test("Throws authentication error when URL token is missing")
     func testMissingURLToken() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url) // No token
+        let config = RequestContext(configuration: ServerConfiguration(url: url)) // No token
         let params = AuthenticatedParameters(authentication: .url)
 
         #expect(throws: RequestError.self) {
             try URLRequest(
                 requestParameters: params,
-                serverConfiguration: config
+                context: config
             )
         }
     }
@@ -149,12 +149,12 @@ struct URLRequestInterfaceTests {
     @Test("No authentication added for .none type")
     func testNoAuthentication() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url, authToken: "should-not-be-used")
+        let config = RequestContext(configuration: ServerConfiguration(url: url), authToken: "should-not-be-used")
         let params = AuthenticatedParameters(authentication: .none)
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
@@ -168,7 +168,7 @@ struct URLRequestInterfaceTests {
     @Test("Adds query parameters to URL")
     func testQueryParameters() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = ComplexParameters<EmptyBody>(
             queryItems: [URLQueryItem(name: "page", value: "1"), URLQueryItem(name: "limit", value: "10")],
             headers: nil,
@@ -178,7 +178,7 @@ struct URLRequestInterfaceTests {
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         let urlString = request.url?.absoluteString ?? ""
@@ -189,7 +189,7 @@ struct URLRequestInterfaceTests {
     @Test("Preserves query item order and duplicate keys")
     func testOrderedQueryItems() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = ComplexParameters<EmptyBody>(
             queryItems: [
                 URLQueryItem(name: "sort", value: "title"),
@@ -203,7 +203,7 @@ struct URLRequestInterfaceTests {
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
@@ -213,7 +213,7 @@ struct URLRequestInterfaceTests {
     @Test("Supports nil-valued query items")
     func testNilValuedQueryItems() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = ComplexParameters<EmptyBody>(
             queryItems: [URLQueryItem(name: "flag", value: nil)],
             headers: nil,
@@ -223,7 +223,7 @@ struct URLRequestInterfaceTests {
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
@@ -235,7 +235,7 @@ struct URLRequestInterfaceTests {
     @Test("Preserves existing query parameters from base URL")
     func testPreservesBaseURLQueryParameters() throws {
         let url = URL(string: "https://api.example.com?existing=value")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = ComplexParameters<EmptyBody>(
             queryItems: [URLQueryItem(name: "new", value: "param")],
             headers: nil,
@@ -245,7 +245,7 @@ struct URLRequestInterfaceTests {
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         let urlString = request.url?.absoluteString ?? ""
@@ -256,7 +256,7 @@ struct URLRequestInterfaceTests {
     @Test("Combines URL auth token with query parameters")
     func testURLAuthWithQueryParameters() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url, authToken: "auth-token")
+        let config = RequestContext(configuration: ServerConfiguration(url: url), authToken: "auth-token")
         let params = ComplexParameters<EmptyBody>(
             queryItems: [URLQueryItem(name: "filter", value: "active")],
             headers: nil,
@@ -266,7 +266,7 @@ struct URLRequestInterfaceTests {
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         let urlString = request.url?.absoluteString ?? ""
@@ -277,7 +277,7 @@ struct URLRequestInterfaceTests {
     @Test("URL auth token overrides token query item")
     func testURLAuthTokenConflict() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url, authToken: "auth-token")
+        let config = RequestContext(configuration: ServerConfiguration(url: url), authToken: "auth-token")
         let params = ComplexParameters<EmptyBody>(
             queryItems: [URLQueryItem(name: "token", value: "custom-token")],
             headers: nil,
@@ -287,7 +287,7 @@ struct URLRequestInterfaceTests {
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
@@ -299,7 +299,7 @@ struct URLRequestInterfaceTests {
     @Test("URL auth token overrides token in base URL")
     func testURLAuthTokenOverridesBaseURLToken() throws {
         let url = URL(string: "https://api.example.com?token=base-token")!
-        let config = ServerConfiguration(url: url, authToken: "auth-token")
+        let config = RequestContext(configuration: ServerConfiguration(url: url), authToken: "auth-token")
         let params = ComplexParameters<EmptyBody>(
             queryItems: nil,
             headers: nil,
@@ -309,7 +309,7 @@ struct URLRequestInterfaceTests {
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
@@ -321,7 +321,7 @@ struct URLRequestInterfaceTests {
     @Test("URL auth token overrides token case-insensitively")
     func testURLAuthTokenOverridesTokenCaseInsensitive() throws {
         let url = URL(string: "https://api.example.com?TOKEN=base-token")!
-        let config = ServerConfiguration(url: url, authToken: "auth-token")
+        let config = RequestContext(configuration: ServerConfiguration(url: url), authToken: "auth-token")
         let params = ComplexParameters<EmptyBody>(
             queryItems: [URLQueryItem(name: "Token", value: "custom-token")],
             headers: nil,
@@ -331,7 +331,7 @@ struct URLRequestInterfaceTests {
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
@@ -351,7 +351,7 @@ struct URLRequestInterfaceTests {
         }
 
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = ComplexParameters<TestPayload>(
             queryItems: nil,
             headers: nil,
@@ -361,7 +361,7 @@ struct URLRequestInterfaceTests {
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
@@ -370,7 +370,7 @@ struct URLRequestInterfaceTests {
     @Test("Adds custom headers")
     func testCustomHeaders() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = ComplexParameters<EmptyBody>(
             queryItems: nil,
             headers: ["X-Custom-Header": "custom-value", "Accept-Language": "en-US"],
@@ -380,7 +380,7 @@ struct URLRequestInterfaceTests {
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         #expect(request.value(forHTTPHeaderField: "X-Custom-Header") == "custom-value")
@@ -394,7 +394,7 @@ struct URLRequestInterfaceTests {
         }
 
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = ComplexParameters<Body>(
             queryItems: nil,
             headers: ["Content-Type": "application/json; charset=utf-8"],
@@ -404,7 +404,7 @@ struct URLRequestInterfaceTests {
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json; charset=utf-8")
@@ -413,13 +413,13 @@ struct URLRequestInterfaceTests {
     @Test("Content-Type mismatch with different media type fails")
     func testContentTypeMismatchFails() throws {
         struct XmlBody: RequestBody, Sendable {
-            func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody {
+            func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody {
                 EncodedBody(data: Data("<xml/>".utf8), contentType: "application/xml")
             }
         }
 
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = ComplexParameters<XmlBody>(
             queryItems: nil,
             headers: ["Content-Type": "application/json"],
@@ -430,7 +430,7 @@ struct URLRequestInterfaceTests {
         #expect(throws: RequestError.self) {
             _ = try URLRequest(
                 requestParameters: params,
-                serverConfiguration: config
+                context: config
             )
         }
     }
@@ -438,7 +438,7 @@ struct URLRequestInterfaceTests {
     @Test("Combines bearer auth with custom headers")
     func testBearerAuthWithCustomHeaders() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url, authToken: "bearer-token")
+        let config = RequestContext(configuration: ServerConfiguration(url: url), authToken: "bearer-token")
         let params = ComplexParameters<EmptyBody>(
             queryItems: nil,
             headers: ["X-Request-ID": "12345"],
@@ -448,7 +448,7 @@ struct URLRequestInterfaceTests {
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer bearer-token")
@@ -458,7 +458,7 @@ struct URLRequestInterfaceTests {
     @Test("Custom Authorization header overrides bearer auth")
     func testAuthorizationHeaderOverridesBearerToken() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url, authToken: "bearer-token")
+        let config = RequestContext(configuration: ServerConfiguration(url: url), authToken: "bearer-token")
         let params = ComplexParameters<EmptyBody>(
             queryItems: nil,
             headers: ["Authorization": "Custom token"],
@@ -468,7 +468,7 @@ struct URLRequestInterfaceTests {
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Custom token")
@@ -477,7 +477,7 @@ struct URLRequestInterfaceTests {
     @Test("Authorization header override is case-insensitive")
     func testAuthorizationHeaderOverrideIsCaseInsensitive() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url, authToken: "bearer-token")
+        let config = RequestContext(configuration: ServerConfiguration(url: url), authToken: "bearer-token")
         let params = ComplexParameters<EmptyBody>(
             queryItems: nil,
             headers: ["authorization": "Custom token"],
@@ -487,7 +487,7 @@ struct URLRequestInterfaceTests {
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Custom token")
@@ -511,10 +511,10 @@ struct URLRequestInterfaceTests {
         }
 
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let request = try URLRequest(
             requestParameters: EmptyBodyParams(),
-            serverConfiguration: config
+            context: config
         )
 
         #expect(request.httpBody == nil)
@@ -524,7 +524,7 @@ struct URLRequestInterfaceTests {
     @Test("Adds request body")
     func testRequestBody() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let bodyData = "test body".data(using: .utf8)!
         let params = ComplexParameters<BinaryBody>(
             queryItems: nil,
@@ -535,7 +535,7 @@ struct URLRequestInterfaceTests {
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         #expect(request.httpBody == bodyData)
@@ -550,7 +550,7 @@ struct URLRequestInterfaceTests {
         }
 
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let payload = TestPayload(name: "test", value: 42)
         let params = ComplexParameters<TestPayload>(
             queryItems: nil,
@@ -561,7 +561,7 @@ struct URLRequestInterfaceTests {
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         // Verify we can decode it back
@@ -577,7 +577,7 @@ struct URLRequestInterfaceTests {
         struct CustomBody: RequestBody, Sendable {
             let data: String
 
-            func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody {
+            func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody {
                 EncodedBody(
                     data: Data(data.utf8),
                     contentType: "application/xml"
@@ -586,7 +586,7 @@ struct URLRequestInterfaceTests {
         }
 
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = ComplexParameters<CustomBody>(
             queryItems: nil,
             headers: nil,
@@ -596,7 +596,7 @@ struct URLRequestInterfaceTests {
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/xml")
@@ -606,7 +606,7 @@ struct URLRequestInterfaceTests {
     @Test("Request body with binary data")
     func testBinaryDataBody() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xE0])
         let binaryBody = BinaryBody(data: imageData, contentType: "image/jpeg")
         let params = ComplexParameters<BinaryBody>(
@@ -618,7 +618,7 @@ struct URLRequestInterfaceTests {
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         #expect(request.httpBody == imageData)
@@ -630,7 +630,7 @@ struct URLRequestInterfaceTests {
         struct TextBody: RequestBody, Sendable {
             let text: String
 
-            func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody {
+            func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody {
                 EncodedBody(
                     data: Data(text.utf8),
                     contentType: "text/plain; charset=utf-8"
@@ -639,7 +639,7 @@ struct URLRequestInterfaceTests {
         }
 
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = ComplexParameters<TextBody>(
             queryItems: nil,
             headers: nil,
@@ -649,7 +649,7 @@ struct URLRequestInterfaceTests {
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8)
@@ -666,13 +666,13 @@ struct URLRequestInterfaceTests {
                 }
             }
 
-            func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody {
+            func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody {
                 throw TestError()
             }
         }
 
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = ComplexParameters<FailingBody>(
             queryItems: nil,
             headers: nil,
@@ -683,7 +683,7 @@ struct URLRequestInterfaceTests {
         do {
             _ = try URLRequest(
                 requestParameters: params,
-                serverConfiguration: config
+                context: config
             )
             #expect(Bool(false), "Should have thrown")
         } catch let error {
@@ -714,11 +714,13 @@ struct URLRequestInterfaceTests {
             let authentication: AuthenticationType = .none
         }
 
-        let config = ServerConfiguration(
-            url: URL(string: "https://test.example.com")!,
-            requestEncoder: RequestEncoder(
-                keyEncodingStrategy: .convertToSnakeCase,
-                dateEncodingStrategy: .iso8601
+        let config = RequestContext(
+            configuration: ServerConfiguration(
+                url: URL(string: "https://test.example.com")!,
+                requestEncoder: RequestEncoder(
+                    keyEncodingStrategy: .convertToSnakeCase,
+                    dateEncodingStrategy: .iso8601
+                )
             )
         )
 
@@ -726,7 +728,7 @@ struct URLRequestInterfaceTests {
         let params = TestParams(body: EncoderBody(userName: "test", createdAt: date))
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         let json = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
@@ -749,12 +751,12 @@ struct URLRequestInterfaceTests {
         }
 
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = TestParams(body: ArrayBody([1, 2, 3]))
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         let decoded = try JSONDecoder().decode([Int].self, from: request.httpBody!)
@@ -780,13 +782,13 @@ struct URLRequestInterfaceTests {
         }
 
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let payload = LegacyPayload(id: 42, name: "test")
         let params = TestParams(body: EncodableBody(payload))
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         let decoded = try JSONDecoder().decode(LegacyPayload.self, from: request.httpBody!)
@@ -811,12 +813,12 @@ struct URLRequestInterfaceTests {
         }
 
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = TestParams(body: PayloadWithNullable(nickname: .null))
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         let json = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
@@ -841,12 +843,12 @@ struct URLRequestInterfaceTests {
         }
 
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = TestParams(body: PayloadWithNullable(nickname: .value("Bob")))
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         let json = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
@@ -870,12 +872,12 @@ struct URLRequestInterfaceTests {
         }
 
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = TestParams(body: PayloadWithNullable(nickname: nil))
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         let json = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
@@ -887,12 +889,12 @@ struct URLRequestInterfaceTests {
     @Test("Constructs path correctly")
     func testPathConstruction() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = BasicParameters(path: "/api/v1/users/123")
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         #expect(request.url?.path == "/api/v1/users/123")
@@ -901,12 +903,12 @@ struct URLRequestInterfaceTests {
     @Test("Handles path with leading slash")
     func testPathWithLeadingSlash() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = BasicParameters(path: "/api/users")
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         #expect(request.url?.path == "/api/users")
@@ -916,12 +918,12 @@ struct URLRequestInterfaceTests {
     @Test("Appends path to base URL path")
     func testAppendsPathToBaseURLPath() throws {
         let url = URL(string: "https://api.example.com/v1")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = BasicParameters(path: "/users")
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         #expect(request.url?.path == "/v1/users")
@@ -930,12 +932,12 @@ struct URLRequestInterfaceTests {
     @Test("Appends path to base URL path with trailing slash")
     func testAppendsPathToBaseURLPathWithTrailingSlash() throws {
         let url = URL(string: "https://api.example.com/v1/")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = BasicParameters(path: "/users")
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         #expect(request.url?.path == "/v1/users")
@@ -944,12 +946,12 @@ struct URLRequestInterfaceTests {
     @Test("Normalizes missing leading slash in path")
     func testNormalizesMissingLeadingSlash() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = BasicParameters(path: "users")
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         #expect(request.url?.path == "/users")
@@ -960,12 +962,12 @@ struct URLRequestInterfaceTests {
     @Test("Valid configuration builds request successfully")
     func testValidURLConfiguration() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = BasicParameters(path: "/test")
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         #expect(request.url != nil)
@@ -984,16 +986,16 @@ struct URLRequestInterfaceTests {
                 let body: EmptyBody = .init()
                 let authentication: AuthenticationType = .none
             }
-            struct Response: Decodable, Sendable {}
+            struct Response: Decodable, Sendable, InterfaceResponse {}
             static var responseCases: ResponseMap { [.code(200, .decode)] }
         }
 
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url)
+        let config = RequestContext(configuration: ServerConfiguration(url: url))
         let params = SimpleInterface.Parameters()
 
-        let viaInterface = try URLRequest(SimpleInterface.self, params, config)
-        let viaParams = try URLRequest(requestParameters: params, serverConfiguration: config)
+        let viaInterface = try URLRequest(SimpleInterface.self, params, context: config)
+        let viaParams = try URLRequest(requestParameters: params, context: config)
 
         #expect(viaInterface.url == viaParams.url)
         #expect(viaInterface.httpMethod == viaParams.httpMethod)
@@ -1022,7 +1024,7 @@ struct URLRequestInterfaceTests {
     @Test("Constructs complete complex request")
     func testComplexRequest() throws {
         let url = URL(string: "https://api.example.com")!
-        let config = ServerConfiguration(url: url, authToken: "complex-token")
+        let config = RequestContext(configuration: ServerConfiguration(url: url), authToken: "complex-token")
         let bodyData = "{\"test\":\"data\"}".data(using: .utf8)!
         let params = ComplexParameters<BinaryBody>(
             queryItems: [URLQueryItem(name: "filter", value: "active"), URLQueryItem(name: "sort", value: "name")],
@@ -1033,7 +1035,7 @@ struct URLRequestInterfaceTests {
 
         let request = try URLRequest(
             requestParameters: params,
-            serverConfiguration: config
+            context: config
         )
 
         // Verify all components
@@ -1047,13 +1049,13 @@ struct URLRequestInterfaceTests {
         #expect(request.httpBody == bodyData)
     }
 
-    // MARK: - Custom InterfaceConstructor Override Dispatch
+    // MARK: - Custom RequestBuilder Override Dispatch
 
-    /// A custom constructor overriding `applyContentType`. Prior to `applyContentType` and
+    /// A custom builder overriding `applyContentType`. Prior to `applyContentType` and
     /// `mediaTypesMatch` becoming protocol requirements, calls to them from the default
     /// `applyBody` bound statically to the extension default, so this override never ran.
-    struct ContentTypeOverridingConstructor: InterfaceConstructor {
-        static func applyContentType(
+    struct ContentTypeOverridingBuilder: RequestBuilder {
+        func applyContentType(
             _ contentType: String?,
             to request: inout URLRequest
         ) throws(RequestError) {
@@ -1064,7 +1066,7 @@ struct URLRequestInterfaceTests {
         }
     }
 
-    @Test("Custom InterfaceConstructor override of applyContentType is invoked by the default buildRequest")
+    @Test("Custom RequestBuilder override of applyContentType is invoked by the default buildRequest")
     func customApplyContentTypeOverrideIsInvoked() throws {
         struct Body: RequestBody, Encodable { let a: Int }
         struct Parameters: RequestParameters {
@@ -1076,24 +1078,26 @@ struct URLRequestInterfaceTests {
             let authentication: AuthenticationType = .none
         }
 
-        let request = try ContentTypeOverridingConstructor.buildRequest(
-            requestParameters: Parameters(),
-            serverConfiguration: ServerConfiguration(url: URL(string: "https://api.example.com")!)
+        let request = try ContentTypeOverridingBuilder().buildRequest(
+            Parameters(),
+            context: RequestContext(
+                configuration: ServerConfiguration(url: URL(string: "https://api.example.com")!)
+            )
         )
 
         #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/vnd.custom+json")
         #expect(request.value(forHTTPHeaderField: "X-Override-Ran") == "yes")
     }
 
-    /// A custom constructor overriding `mediaTypesMatch` to treat any two media types as
+    /// A custom builder overriding `mediaTypesMatch` to treat any two media types as
     /// equivalent, so an existing `Content-Type` header never conflicts with the body's.
-    struct AlwaysMatchingMediaTypeConstructor: InterfaceConstructor {
-        static func mediaTypesMatch(_ value1: String, _ value2: String) -> Bool {
+    struct AlwaysMatchingMediaTypeBuilder: RequestBuilder {
+        func mediaTypesMatch(_ value1: String, _ value2: String) -> Bool {
             true
         }
     }
 
-    @Test("Custom InterfaceConstructor override of mediaTypesMatch is invoked by the default applyContentType")
+    @Test("Custom RequestBuilder override of mediaTypesMatch is invoked by the default applyContentType")
     func customMediaTypesMatchOverrideIsInvoked() throws {
         struct Body: RequestBody, Encodable { let a: Int }
         struct Parameters: RequestParameters {
@@ -1107,12 +1111,60 @@ struct URLRequestInterfaceTests {
         }
 
         // With the default mediaTypesMatch, this would throw RequestError.invalidRequest.
-        let request = try AlwaysMatchingMediaTypeConstructor.buildRequest(
-            requestParameters: Parameters(),
-            serverConfiguration: ServerConfiguration(url: URL(string: "https://api.example.com")!)
+        let request = try AlwaysMatchingMediaTypeBuilder().buildRequest(
+            Parameters(),
+            context: RequestContext(
+                configuration: ServerConfiguration(url: URL(string: "https://api.example.com")!)
+            )
         )
 
         #expect(request.value(forHTTPHeaderField: "Content-Type") == "text/plain")
+    }
+
+    // MARK: - Default Headers
+
+    @Test("Default headers are applied to a built request")
+    func testDefaultHeadersApplied() throws {
+        let context = RequestContext(
+            configuration: ServerConfiguration(
+                url: URL(string: "https://api.example.com")!,
+                defaultHeaders: ["X-App-Version": "1.0"]
+            )
+        )
+
+        let request = try URLRequest(
+            requestParameters: BasicParameters(path: "/test"),
+            context: context
+        )
+
+        #expect(request.value(forHTTPHeaderField: "X-App-Version") == "1.0")
+    }
+
+    @Test("A request header overrides a default header of the same name, case-insensitively")
+    func testRequestHeaderOverridesDefaultCaseInsensitively() throws {
+        struct Parameters: RequestParameters {
+            let method: RequestMethod = .get
+            let path: String = "/test"
+            let queryItems: [URLQueryItem]? = nil
+            let headers: [String: String]? = ["Accept-Language": "fr-FR"]
+            let body: EmptyBody = .init()
+            let authentication: AuthenticationType = .none
+        }
+
+        let context = RequestContext(
+            configuration: ServerConfiguration(
+                url: URL(string: "https://api.example.com")!,
+                defaultHeaders: ["accept-language": "en-US"]
+            )
+        )
+
+        let request = try URLRequest(
+            requestParameters: Parameters(),
+            context: context
+        )
+
+        #expect(request.value(forHTTPHeaderField: "Accept-Language") == "fr-FR")
+        #expect(request.allHTTPHeaderFields?.count == 1)
     }
 
 }

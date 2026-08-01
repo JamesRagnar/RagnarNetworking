@@ -1,12 +1,12 @@
 # APIClient
 
-`APIClient` is the recommended entry point for making authenticated requests. It wraps `DataTaskProvider` with auth token management, automatic 401 retry, and terminal client invalidation.
+`APIClient` is the recommended entry point for making authenticated requests. It wraps `RequestPipeline` with auth token management, automatic 401 retry, and terminal client invalidation.
 
 ## Setup
 
 ```swift
 let client = APIClient(
-    baseURL: URL(string: "https://api.example.com")!,
+    configuration: ServerConfiguration(url: URL(string: "https://api.example.com")!),
     token: { try await keychain.accessToken() },
     refresh: { try await authService.refresh() }
 )
@@ -16,15 +16,60 @@ For unauthenticated-only flows, use the convenience initializer:
 
 ```swift
 let client = APIClient(
-    baseURL: URL(string: "https://api.example.com")!
+    configuration: ServerConfiguration(url: URL(string: "https://api.example.com")!)
 )
 ```
 
-- `baseURL` is fixed for the lifetime of the client. Recreate the client if the server URL changes.
+- `configuration.url` is fixed for the lifetime of the client. Recreate the client if the server URL changes.
+- `ServerConfiguration` holds no credential. The client pairs it with the current token in a `RequestContext` on every request, so token management goes through `token`/`refresh` exclusively.
 - `token` is evaluated lazily before each authenticated request, so it always reflects the current token - including after a refresh.
 - `refresh` must update whatever state `token` reads from. It is called at most once per 401 burst regardless of how many concurrent requests fail.
 - The convenience initializer is intended for clients that only send `.none` requests.
 - If a `.bearer` or `.url` request is sent through the convenience initializer, the request will fail with authentication-related errors.
+
+## Customizing Request Construction and Response Decoding
+
+Everything about the server lives on `configuration`: `requestEncoder`, `defaultHeaders`,
+`responseDecoder`, `builder`, and `responseHandler` all reach every request and response handled
+by the client. Both initializers additionally accept a `transport`, which is the one piece that
+describes the process rather than the server:
+
+```swift
+let client = APIClient(
+    configuration: ServerConfiguration(
+        url: URL(string: "https://api.example.com")!,
+        requestEncoder: RequestEncoder(
+            keyEncodingStrategy: .convertToSnakeCase,
+            dateEncodingStrategy: .iso8601
+        ),
+        defaultHeaders: ["Accept-Language": "en-US"],
+        responseDecoder: ResponseDecoder(
+            keyDecodingStrategy: .convertFromSnakeCase,
+            dateDecodingStrategy: .iso8601
+        )
+    ),
+    token: { try await keychain.accessToken() },
+    refresh: { try await authService.refresh() }
+)
+```
+
+```swift
+let client = APIClient(
+    configuration: ServerConfiguration(
+        url: URL(string: "https://api.example.com")!,
+        builder: ClientTaggingBuilder(clientID: "ios"),
+        responseHandler: EnvelopeUnwrappingHandler()
+    ),
+    transport: URLSession.shared,
+    token: { try await keychain.accessToken() },
+    refresh: { try await authService.refresh() }
+)
+```
+
+See [Server Configuration](server_configuration.md) for details on `RequestEncoder`,
+`defaultHeaders` precedence, `ResponseDecoder`, and where a given knob belongs;
+[Request Builder](Interfaces/request_builder.md) for building custom request builders; and
+[RequestPipeline](request_pipeline.md) for using the pipeline without `APIClient`.
 
 ## Sending Requests
 
@@ -57,7 +102,7 @@ await client.invalidate()
 Invalidation is terminal and idempotent. After it is called:
 
 - New `send` calls fail with `APIClientError.invalidated`, before token resolution or transport work begins.
-- In-flight transport tasks are cancelled. If a custom `DataTaskProvider` does not honor cancellation, its result is still suppressed before it can complete through the client.
+- In-flight transport tasks are cancelled. If a custom `Transport` does not honor cancellation, its result is still suppressed before it can complete through the client.
 - A coalesced token refresh is cancelled, and no 401 retry is started.
 - The client never becomes valid again. Create a new `APIClient` for a new server URL or connection generation.
 

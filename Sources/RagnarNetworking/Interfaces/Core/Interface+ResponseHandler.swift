@@ -11,23 +11,37 @@ import Foundation
 
 public extension Interface {
 
-    /// Default response handler for Interfaces.
-    static var responseHandler: ResponseHandler.Type {
-        DefaultResponseHandler.self
-    }
+    /// Interfaces use the configured handler unless they override this.
+    static var responseHandler: (any ResponseHandler)? { nil }
 
     /// Processes a raw HTTP response according to the Interface's response cases.
     ///
     /// This method validates the response type, checks the status code against the Interface's
     /// defined response cases, and either decodes a success response or throws the appropriate error.
     ///
-    /// - Parameter response: Tuple containing the response data and URLResponse
+    /// Both configuration arguments are required rather than defaulted, so a caller cannot
+    /// silently fall back to a plain `JSONDecoder` or `DefaultResponseHandler` and lose the
+    /// client's rules.
+    ///
+    /// - Parameters:
+    ///   - response: Tuple containing the response data and URLResponse
+    ///   - responseDecoder: Normally `ServerConfiguration.responseDecoder`.
+    ///   - defaultHandler: Used when the Interface does not override `responseHandler`.
+    ///     Normally `ServerConfiguration.responseHandler`.
     /// - Returns: The decoded Response type
     /// - Throws: `ResponseError` if the response cannot be processed
     static func handle(
-        _ response: (data: Data, response: URLResponse)
+        _ response: (data: Data, response: URLResponse),
+        responseDecoder: ResponseDecoder,
+        defaultHandler: any ResponseHandler
     ) throws(ResponseError) -> Response {
-        return try responseHandler.handle(response, for: Self.self)
+        let handler = responseHandler ?? defaultHandler
+
+        return try handler.handle(
+            response,
+            for: Self.self,
+            responseDecoder: responseDecoder
+        )
     }
 
 }

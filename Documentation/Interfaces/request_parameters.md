@@ -17,6 +17,23 @@ public protocol RequestParameters: Sendable {
 }
 ```
 
+## Every Member Is Required, Deliberately
+
+None of these members has a protocol-extension default, so a conformance restates all six even
+when four of them are `nil` or empty. This is intentional and not an oversight.
+
+Defaults here fail silently and late. A `queryItems` you meant to populate, or an `authentication`
+you meant to set to `.bearer`, produces a wrong request at runtime with nothing to look at.
+
+To be precise about what this buys: requiring the member does **not** move that error to compile
+time. `let queryItems: [URLQueryItem]? = nil` still compiles, and an interpolated `path` that
+forgets to use its parameter still compiles. What it does is force every part of the request to
+appear in the declaration, so a wrong request is visible in the source and in the diff rather than
+inferred from an absence. That is a review guarantee, not a compiler guarantee, and it is worth
+the six lines.
+
+`Interface.Response` requires an explicit `InterfaceResponse` conformance for the same reason.
+
 ## Query Items
 
 `queryItems` is an ordered array of `URLQueryItem` values. A `nil` value creates a name-only query item (e.g. `?flag`). If you want to omit a key, leave it out of the array.
@@ -29,7 +46,7 @@ All bodies must conform to `RequestBody`, which couples the encoded data with it
 
 ```swift
 public protocol RequestBody: Sendable {
-    func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody
+    func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody
 }
 
 public struct EncodedBody: Sendable {
@@ -37,6 +54,11 @@ public struct EncodedBody: Sendable {
     public let contentType: String?
 }
 ```
+
+`encodeBody` receives the configuration's `RequestEncoder`, not a concrete `JSONEncoder`. A JSON
+body calls `encoder.makeJSONEncoder()` to pick up the client's configured strategies; a body in
+another format ignores it. This mirrors `InterfaceResponse.decode` on the response side, and it
+means a non-JSON body is not handed a `JSONEncoder` it has no use for.
 
 ### JSON Body (Default)
 
@@ -103,15 +125,46 @@ struct Parameters: RequestParameters {
 let params = Parameters(body: EncodableBody(LegacyPayload(id: 1)))
 ```
 
+### Deriving an Encoder
+
+When one body needs a different coding strategy from the rest of the API, use
+`RequestEncoder.modified(_:)` to change one strategy and keep the rest. Building a bare
+`JSONEncoder()` instead silently discards the client's configuration:
+
+```swift
+struct CreateLegacyOrder: Encodable, RequestBody {
+    let orderId: Int
+    let placedAt: Date
+
+    func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody {
+        EncodedBody(
+            data: try encoder
+                .modified { $0.dateEncodingStrategy = .secondsSince1970 }
+                .encode(self),
+            contentType: "application/json"
+        )
+    }
+}
+```
+
+Against a client configured with `.convertToSnakeCase` and `.iso8601`, this emits
+`{"order_id": 7, "placed_at": 1700000000}`: the key strategy still applies, only the date
+strategy is replaced.
+
+Like the response side, the coding format is a property of the body type rather than the
+endpoint, so a body used by several endpoints declares its quirk once. See
+[Response Handling](response_handling.md#deriving-a-decoder) for the mirror.
+
 ### Custom Content-Type
 
-Implement `encodeBody(using:)` for non-JSON payloads.
+Implement `encodeBody(using:)` for non-JSON payloads. The `RequestEncoder` is available but a
+non-JSON body has no use for it:
 
 ```swift
 struct XmlBody: RequestBody, Sendable {
     let xml: String
 
-    func encodeBody(using encoder: JSONEncoder) throws -> EncodedBody {
+    func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody {
         EncodedBody(data: Data(xml.utf8), contentType: "application/xml")
     }
 }

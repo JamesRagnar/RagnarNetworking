@@ -15,3 +15,17 @@ public struct EmptyResponse: Decodable, Sendable, Equatable {
     public init() {}
 
 }
+
+extension EmptyResponse: InterfaceResponse {
+
+    /// Succeeds for any bytes, including none. A body sent against an `EmptyResponse` Interface
+    /// is discarded rather than treated as an error.
+    public static func decode(
+        from data: Data,
+        metadata: HTTPResponseSnapshot,
+        using decoder: ResponseDecoder
+    ) throws -> EmptyResponse {
+        EmptyResponse()
+    }
+
+}
