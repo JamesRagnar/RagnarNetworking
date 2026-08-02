@@ -47,8 +47,12 @@ public struct HTTPResponseSnapshot: Sendable {
     /// `ResponseError`'s `debugDescription` and `description`, this property is not redacted.
     public let headers: [String: String]
 
-    /// The request URL, with any `token` query item (case-insensitive, matching `.url`
-    /// authentication) removed so a captured snapshot does not carry an auth token.
+    /// The request URL, with any credential-carrying query items removed so a captured snapshot
+    /// does not leak a credential into a log line or a bug report.
+    ///
+    /// Which names those are comes from the configuration's registered `Authenticator` values,
+    /// via `ServerConfiguration.redactedQueryItemNames`, so redaction cannot drift out of step
+    /// with the parameter name a credential is actually written under.
     public let url: URL?
 
     public let mimeType: String?
@@ -57,12 +61,24 @@ public struct HTTPResponseSnapshot: Sendable {
 
     public let textEncodingName: String?
 
-    public init(response: URLResponse) {
+    /// Captures a response.
+    /// - Parameters:
+    ///   - response: The response to snapshot
+    ///   - redactedQueryItemNames: Query item names to strip from `url`, matched
+    ///     case-insensitively. Normally `ResponseContext.redactedQueryItemNames`. Defaults to
+    ///     empty, which redacts nothing.
+    public init(
+        response: URLResponse,
+        redactedQueryItemNames: Set<String> = []
+    ) {
         let httpResponse = response as? HTTPURLResponse
         self.isHTTPResponse = httpResponse != nil
         self.statusCode = httpResponse?.statusCode
         self.headers = Self.coerceHeaders(httpResponse?.allHeaderFields ?? [:])
-        self.url = Self.redactingTokenQueryItem(from: response.url)
+        self.url = Self.redactingQueryItems(
+            named: redactedQueryItemNames,
+            from: response.url
+        )
         self.mimeType = response.mimeType
         self.expectedContentLength = response.expectedContentLength
         self.textEncodingName = response.textEncodingName
@@ -77,20 +93,25 @@ public struct HTTPResponseSnapshot: Sendable {
         return coercedHeaders
     }
 
-    /// Removes a `token` query item (case-insensitive) from `url`, mirroring the parameter
-    /// name `.url` authentication appends in `RequestBuilder.applyQueryItems`.
-    static func redactingTokenQueryItem(from url: URL?) -> URL? {
+    /// Removes query items with any of the given names (case-insensitive) from `url`.
+    static func redactingQueryItems(named names: Set<String>, from url: URL?) -> URL? {
+        guard !names.isEmpty else { return url }
+
         guard let url, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return url
         }
 
+        func isRedacted(_ item: URLQueryItem) -> Bool {
+            names.contains { $0.caseInsensitiveCompare(item.name) == .orderedSame }
+        }
+
         guard let queryItems = components.queryItems,
-              queryItems.contains(where: { $0.name.caseInsensitiveCompare("token") == .orderedSame })
+              queryItems.contains(where: isRedacted)
         else {
             return url
         }
 
-        let redactedQueryItems = queryItems.filter { $0.name.caseInsensitiveCompare("token") != .orderedSame }
+        let redactedQueryItems = queryItems.filter { !isRedacted($0) }
         components.queryItems = redactedQueryItems.isEmpty ? nil : redactedQueryItems
         return components.url ?? url
     }

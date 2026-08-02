@@ -17,7 +17,7 @@ A per-request token travels in `RequestContext`, which pairs a configuration wit
 
 ```swift
 let config = ServerConfiguration(url: URL(string: "https://api.example.com")!)
-let context = RequestContext(configuration: config, authToken: "token")
+let context = RequestContext(configuration: config, credential: "token")
 ```
 
 `APIClient` takes a `ServerConfiguration` and holds it for its lifetime, building a `RequestContext` with the current token on every request. Construct a `RequestContext` yourself only when calling `RequestPipeline` or `URLRequest`'s initializers without `APIClient`.
@@ -114,7 +114,7 @@ Resolution lives on `ServerConfiguration` rather than inside the request-buildin
 let headers = config.resolvedHeaders(for: parameters)
 ```
 
-`RequestBuilder.buildRequest` receives headers already resolved, so no custom builder can drop `defaultHeaders` by overriding a pipeline step.
+`RequestBuilder.buildRequest` receives headers already resolved, so no custom builder can drop `defaultHeaders`.
 
 ## Request Builder
 
@@ -145,7 +145,7 @@ An Interface-level handler *replaces* this one rather than layering on top of it
 `RequestContext` carries the credential and forwards the configuration's `url`, `requestEncoder`, `responseDecoder`, `builder`, `responseHandler`, and header resolution:
 
 ```swift
-let context = RequestContext(configuration: config, authToken: "token")
+let context = RequestContext(configuration: config, credential: "token")
 context.url                          // config.url
 context.responseDecoder              // config.responseDecoder
 context.builder                      // config.builder
@@ -153,9 +153,37 @@ context.responseHandler              // config.responseHandler
 context.resolvedHeaders(for: params) // defaultHeaders overlaid with the request's own
 ```
 
-The token is applied based on the request's `AuthenticationType`:
-- `.bearer` adds `Authorization: Bearer <token>` (can be overridden by a custom `Authorization` header)
-- `.url` appends `?token=<token>` and removes any existing `token` query items (case-insensitive) from both the base URL and request parameters
-- `.none` ignores the token
+The credential is applied by the `Authenticator` registered for the request's `AuthenticationScheme`:
 
-A context with no token (`RequestContext(configuration: config)`) fails `.bearer` and `.url` requests with `RequestError.authentication`.
+- `.none` ignores the credential entirely, with no authenticator lookup.
+- `.bearer` adds `Authorization: Bearer <credential>` by default. A caller-supplied `Authorization` header still wins.
+- `.url` appends `?token=<credential>` by default, removing any existing `token` query items (case-insensitive) from both the base URL and request parameters.
+
+A context with no credential (`RequestContext(configuration: config)`) fails any request declaring a registered scheme with `RequestError.authentication`.
+
+## Authenticators
+
+`authenticators` gives each `AuthenticationScheme` its meaning for this server, defaulting to `[.bearer: BearerAuthenticator(), .url: QueryTokenAuthenticator()]`. A server using `?access_token=`, an API key header, or a request signature is a change here rather than a `RequestBuilder` fork.
+
+```swift
+let config = ServerConfiguration(
+    url: URL(string: "https://api.example.com")!,
+    authenticators: [
+        .bearer: BearerAuthenticator(),
+        .url: QueryTokenAuthenticator(name: "access_token")
+    ]
+)
+```
+
+`redactedQueryItemNames` is computed at init as the union of the registered authenticators' own names, and strips those query items from the URL captured in `HTTPResponseSnapshot`. Because the names come from the authenticators that write them, redaction cannot drift out of step with the credential's actual parameter name.
+
+## Challenge Policy
+
+`challengePolicy` decides which failures mean the credential is stale, defaulting to `.unmodelled401`. See [Authentication](Interfaces/authentication.md).
+
+```swift
+let config = ServerConfiguration(
+    url: URL(string: "https://api.example.com")!,
+    challengePolicy: .any401
+)
+```

@@ -128,7 +128,7 @@ struct CodingConfigurationTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationType = .none
+            let authentication: AuthenticationScheme = .none
         }
 
         typealias Response = LegacyOrder
@@ -147,7 +147,7 @@ struct CodingConfigurationTests {
 
         let result = try LegacyOrderInterface.handle(
             (data: #"{"order_id": 7, "placed_at": 1700000000}"#.data(using: .utf8)!, response: httpResponse),
-            responseDecoder: Self.configuredDecoder,
+            context: ResponseContext(responseDecoder: Self.configuredDecoder),
             defaultHandler: DefaultResponseHandler()
         )
 
@@ -177,7 +177,7 @@ struct CodingConfigurationTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: LegacyOrderDraft
-            let authentication: AuthenticationType = .none
+            let authentication: AuthenticationScheme = .none
         }
 
         let context = RequestContext(

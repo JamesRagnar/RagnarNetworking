@@ -6,7 +6,7 @@ Running an Interface request is three jobs, and each has its own owner:
 - `Transport` executes that `URLRequest` and returns bytes.
 - `ResponseHandler` turns the bytes back into the Interface's `Response`.
 
-`RequestPipeline` composes the three. `APIClient` layers credentials, 401 retry, and invalidation on top of it.
+`RequestPipeline` composes the three. `APIClient` layers credentials, challenge retry, and invalidation on top of it.
 
 ## Transport
 
@@ -26,7 +26,7 @@ Most consumers should use `APIClient`. Use `RequestPipeline` directly when you m
 
 ```swift
 let pipeline = RequestPipeline(transport: URLSession.shared)
-let context = RequestContext(configuration: config, authToken: token)
+let context = RequestContext(configuration: config, credential: token)
 
 let user = try await pipeline.send(
     GetUserInterface.self,
@@ -47,22 +47,17 @@ Set a custom `RequestBuilder` on the configuration to override how requests are 
 struct ClientTaggingBuilder: RequestBuilder {
     let clientID: String
 
-    func applyHeaders(
-        _ headers: [String: String],
-        authentication: AuthenticationType,
-        authToken: String?,
-        to request: inout URLRequest
-    ) throws(RequestError) {
-        try URLRequestBuilder().applyHeaders(
-            headers,
-            authentication: authentication,
-            authToken: authToken,
-            to: &request
-        )
+    func buildRequest<Parameters: RequestParameters>(
+        _ requestParameters: Parameters,
+        context: RequestContext
+    ) throws(RequestError) -> URLRequest {
+        var request = try URLRequestBuilder().buildRequest(requestParameters, context: context)
 
         var current = request.allHTTPHeaderFields ?? [:]
         current["X-Client"] = clientID
         request.allHTTPHeaderFields = current
+
+        return request
     }
 }
 
@@ -71,7 +66,7 @@ let context = RequestContext(
         url: serverURL,
         builder: ClientTaggingBuilder(clientID: "ios")
     ),
-    authToken: token
+    credential: token
 )
 
 let pipeline = RequestPipeline(transport: URLSession.shared)

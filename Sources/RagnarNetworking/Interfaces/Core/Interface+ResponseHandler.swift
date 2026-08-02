@@ -25,14 +25,15 @@ public extension Interface {
     ///
     /// - Parameters:
     ///   - response: Tuple containing the response data and URLResponse
-    ///   - responseDecoder: Normally `ServerConfiguration.responseDecoder`.
+    ///   - context: The configuration this response is handled under. Normally
+    ///     `ServerConfiguration.responseContext`.
     ///   - defaultHandler: Used when the Interface does not override `responseHandler`.
     ///     Normally `ServerConfiguration.responseHandler`.
     /// - Returns: The decoded Response type
     /// - Throws: `ResponseError` if the response cannot be processed
     static func handle(
         _ response: (data: Data, response: URLResponse),
-        responseDecoder: ResponseDecoder,
+        context: ResponseContext,
         defaultHandler: any ResponseHandler
     ) throws(ResponseError) -> Response {
         let handler = responseHandler ?? defaultHandler
@@ -40,7 +41,7 @@ public extension Interface {
         return try handler.handle(
             response,
             for: Self.self,
-            responseDecoder: responseDecoder
+            context: context
         )
     }
 

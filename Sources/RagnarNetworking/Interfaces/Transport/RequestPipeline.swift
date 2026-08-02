@@ -15,7 +15,7 @@ import Foundation
 ///
 /// ```swift
 /// let pipeline = RequestPipeline(transport: URLSession.shared)
-/// let context = RequestContext(configuration: configuration, authToken: token)
+/// let context = RequestContext(configuration: configuration, credential: token)
 /// let user = try await pipeline.send(GetUser.self, .init(id: id), context: context)
 /// ```
 public struct RequestPipeline: Sendable {
@@ -53,7 +53,7 @@ public struct RequestPipeline: Sendable {
 
         return try T.handle(
             response,
-            responseDecoder: context.responseDecoder,
+            context: context.responseContext,
             defaultHandler: context.responseHandler
         )
     }

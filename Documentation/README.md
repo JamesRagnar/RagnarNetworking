@@ -4,7 +4,7 @@ This directory documents the public surface of `RagnarNetworking`.
 
 ## Package Structure
 
-- `APIClient` - authenticated request execution with 401 refresh, retry, and terminal invalidation
+- `APIClient` - authenticated request execution with challenge refresh, retry, and terminal invalidation
 - `SocketClient` - actor-based socket transport abstraction for higher-level consumers
 - `SocketIOClient` - typed Socket.IO transport built on `URLSessionWebSocketTask`
 - `SocketIOURL` - Socket.IO WebSocket URL builder from HTTP(S) server URLs
@@ -20,5 +20,6 @@ This directory documents the public surface of `RagnarNetworking`.
 - [RequestPipeline and Transport](request_pipeline.md)
 - [Server Configuration](server_configuration.md)
 - [Interfaces Overview](Interfaces/README.md)
+- [Authentication](Interfaces/authentication.md)
 - [Error Handling](error_handling.md)
 - [Concurrency](concurrency.md)

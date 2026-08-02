@@ -24,24 +24,27 @@ import Foundation
 ///     func handle<T: Interface>(
 ///         _ response: (data: Data, response: URLResponse),
 ///         for interface: T.Type,
-///         responseDecoder: ResponseDecoder
+///         context: ResponseContext
 ///     ) throws(ResponseError) -> T.Response {
 ///         // Inspect the raw response before the default handling runs.
-///         switch try base.handleOutcome(response, for: interface, responseDecoder: responseDecoder) {
+///         switch try base.handleOutcome(response, for: interface, context: context) {
 ///         case .decoded(let value):
 ///             return value
 ///         case .noContent:
-///             let snapshot = HTTPResponseSnapshot(response: response.response)
+///             let snapshot = HTTPResponseSnapshot(
+///                 response: response.response,
+///                 redactedQueryItemNames: context.redactedQueryItemNames
+///             )
 ///             do {
 ///                 return try base.decode(
 ///                     Data(),
 ///                     as: interface,
 ///                     metadata: snapshot,
-///                     responseDecoder: responseDecoder
+///                     responseDecoder: context.responseDecoder
 ///                 )
 ///             } catch {
 ///                 throw .decoding(
-///                     ResponseBody(response.data, decoder: responseDecoder),
+///                     ResponseBody(response.data, decoder: context.responseDecoder),
 ///                     snapshot,
 ///                     error
 ///                 )
@@ -60,24 +63,27 @@ public struct DefaultResponseHandler: ResponseHandler {
     public func handle<T: Interface>(
         _ response: (data: Data, response: URLResponse),
         for interface: T.Type,
-        responseDecoder: ResponseDecoder
+        context: ResponseContext
     ) throws(ResponseError) -> T.Response {
-        switch try handleOutcome(response, for: interface, responseDecoder: responseDecoder) {
+        switch try handleOutcome(response, for: interface, context: context) {
         case .decoded(let value):
             return value
 
         case .noContent:
-            let snapshot = HTTPResponseSnapshot(response: response.response)
+            let snapshot = HTTPResponseSnapshot(
+                response: response.response,
+                redactedQueryItemNames: context.redactedQueryItemNames
+            )
             do {
                 return try decode(
                     Data(),
                     as: interface,
                     metadata: snapshot,
-                    responseDecoder: responseDecoder
+                    responseDecoder: context.responseDecoder
                 )
             } catch {
                 throw .decoding(
-                    ResponseBody(response.data, decoder: responseDecoder),
+                    ResponseBody(response.data, decoder: context.responseDecoder),
                     snapshot,
                     error
                 )
@@ -92,9 +98,13 @@ public struct DefaultResponseHandler: ResponseHandler {
     public func handleOutcome<T: Interface>(
         _ response: (data: Data, response: URLResponse),
         for interface: T.Type,
-        responseDecoder: ResponseDecoder
+        context: ResponseContext
     ) throws(ResponseError) -> ResponseOutcomeResult<T.Response> {
-        let responseSnapshot = HTTPResponseSnapshot(response: response.response)
+        let responseDecoder = context.responseDecoder
+        let responseSnapshot = HTTPResponseSnapshot(
+            response: response.response,
+            redactedQueryItemNames: context.redactedQueryItemNames
+        )
         let responseBody = ResponseBody(response.data, decoder: responseDecoder)
 
         guard let statusCode = responseSnapshot.statusCode else {

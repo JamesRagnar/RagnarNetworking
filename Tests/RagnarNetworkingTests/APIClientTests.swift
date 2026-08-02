@@ -11,7 +11,7 @@ private struct TestInterface: Interface {
         let queryItems: [URLQueryItem]?
         let headers: [String: String]?
         let body: EmptyBody
-        let authentication: AuthenticationType
+        let authentication: AuthenticationScheme
 
         init(
             method: RequestMethod = .get,
@@ -19,7 +19,7 @@ private struct TestInterface: Interface {
             queryItems: [URLQueryItem]? = nil,
             headers: [String: String]? = nil,
             body: EmptyBody = .init(),
-            authentication: AuthenticationType
+            authentication: AuthenticationScheme
         ) {
             self.method = method
             self.path = path
@@ -52,7 +52,7 @@ private struct BodyTestInterface: Interface {
         let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EncodableBody<Payload>
-        let authentication: AuthenticationType = .none
+        let authentication: AuthenticationScheme = .none
     }
 
     struct Response: Codable, Sendable, Equatable, InterfaceResponse {
@@ -73,7 +73,7 @@ private struct SnakeCaseResponseInterface: Interface {
         let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EmptyBody = .init()
-        let authentication: AuthenticationType = .none
+        let authentication: AuthenticationScheme = .none
     }
 
     struct Response: Codable, Sendable, Equatable, InterfaceResponse {
@@ -880,21 +880,18 @@ struct APIClientTests {
         struct TaggingBuilder: RequestBuilder {
             let tag: String
 
-            func applyHeaders(
-                _ headers: [String: String],
-                authentication: AuthenticationType,
-                authToken: String?,
-                to request: inout URLRequest
-            ) throws(RequestError) {
-                try URLRequestBuilder().applyHeaders(
-                    headers,
-                    authentication: authentication,
-                    authToken: authToken,
-                    to: &request
+            func buildRequest<Parameters: RequestParameters>(
+                _ requestParameters: Parameters,
+                context: RequestContext
+            ) throws(RequestError) -> URLRequest {
+                var request = try URLRequestBuilder().buildRequest(
+                    requestParameters,
+                    context: context
                 )
                 var current = request.allHTTPHeaderFields ?? [:]
                 current["X-Custom-Builder"] = tag
                 request.allHTTPHeaderFields = current
+                return request
             }
         }
 

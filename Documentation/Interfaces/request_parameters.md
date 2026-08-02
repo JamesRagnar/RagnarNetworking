@@ -13,7 +13,7 @@ public protocol RequestParameters: Sendable {
     var queryItems: [URLQueryItem]? { get }
     var headers: [String: String]? { get }
     var body: Body { get }
-    var authentication: AuthenticationType { get }
+    var authentication: AuthenticationScheme { get }
 }
 ```
 
@@ -191,19 +191,40 @@ UpdateUser(nickname: .value("Bob"))
 
 ## Authentication
 
-`AuthenticationType` controls how the `ServerConfiguration.authToken` is applied:
+`RequestParameters` declares two authentication-related members. The scheme names a strategy; `ServerConfiguration.authenticators` gives that name its meaning for a particular server.
 
 ```swift
-public enum AuthenticationType: Sendable {
-    case none
-    case bearer  // Authorization: Bearer <token>
-    case url     // ?token=<token>
+let authentication: AuthenticationScheme = .bearer
+```
+
+`AuthenticationScheme` is an open value rather than a closed enum, so a project can name schemes the package does not ship:
+
+```swift
+extension AuthenticationScheme {
+    static let apiKey = AuthenticationScheme("apiKey")
 }
 ```
 
+Built-in schemes, and what the default registry does with them:
+
+- `.none` - no credential. Short-circuits before any authenticator lookup.
+- `.bearer` - `BearerAuthenticator` writes `Authorization: Bearer <credential>`.
+- `.url` - `QueryTokenAuthenticator` writes `?token=<credential>`. Use this for a URL handed to something that cannot carry a header, such as an image loader or `AVPlayer`.
+
+The second member decides whether the request participates in challenge retry and coalesced refresh:
+
+```swift
+var isAuthenticated: Bool { get }  // defaults to authentication != .none
+```
+
+This is the only member of `RequestParameters` with a default implementation, because it is the only one that is derived rather than declared. Override it to `true` when a request declares `.none` but still carries a credential by some route the package does not model - a cookie jar, a signing `Transport`, a proxy. Without the override such a request silently forfeits retry and refresh.
+
 Behavior notes:
-- `.url` appends the auth token as a `token` query item and removes any existing `token` query item (case-insensitive) from both the base URL and `queryItems`.
-- `.bearer` adds the `Authorization` header before merging custom headers, and a caller can still override it by setting `Authorization` (case-insensitive) in `headers`.
+
+- A caller-supplied `Authorization` header still overrides `BearerAuthenticator`, with a diagnostic.
+- `QueryTokenAuthenticator` still strips existing items with its own name (case-insensitive) from both the base URL and `queryItems`, with a diagnostic, so a stale `?token=` cannot beat the live credential.
+
+See [Authentication](authentication.md) for registering authenticators and configuring the challenge policy.
 
 ## Methods
 

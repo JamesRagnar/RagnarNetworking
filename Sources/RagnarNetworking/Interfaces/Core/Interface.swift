@@ -80,8 +80,34 @@ public protocol RequestParameters: Sendable {
     /// Use `EmptyBody()` for requests without a body.
     var body: Body { get }
 
-    /// The authentication strategy for this request
-    var authentication: AuthenticationType { get }
+    /// The authentication scheme for this request.
+    ///
+    /// Names a strategy; `ServerConfiguration.authenticators` decides what that name means for
+    /// this server. Use `.none` for a request that carries no credential.
+    var authentication: AuthenticationScheme { get }
+
+    /// Whether this request carries a credential and should participate in challenge retry and
+    /// coalesced refresh.
+    ///
+    /// Defaults to `authentication != .none`, which is right for every request whose credential
+    /// this package applies.
+    ///
+    /// Override it to `true` when the credential arrives by a route the package does not model -
+    /// a cookie jar, a signing `Transport`, a proxy - and the request declares `.none` as a
+    /// result. Without the override such a request silently forfeits retry and refresh, because
+    /// nothing about it looks authenticated.
+    ///
+    /// This is the only member of this protocol with a default implementation, because it is the
+    /// only one that is derived rather than declared.
+    var isAuthenticated: Bool { get }
+
+}
+
+public extension RequestParameters {
+
+    var isAuthenticated: Bool {
+        authentication != .none
+    }
 
 }
 
@@ -99,21 +125,5 @@ public enum RequestMethod: String, Sendable {
     case options = "OPTIONS"
     case connect = "CONNECT"
     case trace = "TRACE"
-
-}
-
-// MARK: Authentication Type
-
-/// Specifies how authentication credentials should be included in a request.
-public enum AuthenticationType: Sendable {
-
-    /// No authentication required for this request
-    case none
-
-    /// Authentication token included in request headers as `Authorization: Bearer <token>`
-    case bearer
-
-    /// Authentication token included in query parameters as `?token=<token>`
-    case url
 
 }

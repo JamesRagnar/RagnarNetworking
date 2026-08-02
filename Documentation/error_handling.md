@@ -6,7 +6,7 @@
 |---|---|---|
 | Request construction | `RequestError` | `RequestBuilder.buildRequest` (via `RequestPipeline.send`) |
 | Transport | `URLError` (unwrapped) | `Transport.data(for:)` (via `RequestPipeline.send`) |
-| Response handling | `ResponseError` | `Interface.handle(_:responseDecoder:)` (via `RequestPipeline.send`) |
+| Response handling | `ResponseError` | `Interface.handle(_:context:defaultHandler:)` (via `RequestPipeline.send`) |
 | `APIClient` lifecycle | `APIClientError` | `APIClient.send`, `APIClient.invalidate` |
 
 `URLSession`'s default `Transport` conformance calls `URLSession.data(for:)` directly. When that call throws - offline, timeout, DNS failure, cancellation - the raw `URLError` propagates through `RequestPipeline.send` unchanged. It is not wrapped in `RequestError` or `ResponseError`. A custom `Transport` conformance may throw any `Error` from `data(for:)`; that error propagates the same way.

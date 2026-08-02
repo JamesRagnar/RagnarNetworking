@@ -55,6 +55,16 @@ public struct ResponseMap: ExpressibleByArrayLiteral, Sendable {
         self.rangeCases = ranges
     }
 
+    /// Returns the outcome declared for exactly this status code, ignoring ranges.
+    ///
+    /// A range case is a catch-all for status codes the Interface did not think about, so this
+    /// answers "did the Interface make a statement about *this* code" rather than "will this
+    /// code be handled". `AuthenticationChallengePolicy.unmodelled401` uses it to tell an
+    /// endpoint that deliberately models 401 from one that merely maps all of 4xx.
+    public func exactOutcome(_ statusCode: Int) -> ResponseOutcome? {
+        exactCases[statusCode]
+    }
+
     /// Returns the first matching outcome for the given status code.
     public func match(_ statusCode: Int) -> ResponseOutcome? {
         if let exact = exactCases[statusCode] {

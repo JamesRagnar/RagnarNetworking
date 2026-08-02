@@ -1,0 +1,777 @@
+import Foundation
+@testable import RagnarNetworking
+import Testing
+
+// MARK: - Fixtures
+
+private let testServerURL = URL(string: "https://api.example.com")!
+
+private func responseData(_ value: String = "ok") -> Data {
+    try! JSONEncoder().encode(["value": value])
+}
+
+private struct ValueResponse: Codable, Sendable, Equatable, InterfaceResponse {
+    let value: String
+}
+
+/// An endpoint whose scheme and 401 handling both vary per test.
+private struct SchemeInterface: Interface {
+    struct Parameters: RequestParameters {
+        let method: RequestMethod = .get
+        let path: String = "/resource"
+        let queryItems: [URLQueryItem]?
+        let headers: [String: String]?
+        let body: EmptyBody = .init()
+        let authentication: AuthenticationScheme
+
+        init(
+            authentication: AuthenticationScheme,
+            queryItems: [URLQueryItem]? = nil,
+            headers: [String: String]? = nil
+        ) {
+            self.authentication = authentication
+            self.queryItems = queryItems
+            self.headers = headers
+        }
+    }
+
+    typealias Response = ValueResponse
+
+    static let responseCases: ResponseMap = [.code(200, .decode)]
+}
+
+/// Declares `.none` but carries its credential by some route the package does not model, so it
+/// opts back into challenge retry by hand.
+private struct CookieAuthInterface: Interface {
+    struct Parameters: RequestParameters {
+        let method: RequestMethod = .get
+        let path: String = "/cookie"
+        let queryItems: [URLQueryItem]? = nil
+        let headers: [String: String]? = nil
+        let body: EmptyBody = .init()
+        let authentication: AuthenticationScheme = .none
+
+        var isAuthenticated: Bool { true }
+    }
+
+    typealias Response = ValueResponse
+
+    static let responseCases: ResponseMap = [.code(200, .decode)]
+}
+
+private struct UnauthenticatedInterface: Interface {
+    struct Parameters: RequestParameters {
+        let method: RequestMethod = .get
+        let path: String = "/public"
+        let queryItems: [URLQueryItem]? = nil
+        let headers: [String: String]? = nil
+        let body: EmptyBody = .init()
+        let authentication: AuthenticationScheme = .none
+    }
+
+    typealias Response = ValueResponse
+
+    static let responseCases: ResponseMap = [.code(200, .decode)]
+}
+
+private struct AuthFailure: Codable, Error, Sendable, Equatable {
+    let reason: String
+}
+
+private enum FlatError: Error, Equatable {
+    case unauthorized
+}
+
+/// Models 401 exactly, as a typed error body.
+private struct Models401DecodedInterface: Interface {
+    struct Parameters: RequestParameters {
+        let method: RequestMethod = .get
+        let path: String = "/models-401"
+        let queryItems: [URLQueryItem]? = nil
+        let headers: [String: String]? = nil
+        let body: EmptyBody = .init()
+        let authentication: AuthenticationScheme = .bearer
+    }
+
+    typealias Response = ValueResponse
+
+    static let responseCases: ResponseMap = [
+        .code(200, .decode),
+        .code(401, .decodeError(AuthFailure.self))
+    ]
+}
+
+/// Models 401 exactly, as a flat error.
+private struct Models401FlatInterface: Interface {
+    struct Parameters: RequestParameters {
+        let method: RequestMethod = .get
+        let path: String = "/models-401-flat"
+        let queryItems: [URLQueryItem]? = nil
+        let headers: [String: String]? = nil
+        let body: EmptyBody = .init()
+        let authentication: AuthenticationScheme = .bearer
+    }
+
+    typealias Response = ValueResponse
+
+    static let responseCases: ResponseMap = [
+        .code(200, .decode),
+        .code(401, .error(FlatError.unauthorized))
+    ]
+}
+
+/// Covers 401 only through a 4xx catch-all, which is not a statement about 401.
+private struct Range4xxInterface: Interface {
+    struct Parameters: RequestParameters {
+        let method: RequestMethod = .get
+        let path: String = "/range-4xx"
+        let queryItems: [URLQueryItem]? = nil
+        let headers: [String: String]? = nil
+        let body: EmptyBody = .init()
+        let authentication: AuthenticationScheme = .bearer
+    }
+
+    typealias Response = ValueResponse
+
+    static let responseCases: ResponseMap = [
+        .code(200, .decode),
+        .clientError(.decodeError(AuthFailure.self))
+    ]
+}
+
+/// Signals staleness with 419 rather than 401.
+private struct Stale419Interface: Interface {
+    struct Parameters: RequestParameters {
+        let method: RequestMethod = .get
+        let path: String = "/stale"
+        let queryItems: [URLQueryItem]? = nil
+        let headers: [String: String]? = nil
+        let body: EmptyBody = .init()
+        let authentication: AuthenticationScheme = .bearer
+    }
+
+    typealias Response = ValueResponse
+
+    static let responseCases: ResponseMap = [.code(200, .decode)]
+}
+
+private actor RecordingTransport: Transport {
+    private var queue: [(Data, Int)] = []
+    private(set) var requests: [URLRequest] = []
+
+    func enqueue(_ data: Data, _ statusCode: Int) {
+        queue.append((data, statusCode))
+    }
+
+    var callCount: Int { requests.count }
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        requests.append(request)
+        guard !queue.isEmpty else { throw URLError(.badServerResponse) }
+        let (data, statusCode) = queue.removeFirst()
+        let response = HTTPURLResponse(
+            url: request.url ?? testServerURL,
+            statusCode: statusCode,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+        return (data, response)
+    }
+}
+
+private actor CallLog {
+    private(set) var tokenCalls = 0
+    private(set) var refreshCalls = 0
+
+    func recordToken() { tokenCalls += 1 }
+    func recordRefresh() { refreshCalls += 1 }
+}
+
+// MARK: - Custom Authenticators
+
+/// Writes `X-API-Key`, standing in for a scheme the package does not ship.
+private struct APIKeyAuthenticator: Authenticator {
+    func apply(_ credential: String, to components: inout URLComponents) throws(RequestError) {}
+
+    func apply(_ credential: String, to request: inout URLRequest) throws(RequestError) {
+        request.setValue(credential, forHTTPHeaderField: "X-API-Key")
+    }
+}
+
+/// Signs the request body, which is only possible if request-side authentication runs after
+/// `applyBody`.
+private struct BodySigningAuthenticator: Authenticator {
+    func apply(_ credential: String, to components: inout URLComponents) throws(RequestError) {}
+
+    func apply(_ credential: String, to request: inout URLRequest) throws(RequestError) {
+        let body = request.httpBody ?? Data()
+        let method = request.httpMethod ?? ""
+        request.setValue(
+            "\(credential):\(method):\(body.count)",
+            forHTTPHeaderField: "X-Signature"
+        )
+    }
+}
+
+private struct SignedBody: RequestBody, Encodable {
+    let payload: String
+}
+
+private struct SignedInterface: Interface {
+    struct Parameters: RequestParameters {
+        let method: RequestMethod = .post
+        let path: String = "/signed"
+        let queryItems: [URLQueryItem]? = nil
+        let headers: [String: String]? = nil
+        let body: SignedBody = SignedBody(payload: "hello")
+        let authentication: AuthenticationScheme = .signature
+    }
+
+    typealias Response = ValueResponse
+
+    static let responseCases: ResponseMap = [.code(200, .decode)]
+}
+
+private extension AuthenticationScheme {
+    static let signature = AuthenticationScheme("signature")
+    static let apiKey = AuthenticationScheme("apiKey")
+}
+
+// MARK: - A. The retry trigger is the credential, not the placement
+
+@Suite("Authentication: retry trigger", .timeLimit(.minutes(1)))
+struct AuthenticationRetryTriggerTests {
+
+    @Test("A .none request that overrides isAuthenticated gets challenge retry and refresh")
+    func noneSchemeWithOverrideParticipatesInRefresh() async throws {
+        let transport = RecordingTransport()
+        await transport.enqueue(Data(), 401)
+        await transport.enqueue(responseData(), 200)
+
+        let log = CallLog()
+        let client = APIClient(
+            configuration: ServerConfiguration(url: testServerURL),
+            transport: transport,
+            token: { await log.recordToken(); return "cookie-adjacent" },
+            refresh: { await log.recordRefresh() }
+        )
+
+        let result = try await client.send(CookieAuthInterface.self, .init())
+
+        #expect(result.value == "ok")
+        #expect(await transport.callCount == 2)
+        #expect(await log.refreshCalls == 1)
+    }
+
+    @Test("A genuinely unauthenticated request never invokes the token closure and is not retried")
+    func unauthenticatedRequestSkipsTokenAndRetry() async throws {
+        let transport = RecordingTransport()
+        await transport.enqueue(Data(), 401)
+
+        let log = CallLog()
+        let client = APIClient(
+            configuration: ServerConfiguration(url: testServerURL),
+            transport: transport,
+            token: { await log.recordToken(); return "unused" },
+            refresh: { await log.recordRefresh() }
+        )
+
+        await #expect(throws: ResponseError.self) {
+            _ = try await client.send(UnauthenticatedInterface.self, .init())
+        }
+
+        #expect(await transport.callCount == 1)
+        #expect(await log.tokenCalls == 0)
+        #expect(await log.refreshCalls == 0)
+    }
+
+    @Test("isAuthenticated derives from the scheme when a conformance does not declare it")
+    func isAuthenticatedDerivesFromScheme() {
+        #expect(SchemeInterface.Parameters(authentication: .none).isAuthenticated == false)
+        #expect(SchemeInterface.Parameters(authentication: .bearer).isAuthenticated == true)
+        #expect(SchemeInterface.Parameters(authentication: .url).isAuthenticated == true)
+        #expect(SchemeInterface.Parameters(authentication: .apiKey).isAuthenticated == true)
+    }
+
+}
+
+// MARK: - B. The scheme is open
+
+@Suite("Authentication: open scheme", .timeLimit(.minutes(1)))
+struct AuthenticationSchemeTests {
+
+    @Test("A project-defined scheme is a distinct value usable as a registry key")
+    func projectDefinedSchemeIsExpressible() {
+        #expect(AuthenticationScheme.apiKey.rawValue == "apiKey")
+        #expect(AuthenticationScheme.apiKey != .bearer)
+        #expect(AuthenticationScheme("apiKey") == .apiKey)
+
+        let registry: [AuthenticationScheme: any Authenticator] = [.apiKey: APIKeyAuthenticator()]
+        #expect(registry[.apiKey] != nil)
+        #expect(registry[.bearer] == nil)
+    }
+
+    @Test("Built-in scheme names are stable")
+    func builtInSchemeNames() {
+        #expect(AuthenticationScheme.none.rawValue == "none")
+        #expect(AuthenticationScheme.bearer.rawValue == "bearer")
+        #expect(AuthenticationScheme.url.rawValue == "url")
+    }
+
+}
+
+// MARK: - C. Placement lives on the configuration
+
+@Suite("Authentication: authenticators", .timeLimit(.minutes(1)))
+struct AuthenticatorTests {
+
+    private func request(
+        _ parameters: some RequestParameters,
+        configuration: ServerConfiguration,
+        credential: String? = "cred"
+    ) throws -> URLRequest {
+        try URLRequest(
+            requestParameters: parameters,
+            context: RequestContext(configuration: configuration, credential: credential)
+        )
+    }
+
+    @Test("The default registry writes today's bearer header")
+    func defaultBearerIsUnchanged() throws {
+        let built = try request(
+            SchemeInterface.Parameters(authentication: .bearer),
+            configuration: ServerConfiguration(url: testServerURL),
+            credential: "abc123"
+        )
+
+        #expect(built.value(forHTTPHeaderField: "Authorization") == "Bearer abc123")
+        #expect(built.url?.query == nil)
+    }
+
+    @Test("The default registry writes today's token query item")
+    func defaultURLAuthIsUnchanged() throws {
+        let built = try request(
+            SchemeInterface.Parameters(authentication: .url),
+            configuration: ServerConfiguration(url: testServerURL),
+            credential: "abc123"
+        )
+
+        #expect(built.url?.query == "token=abc123")
+        #expect(built.value(forHTTPHeaderField: "Authorization") == nil)
+    }
+
+    @Test("A custom authenticator registered for .bearer replaces the built-in form")
+    func customAuthenticatorForBearer() throws {
+        let configuration = ServerConfiguration(
+            url: testServerURL,
+            authenticators: [.bearer: APIKeyAuthenticator()]
+        )
+
+        let built = try request(
+            SchemeInterface.Parameters(authentication: .bearer),
+            configuration: configuration,
+            credential: "key-1"
+        )
+
+        #expect(built.value(forHTTPHeaderField: "X-API-Key") == "key-1")
+        #expect(built.value(forHTTPHeaderField: "Authorization") == nil)
+    }
+
+    @Test("A server using ?access_token= needs only configuration")
+    func renamedQueryParameterIsConfiguration() throws {
+        let configuration = ServerConfiguration(
+            url: testServerURL,
+            authenticators: [.url: QueryTokenAuthenticator(name: "access_token")]
+        )
+
+        let built = try request(
+            SchemeInterface.Parameters(authentication: .url),
+            configuration: configuration,
+            credential: "abc123"
+        )
+
+        #expect(built.url?.query == "access_token=abc123")
+    }
+
+    @Test("A renamed query parameter is redacted from a captured response snapshot")
+    func renamedQueryParameterIsRedacted() throws {
+        let configuration = ServerConfiguration(
+            url: testServerURL,
+            authenticators: [.url: QueryTokenAuthenticator(name: "access_token")]
+        )
+
+        #expect(configuration.redactedQueryItemNames == ["access_token"])
+
+        let response = HTTPURLResponse(
+            url: URL(string: "https://api.example.com/resource?access_token=secret&keep=1")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+        let snapshot = HTTPResponseSnapshot(
+            response: response,
+            redactedQueryItemNames: configuration.redactedQueryItemNames
+        )
+
+        let captured = try #require(snapshot.url?.absoluteString)
+        #expect(!captured.contains("secret"))
+        #expect(captured.contains("keep=1"))
+    }
+
+    @Test("redactedQueryItemNames unions every registered authenticator")
+    func redactedNamesAreUnioned() {
+        let configuration = ServerConfiguration(
+            url: testServerURL,
+            authenticators: [
+                .bearer: BearerAuthenticator(),
+                .url: QueryTokenAuthenticator(),
+                .apiKey: QueryTokenAuthenticator(name: "access_token")
+            ]
+        )
+
+        #expect(configuration.redactedQueryItemNames == ["token", "access_token"])
+    }
+
+    @Test("An unauthenticated and a bearer endpoint coexist on one configuration")
+    func mixedSchemesOnOneConfiguration() throws {
+        let configuration = ServerConfiguration(url: testServerURL)
+
+        let authenticated = try request(
+            SchemeInterface.Parameters(authentication: .bearer),
+            configuration: configuration,
+            credential: "abc123"
+        )
+        let anonymous = try request(
+            SchemeInterface.Parameters(authentication: .none),
+            configuration: configuration,
+            credential: "abc123"
+        )
+
+        #expect(authenticated.value(forHTTPHeaderField: "Authorization") == "Bearer abc123")
+        #expect(anonymous.value(forHTTPHeaderField: "Authorization") == nil)
+        #expect(anonymous.url?.query == nil)
+    }
+
+    @Test("A scheme with no registered authenticator fails with an error naming it")
+    func unregisteredSchemeFails() {
+        let configuration = ServerConfiguration(url: testServerURL)
+
+        #expect {
+            _ = try request(
+                SchemeInterface.Parameters(authentication: .apiKey),
+                configuration: configuration
+            )
+        } throws: { error in
+            guard case .invalidRequest(let description) = error as? RequestError else {
+                return false
+            }
+            return description.contains("apiKey")
+        }
+    }
+
+    @Test("A registered scheme with no credential still fails with .authentication")
+    func missingCredentialFails() {
+        let configuration = ServerConfiguration(url: testServerURL)
+
+        for scheme in [AuthenticationScheme.bearer, .url] {
+            #expect {
+                _ = try request(
+                    SchemeInterface.Parameters(authentication: scheme),
+                    configuration: configuration,
+                    credential: nil
+                )
+            } throws: { error in
+                if case .authentication = error as? RequestError { true } else { false }
+            }
+        }
+    }
+
+    @Test("A .none request needs no credential")
+    func noneSchemeNeedsNoCredential() throws {
+        let built = try request(
+            SchemeInterface.Parameters(authentication: .none),
+            configuration: ServerConfiguration(url: testServerURL),
+            credential: nil
+        )
+
+        #expect(built.url?.absoluteString == "https://api.example.com/resource")
+    }
+
+    @Test("An authenticator registered for .none never runs")
+    func noneSchemeShortCircuitsBeforeLookup() throws {
+        let configuration = ServerConfiguration(
+            url: testServerURL,
+            authenticators: [.none: APIKeyAuthenticator()]
+        )
+
+        let built = try request(
+            SchemeInterface.Parameters(authentication: .none),
+            configuration: configuration,
+            credential: "cred"
+        )
+
+        #expect(built.value(forHTTPHeaderField: "X-API-Key") == nil)
+    }
+
+    @Test("A stale token query item in the base URL is stripped rather than winning")
+    func baseURLTokenIsStripped() throws {
+        let configuration = ServerConfiguration(
+            url: URL(string: "https://api.example.com?token=stale")!
+        )
+
+        let built = try request(
+            SchemeInterface.Parameters(authentication: .url),
+            configuration: configuration,
+            credential: "fresh"
+        )
+
+        #expect(built.url?.query == "token=fresh")
+    }
+
+    @Test("A token query item in the endpoint's own parameters is stripped rather than winning")
+    func endpointTokenIsStripped() throws {
+        let built = try request(
+            SchemeInterface.Parameters(
+                authentication: .url,
+                queryItems: [URLQueryItem(name: "token", value: "stale"), URLQueryItem(name: "keep", value: "1")]
+            ),
+            configuration: ServerConfiguration(url: testServerURL),
+            credential: "fresh"
+        )
+
+        let query = try #require(built.url?.query)
+        #expect(query.contains("keep=1"))
+        #expect(query.contains("token=fresh"))
+        #expect(!query.contains("stale"))
+    }
+
+    @Test("A caller-supplied Authorization header still overrides bearer auth")
+    func callerAuthorizationHeaderWins() throws {
+        let built = try request(
+            SchemeInterface.Parameters(
+                authentication: .bearer,
+                headers: ["Authorization": "Custom caller-value"]
+            ),
+            configuration: ServerConfiguration(url: testServerURL),
+            credential: "abc123"
+        )
+
+        #expect(built.value(forHTTPHeaderField: "Authorization") == "Custom caller-value")
+    }
+
+    @Test("Request-side authentication runs after the body, so a signature can cover it")
+    func signingAuthenticatorSeesTheBody() throws {
+        let configuration = ServerConfiguration(
+            url: testServerURL,
+            authenticators: [.signature: BodySigningAuthenticator()]
+        )
+
+        let built = try request(
+            SignedInterface.Parameters(),
+            configuration: configuration,
+            credential: "key"
+        )
+
+        let expectedLength = try #require(built.httpBody?.count)
+        #expect(expectedLength > 0)
+        #expect(built.value(forHTTPHeaderField: "X-Signature") == "key:POST:\(expectedLength)")
+    }
+
+    @Test("A configured authenticator reaches requests sent through APIClient")
+    func authenticatorAppliesThroughAPIClient() async throws {
+        let transport = RecordingTransport()
+        await transport.enqueue(responseData(), 200)
+
+        let client = APIClient(
+            configuration: ServerConfiguration(
+                url: testServerURL,
+                authenticators: [.bearer: APIKeyAuthenticator()]
+            ),
+            transport: transport,
+            token: { "key-1" },
+            refresh: {}
+        )
+
+        _ = try await client.send(SchemeInterface.self, .init(authentication: .bearer))
+
+        let sent = try #require(await transport.requests.first)
+        #expect(sent.value(forHTTPHeaderField: "X-API-Key") == "key-1")
+    }
+
+}
+
+// MARK: - D. The challenge is a policy
+
+@Suite("Authentication: challenge policy", .timeLimit(.minutes(1)))
+struct AuthenticationChallengePolicyTests {
+
+    private func client(
+        _ transport: RecordingTransport,
+        _ log: CallLog,
+        policy: AuthenticationChallengePolicy = .unmodelled401
+    ) -> APIClient {
+        APIClient(
+            configuration: ServerConfiguration(
+                url: testServerURL,
+                challengePolicy: policy
+            ),
+            transport: transport,
+            token: { await log.recordToken(); return "token" },
+            refresh: { await log.recordRefresh() }
+        )
+    }
+
+    @Test("An unmodelled 401 still refreshes and retries")
+    func unmodelled401Refreshes() async throws {
+        let transport = RecordingTransport()
+        await transport.enqueue(Data(), 401)
+        await transport.enqueue(responseData(), 200)
+        let log = CallLog()
+
+        let result = try await client(transport, log)
+            .send(SchemeInterface.self, .init(authentication: .bearer))
+
+        #expect(result.value == "ok")
+        #expect(await log.refreshCalls == 1)
+        #expect(await transport.callCount == 2)
+    }
+
+    @Test("A 401 modelled as a typed error body surfaces without a refresh")
+    func modelled401DecodedSurfacesDirectly() async throws {
+        let transport = RecordingTransport()
+        await transport.enqueue(try JSONEncoder().encode(AuthFailure(reason: "bad password")), 401)
+        let log = CallLog()
+
+        await #expect(throws: ResponseError.self) {
+            _ = try await self.client(transport, log).send(Models401DecodedInterface.self, .init())
+        }
+
+        #expect(await log.refreshCalls == 0)
+        #expect(await transport.callCount == 1)
+    }
+
+    @Test("A 401 modelled as a flat error surfaces without a refresh")
+    func modelled401FlatSurfacesDirectly() async throws {
+        let transport = RecordingTransport()
+        await transport.enqueue(Data(), 401)
+        let log = CallLog()
+
+        await #expect(throws: ResponseError.self) {
+            _ = try await self.client(transport, log).send(Models401FlatInterface.self, .init())
+        }
+
+        #expect(await log.refreshCalls == 0)
+        #expect(await transport.callCount == 1)
+    }
+
+    @Test("A 4xx range case is not a statement about 401, so refresh still fires")
+    func rangeCoveringUnauthorizedStillRefreshes() async throws {
+        let transport = RecordingTransport()
+        await transport.enqueue(try JSONEncoder().encode(AuthFailure(reason: "stale")), 401)
+        await transport.enqueue(responseData(), 200)
+        let log = CallLog()
+
+        let result = try await client(transport, log).send(Range4xxInterface.self, .init())
+
+        #expect(result.value == "ok")
+        #expect(await log.refreshCalls == 1)
+        #expect(await transport.callCount == 2)
+    }
+
+    @Test("A custom policy triggers refresh on a non-401 status")
+    func customPolicyOnNon401() async throws {
+        let transport = RecordingTransport()
+        await transport.enqueue(Data(), 419)
+        await transport.enqueue(responseData(), 200)
+        let log = CallLog()
+
+        let policy = AuthenticationChallengePolicy { error, _ in error.statusCode == 419 }
+        let result = try await client(transport, log, policy: policy)
+            .send(Stale419Interface.self, .init())
+
+        #expect(result.value == "ok")
+        #expect(await log.refreshCalls == 1)
+        #expect(await transport.callCount == 2)
+    }
+
+    @Test(".any401 restores refresh for a modelled 401")
+    func any401RestoresOldBehavior() async throws {
+        let transport = RecordingTransport()
+        await transport.enqueue(try JSONEncoder().encode(AuthFailure(reason: "stale")), 401)
+        await transport.enqueue(responseData(), 200)
+        let log = CallLog()
+
+        let result = try await client(transport, log, policy: .any401)
+            .send(Models401DecodedInterface.self, .init())
+
+        #expect(result.value == "ok")
+        #expect(await log.refreshCalls == 1)
+        #expect(await transport.callCount == 2)
+    }
+
+    @Test("A policy that never fires leaves the error untouched")
+    func policyThatNeverFires() async throws {
+        let transport = RecordingTransport()
+        await transport.enqueue(Data(), 401)
+        let log = CallLog()
+
+        let policy = AuthenticationChallengePolicy { _, _ in false }
+
+        await #expect(throws: ResponseError.self) {
+            _ = try await self.client(transport, log, policy: policy)
+                .send(SchemeInterface.self, .init(authentication: .bearer))
+        }
+
+        #expect(await log.refreshCalls == 0)
+        #expect(await transport.callCount == 1)
+    }
+
+    @Test("A modelled 401 that refresh would have masked reaches the caller intact")
+    func modelled401IsNotMaskedByAFailingRefresh() async throws {
+        let transport = RecordingTransport()
+        await transport.enqueue(try JSONEncoder().encode(AuthFailure(reason: "bad password")), 401)
+
+        let client = APIClient(
+            configuration: ServerConfiguration(url: testServerURL),
+            transport: transport,
+            token: { "token" },
+            refresh: { throw FlatError.unauthorized }
+        )
+
+        do {
+            _ = try await client.send(Models401DecodedInterface.self, .init())
+            Issue.record("Expected the modelled 401 to surface")
+        } catch let error as ResponseError {
+            #expect(error.decodeError(as: AuthFailure.self) == AuthFailure(reason: "bad password"))
+        }
+    }
+
+    @Test("unmodelled401 asks the response map rather than the thrown error case")
+    func unmodelled401ConsultsTheMap() {
+        let snapshot = HTTPResponseSnapshot(
+            response: HTTPURLResponse(
+                url: testServerURL,
+                statusCode: 401,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+        )
+        // A handler that reports every failure as `.generic` rather than `.unknownResponseCase`.
+        let error = ResponseError.generic(
+            ResponseBody(Data(), decoder: ResponseDecoder()),
+            snapshot,
+            FlatError.unauthorized
+        )
+
+        #expect(AuthenticationChallengePolicy.unmodelled401.isChallenge(error, [.code(200, .decode)]))
+        #expect(!AuthenticationChallengePolicy.unmodelled401.isChallenge(
+            error,
+            [.code(401, .error(FlatError.unauthorized))]
+        ))
+        #expect(AuthenticationChallengePolicy.any401.isChallenge(
+            error,
+            [.code(401, .error(FlatError.unauthorized))]
+        ))
+    }
+
+}

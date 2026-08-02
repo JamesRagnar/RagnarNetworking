@@ -1,84 +1,117 @@
 # Request Builder Guide
 
-This guide explains how `RequestBuilder` acts as the advanced request-construction extension API for `RagnarNetworking`.
+This guide explains how `RequestBuilder` acts as the request-construction extension API for `RagnarNetworking`.
 
 ## Overview
 
-`RequestBuilder` defines a step-by-step pipeline for building a `URLRequest` from `RequestParameters` and a `RequestContext`. `URLRequestBuilder` is the built-in implementation, and you can provide your own builder to override only the steps you need; unoverridden steps fall back to the default implementation.
+`RequestBuilder` has one requirement:
+
+```swift
+func buildRequest<Parameters: RequestParameters>(
+    _ requestParameters: Parameters,
+    context: RequestContext
+) throws(RequestError) -> URLRequest
+```
+
+`URLRequestBuilder` is the built-in implementation. It exposes every step of its pipeline as a public method, so a custom builder composes against those steps rather than overriding protocol members.
 
 Builders are values, not metatypes, so a builder can carry its own state - a request signer, a tenant prefix, a client identifier - without reaching for globals.
 
+## Before Writing One
+
+Most problems that look like they need a custom builder do not:
+
+- **Changing how a credential reaches the request** is an `Authenticator` on `ServerConfiguration.authenticators`. See [Authentication](authentication.md).
+- **Adding behavior around the whole request/response exchange** - logging, retries, metrics, offline queuing - is a `Transport` decorator. That is this package's middleware seam, the same shape as OpenAPI's `ClientMiddleware`.
+- **Cross-cutting headers** are `ServerConfiguration.defaultHeaders`.
+- **Per-request behavior** is a plain `RequestParameters` value.
+
+Write a builder when you need to change how a `URLRequest` is *constructed* from its parameters: path joining rules, query assembly, body and header interplay.
+
 ## Construction Pipeline
 
-The default pipeline is:
-- `makeComponents`
-- `applyPath`
-- `applyQueryItems`
-- `makeURL`
-- `makeRequest`
-- `applyMethod`
-- `applyHeaders`
-- `applyBody`
+`URLRequestBuilder.buildRequest` runs:
 
-`applyHeaders` receives headers already resolved by `ServerConfiguration.resolvedHeaders(for:)`, so the configuration's `defaultHeaders` cannot be dropped by overriding a pipeline step - including `buildRequest` itself.
+```
+makeComponents → applyPath → applyQueryItems → applyAuthentication(to: &components)
+  → makeURL → makeRequest → applyMethod → applyHeaders → applyBody
+  → applyAuthentication(to: &request)
+```
+
+Authentication is two steps rather than one because a URL-carried credential must land before the URL is formed and a header-carried one after, and the pipeline never holds a live `URLComponents` and `URLRequest` at the same time. Each step resolves the `Authenticator` registered for the request's scheme; `.none` short-circuits with no lookup.
+
+The request-side step runs last, after the body, so a scheme that signs the request can see the method, headers, and body it signs.
+
+`applyHeaders` receives headers already resolved by `ServerConfiguration.resolvedHeaders(for:)`, so the configuration's `defaultHeaders` cannot be dropped by a builder that replaces `buildRequest` wholesale.
 
 `applyBody` encodes the request body using the configured `RequestEncoder`, then calls `applyContentType` to apply the inferred `Content-Type`. If a `Content-Type` header already exists, `applyContentType` calls `mediaTypesMatch` to compare it against the inferred value (case-insensitive, ignoring parameters such as `charset`); a mismatch fails request construction with `RequestError.invalidRequest`.
-
-## Scope
-
-A custom builder changes request-construction policy below the Interface definition level: cross-cutting headers, path or query assembly rules, authentication placement rules, or body/header interplay. A plain `RequestParameters` value expresses per-request behavior without a custom builder, and `ServerConfiguration.defaultHeaders` expresses cross-cutting headers without one.
-
-## Override Strategy
-
-Each pipeline step affects a distinct part of request construction:
-- `applyHeaders` adds or rewrites headers.
-- `applyQueryItems` changes query assembly behavior.
-- `applyBody` changes encoding behavior.
-- `applyContentType` and `mediaTypesMatch` change how a body's `Content-Type` is applied or compared against an existing header.
-- `buildRequest` changes the pipeline itself; the other steps above are called from its default implementation.
-
-For additive behavior, call the corresponding `URLRequestBuilder()` step first and then append your custom logic.
 
 ## Builder Invariants
 
 Custom builders should preserve these guarantees unless they are intentionally redefining package behavior:
+
 - successful construction returns a valid `URLRequest`
-- request authentication semantics remain coherent with `AuthenticationType`
+- the `Authenticator` registered for the request's `AuthenticationScheme` is applied
 - body bytes and `Content-Type` stay aligned
 - invalid construction still surfaces as `RequestError`
 - caller-supplied overrides are handled deliberately and predictably
 
-## Creating a Custom Builder
+## Wrapping the Default Pipeline
 
-Create a new type and override only the steps you need.
+The simplest custom builder runs the whole default pipeline and then adjusts the result:
 
 ```swift
 struct ClientTaggingBuilder: RequestBuilder {
     let clientID: String
 
-    func applyHeaders(
-        _ headers: [String: String],
-        authentication: AuthenticationType,
-        authToken: String?,
-        to request: inout URLRequest
-    ) throws(RequestError) {
-        try URLRequestBuilder().applyHeaders(
-            headers,
-            authentication: authentication,
-            authToken: authToken,
-            to: &request
-        )
+    func buildRequest<Parameters: RequestParameters>(
+        _ requestParameters: Parameters,
+        context: RequestContext
+    ) throws(RequestError) -> URLRequest {
+        var request = try URLRequestBuilder().buildRequest(requestParameters, context: context)
 
         var current = request.allHTTPHeaderFields ?? [:]
         current["X-Client"] = clientID
         request.allHTTPHeaderFields = current
+
+        return request
+    }
+}
+```
+
+## Changing a Step
+
+To change one step, run the steps before it yourself, then hand off. `finishRequest` runs everything from authentication onward, so a builder that only rewrites the URL never restates header, body, or authentication handling:
+
+```swift
+struct TenantPrefixBuilder: RequestBuilder {
+    let tenant: String
+
+    func buildRequest<Parameters: RequestParameters>(
+        _ requestParameters: Parameters,
+        context: RequestContext
+    ) throws(RequestError) -> URLRequest {
+        let base = URLRequestBuilder()
+
+        var components = try base.makeComponents(context: context)
+        base.applyPath("/\(tenant)\(requestParameters.path)", to: &components)
+        base.applyQueryItems(requestParameters.queryItems, to: &components)
+        components.queryItems = (components.queryItems ?? []) + [
+            URLQueryItem(name: "client", value: "ios")
+        ]
+
+        return try base.finishRequest(
+            requestParameters,
+            components: components,
+            context: context
+        )
     }
 }
 ```
 
 ## Using a Custom Builder
 
-A builder is part of a server's contract - path joining, header conventions, request signing - so it is set on `ServerConfiguration` rather than passed alongside the transport. Everything that reads a configuration then uses it, with no second place to set it and no precedence rule:
+A builder is part of a server's contract, so it is set on `ServerConfiguration` rather than passed alongside the transport. Everything that reads a configuration then uses it, with no second place to set it and no precedence rule:
 
 ```swift
 let config = ServerConfiguration(
@@ -97,7 +130,7 @@ let client = APIClient(
 
 ```swift
 let pipeline = RequestPipeline(transport: URLSession.shared)
-let context = RequestContext(configuration: config, authToken: token)
+let context = RequestContext(configuration: config, credential: token)
 ```
 
 Or build a single request directly, which uses the context's configured builder:
@@ -110,35 +143,7 @@ let request = try URLRequest(
 )
 ```
 
-## Additional Example
-
-This example preserves the default behavior and then adds a fixed query item to every request:
-
-```swift
-struct ClientTaggedQueryBuilder: RequestBuilder {
-    func applyQueryItems(
-        _ queryItems: [URLQueryItem]?,
-        authentication: AuthenticationType,
-        authToken: String?,
-        to components: inout URLComponents
-    ) throws(RequestError) {
-        try URLRequestBuilder().applyQueryItems(
-            queryItems,
-            authentication: authentication,
-            authToken: authToken,
-            to: &components
-        )
-
-        var items = components.queryItems ?? []
-        items.append(URLQueryItem(name: "client", value: "ios"))
-        components.queryItems = items
-    }
-}
-```
-
 ## Notes
 
-- You do not need to reimplement `buildRequest` unless you want to change the overall flow.
-- Overridden methods are used automatically by the default `buildRequest` implementation.
-- You can call `URLRequestBuilder()` step methods to reuse the default behavior before adding custom logic.
+- Do not call `context.builder` from inside a builder. Once set on `ServerConfiguration`, that is the builder currently running, so it recurses until the stack overflows. Construct `URLRequestBuilder()` directly instead.
 - `applyBody` uses the `RequestEncoder` factory from the context's configuration to create a per-request encoder.
