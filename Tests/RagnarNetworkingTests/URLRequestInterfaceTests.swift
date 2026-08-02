@@ -20,7 +20,7 @@ struct URLRequestInterfaceTests {
         let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EmptyBody = .init()
-        let authentication: AuthenticationScheme = .none
+        let authentication: AuthenticationScheme? = nil
     }
 
     struct AuthenticatedParameters: RequestParameters {
@@ -29,7 +29,7 @@ struct URLRequestInterfaceTests {
         let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EmptyBody = .init()
-        let authentication: AuthenticationScheme
+        let authentication: AuthenticationScheme?
     }
 
     struct ComplexParameters<BodyType: RequestBody>: RequestParameters {
@@ -39,7 +39,7 @@ struct URLRequestInterfaceTests {
         let queryItems: [URLQueryItem]?
         let headers: [String: String]?
         let body: BodyType
-        let authentication: AuthenticationScheme
+        let authentication: AuthenticationScheme?
     }
 
     // MARK: - Basic Request Construction
@@ -75,7 +75,7 @@ struct URLRequestInterfaceTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationScheme = .none
+                let authentication: AuthenticationScheme? = nil
             }
 
             let params = TestParams(method: method)
@@ -274,8 +274,8 @@ struct URLRequestInterfaceTests {
         #expect(urlString.contains("filter=active"))
     }
 
-    @Test("URL auth token overrides token query item")
-    func testURLAuthTokenConflict() throws {
+    @Test("A token query item in the request collides with URL authentication")
+    func testURLAuthTokenConflict() {
         let url = URL(string: "https://api.example.com")!
         let config = RequestContext(configuration: ServerConfiguration(url: url), credential: "auth-token")
         let params = ComplexParameters<EmptyBody>(
@@ -285,19 +285,18 @@ struct URLRequestInterfaceTests {
             authentication: .url
         )
 
-        let request = try URLRequest(
-            requestParameters: params,
-            context: config
-        )
-
-        let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
-        let tokenItems = components?.queryItems?.filter { $0.name == "token" } ?? []
-        #expect(tokenItems.count == 1)
-        #expect(tokenItems.first?.value == "auth-token")
+        #expect {
+            _ = try URLRequest(requestParameters: params, context: config)
+        } throws: { error in
+            guard case .credentialCollision(let scheme, let name) = error as? RequestError else {
+                return false
+            }
+            return scheme == .url && name.caseInsensitiveCompare("token") == .orderedSame
+        }
     }
 
-    @Test("URL auth token overrides token in base URL")
-    func testURLAuthTokenOverridesBaseURLToken() throws {
+    @Test("A token query item in the base URL collides with URL authentication")
+    func testURLAuthTokenOverridesBaseURLToken() {
         let url = URL(string: "https://api.example.com?token=base-token")!
         let config = RequestContext(configuration: ServerConfiguration(url: url), credential: "auth-token")
         let params = ComplexParameters<EmptyBody>(
@@ -307,19 +306,18 @@ struct URLRequestInterfaceTests {
             authentication: .url
         )
 
-        let request = try URLRequest(
-            requestParameters: params,
-            context: config
-        )
-
-        let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
-        let tokenItems = components?.queryItems?.filter { $0.name == "token" } ?? []
-        #expect(tokenItems.count == 1)
-        #expect(tokenItems.first?.value == "auth-token")
+        #expect {
+            _ = try URLRequest(requestParameters: params, context: config)
+        } throws: { error in
+            guard case .credentialCollision(let scheme, let name) = error as? RequestError else {
+                return false
+            }
+            return scheme == .url && name.caseInsensitiveCompare("token") == .orderedSame
+        }
     }
 
-    @Test("URL auth token overrides token case-insensitively")
-    func testURLAuthTokenOverridesTokenCaseInsensitive() throws {
+    @Test("URL authentication collides case-insensitively")
+    func testURLAuthTokenOverridesTokenCaseInsensitive() {
         let url = URL(string: "https://api.example.com?TOKEN=base-token")!
         let config = RequestContext(configuration: ServerConfiguration(url: url), credential: "auth-token")
         let params = ComplexParameters<EmptyBody>(
@@ -329,17 +327,14 @@ struct URLRequestInterfaceTests {
             authentication: .url
         )
 
-        let request = try URLRequest(
-            requestParameters: params,
-            context: config
-        )
-
-        let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
-        let tokenItems = components?.queryItems?.filter {
-            $0.name.caseInsensitiveCompare("token") == .orderedSame
-        } ?? []
-        #expect(tokenItems.count == 1)
-        #expect(tokenItems.first?.value == "auth-token")
+        #expect {
+            _ = try URLRequest(requestParameters: params, context: config)
+        } throws: { error in
+            guard case .credentialCollision(let scheme, let name) = error as? RequestError else {
+                return false
+            }
+            return scheme == .url && name.caseInsensitiveCompare("token") == .orderedSame
+        }
     }
 
     // MARK: - Headers
@@ -455,10 +450,10 @@ struct URLRequestInterfaceTests {
         #expect(request.value(forHTTPHeaderField: "X-Request-ID") == "12345")
     }
 
-    @Test("Custom Authorization header overrides bearer auth")
-    func testAuthorizationHeaderOverridesBearerToken() throws {
+    @Test("A caller-supplied Authorization header collides with bearer auth")
+    func testAuthorizationHeaderOverridesBearerToken() {
         let url = URL(string: "https://api.example.com")!
-        let config = RequestContext(configuration: ServerConfiguration(url: url), credential: "bearer-token")
+        let config = RequestContext(configuration: ServerConfiguration(url: url), credential: "auth-token")
         let params = ComplexParameters<EmptyBody>(
             queryItems: nil,
             headers: ["Authorization": "Custom token"],
@@ -466,18 +461,20 @@ struct URLRequestInterfaceTests {
             authentication: .bearer
         )
 
-        let request = try URLRequest(
-            requestParameters: params,
-            context: config
-        )
-
-        #expect(request.value(forHTTPHeaderField: "Authorization") == "Custom token")
+        #expect {
+            _ = try URLRequest(requestParameters: params, context: config)
+        } throws: { error in
+            guard case .credentialCollision(let scheme, let name) = error as? RequestError else {
+                return false
+            }
+            return scheme == .bearer && name.caseInsensitiveCompare("Authorization") == .orderedSame
+        }
     }
 
-    @Test("Authorization header override is case-insensitive")
-    func testAuthorizationHeaderOverrideIsCaseInsensitive() throws {
+    @Test("An Authorization collision is detected case-insensitively")
+    func testAuthorizationHeaderOverrideIsCaseInsensitive() {
         let url = URL(string: "https://api.example.com")!
-        let config = RequestContext(configuration: ServerConfiguration(url: url), credential: "bearer-token")
+        let config = RequestContext(configuration: ServerConfiguration(url: url), credential: "auth-token")
         let params = ComplexParameters<EmptyBody>(
             queryItems: nil,
             headers: ["authorization": "Custom token"],
@@ -485,16 +482,14 @@ struct URLRequestInterfaceTests {
             authentication: .bearer
         )
 
-        let request = try URLRequest(
-            requestParameters: params,
-            context: config
-        )
-
-        #expect(request.value(forHTTPHeaderField: "Authorization") == "Custom token")
-        let authKeys = request.allHTTPHeaderFields?.keys.filter {
-            $0.caseInsensitiveCompare("Authorization") == .orderedSame
-        } ?? []
-        #expect(authKeys.count == 1)
+        #expect {
+            _ = try URLRequest(requestParameters: params, context: config)
+        } throws: { error in
+            guard case .credentialCollision(let scheme, let name) = error as? RequestError else {
+                return false
+            }
+            return scheme == .bearer && name.caseInsensitiveCompare("Authorization") == .orderedSame
+        }
     }
 
     // MARK: - Body
@@ -507,7 +502,7 @@ struct URLRequestInterfaceTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         let url = URL(string: "https://api.example.com")!
@@ -711,7 +706,7 @@ struct URLRequestInterfaceTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EncoderBody
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         let config = RequestContext(
@@ -747,7 +742,7 @@ struct URLRequestInterfaceTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: ArrayBody<Int>
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         let url = URL(string: "https://api.example.com")!
@@ -778,7 +773,7 @@ struct URLRequestInterfaceTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EncodableBody<LegacyPayload>
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         let url = URL(string: "https://api.example.com")!
@@ -809,7 +804,7 @@ struct URLRequestInterfaceTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: PayloadWithNullable
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         let url = URL(string: "https://api.example.com")!
@@ -839,7 +834,7 @@ struct URLRequestInterfaceTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: PayloadWithNullable
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         let url = URL(string: "https://api.example.com")!
@@ -868,7 +863,7 @@ struct URLRequestInterfaceTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: PayloadWithNullable
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         let url = URL(string: "https://api.example.com")!
@@ -984,7 +979,7 @@ struct URLRequestInterfaceTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationScheme = .none
+                let authentication: AuthenticationScheme? = nil
             }
             struct Response: Decodable, Sendable, InterfaceResponse {}
             static var responseCases: ResponseMap { [.code(200, .decode)] }
@@ -1096,7 +1091,7 @@ struct URLRequestInterfaceTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: Body = Body(a: 1)
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         let request = try ContentTypeOverridingBuilder().buildRequest(
@@ -1146,7 +1141,7 @@ struct URLRequestInterfaceTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = ["Accept-Language": "fr-FR"]
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         let context = RequestContext(

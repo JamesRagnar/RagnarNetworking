@@ -80,21 +80,21 @@ public protocol RequestParameters: Sendable {
     /// Use `EmptyBody()` for requests without a body.
     var body: Body { get }
 
-    /// The authentication scheme for this request.
+    /// The authentication scheme for this request, or `nil` if it carries no credential.
     ///
     /// Names a strategy; `ServerConfiguration.authenticators` decides what that name means for
-    /// this server. Use `.none` for a request that carries no credential.
-    var authentication: AuthenticationScheme { get }
+    /// this server.
+    var authentication: AuthenticationScheme? { get }
 
     /// Whether this request carries a credential and should participate in challenge retry and
     /// coalesced refresh.
     ///
-    /// Defaults to `authentication != .none`, which is right for every request whose credential
+    /// Defaults to `authentication != nil`, which is right for every request whose credential
     /// this package applies.
     ///
     /// Override it to `true` when the credential arrives by a route the package does not model -
-    /// a cookie jar, a signing `Transport`, a proxy - and the request declares `.none` as a
-    /// result. Without the override such a request silently forfeits retry and refresh, because
+    /// a cookie jar, a signing `Transport`, a proxy - and the request therefore declares no
+    /// scheme. Without the override such a request silently forfeits retry and refresh, because
     /// nothing about it looks authenticated.
     ///
     /// This is the only member of this protocol with a default implementation, because it is the
@@ -106,7 +106,7 @@ public protocol RequestParameters: Sendable {
 public extension RequestParameters {
 
     var isAuthenticated: Bool {
-        authentication != .none
+        authentication != nil
     }
 
 }

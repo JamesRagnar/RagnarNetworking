@@ -6,9 +6,8 @@
 //
 
 import Foundation
-import OSLog
 
-/// Applies a credential to a request on a server's behalf.
+/// Produces the header fields and query items that carry a credential.
 ///
 /// An Interface declares which `AuthenticationScheme` it uses;
 /// `ServerConfiguration.authenticators` maps that scheme to the authenticator that gives it
@@ -18,165 +17,192 @@ import OSLog
 /// Authenticators are values, so one may carry its own state - a header name, a signing key,
 /// a clock - without reaching for globals.
 ///
-/// ## Two application points
+/// ## Why this returns values rather than mutating the request
 ///
-/// A credential lands either in the URL, before it is formed, or on the request, after it is
-/// fully built. The pipeline never holds a live `URLComponents` and `URLRequest` at the same
-/// time, so both are separate requirements. **Implement the one your scheme uses and leave the
-/// other empty.** Neither has a default implementation: an authenticator author should read
-/// both signatures and pick deliberately rather than inherit a no-op without noticing there
-/// was a choice.
+/// An authenticator describes what it wants applied; `URLRequestBuilder` applies it. That is
+/// what lets the builder see the names being written *before* they land, which is where three
+/// guarantees come from that an authenticator cannot be trusted to reproduce individually:
 ///
-/// `apply(_:to:request:)` runs after the method, headers, and body are all on the request, so a
-/// scheme that signs the request - HMAC over the body, for instance - can see everything it
-/// needs to sign.
+/// - **A collision fails the request.** If a returned name is already present - a caller's own
+///   `Authorization` header, a stale `?token=` baked into the base URL - construction throws
+///   `RequestError.credentialCollision` rather than silently picking a winner.
+/// - **Redaction cannot drift.** Every name returned from `queryItems(for:on:)` must be listed
+///   in `redactedQueryItemNames`, or construction throws
+///   `RequestError.undeclaredQueryItemName`. A credential cannot reach a captured error
+///   snapshot because someone renamed a parameter and forgot the other declaration.
+/// - **A silent no-op fails the request.** An authenticator that contributes neither a header
+///   nor a query item throws `RequestError.authenticatorAppliedNothing`, so a conformance that
+///   implements the wrong half cannot produce an unauthenticated request that looks fine.
 ///
-/// ## Collision handling
+/// The cost is that an authenticator cannot reach other parts of the request. In HTTP a
+/// credential is a header or a query item: cookies are the `Cookie` header, a password grant is
+/// a request *body* rather than an authenticator's business, and client certificates are
+/// `URLSession` configuration. The restriction is what buys the guarantees above.
 ///
-/// Only an authenticator knows the header and query names it writes, so it owns what happens
-/// when the caller already supplied one. The built-in authenticators follow the package's
-/// established precedence, and a custom authenticator should document its own:
+/// ## Both requirements have empty defaults
 ///
-/// - **Headers: the caller wins.** `BearerAuthenticator` finds an existing `Authorization`,
-///   logs a diagnostic, and leaves it alone.
-/// - **Query items: the authenticator wins.** `QueryTokenAuthenticator` strips matching items
-///   from the base URL and from the endpoint's own `queryItems`, logs a diagnostic for each,
-///   then appends the credential.
-///
-/// The asymmetry is deliberate. A stale `?token=` baked into a base URL must not beat the live
-/// credential, while a caller who explicitly writes an `Authorization` header is overriding on
-/// purpose.
+/// Implement the one your scheme uses. Returning nothing visibly adds nothing, and an
+/// authenticator that adds nothing at all fails loudly at request construction, so an empty
+/// default cannot become a silently unauthenticated request.
 public protocol Authenticator: Sendable {
 
-    /// Applies the credential to URL components, before the URL is formed.
-    ///
-    /// Leave this empty for a scheme that does not carry its credential in the URL.
+    /// Query items carrying the credential, applied before the URL is formed.
     ///
     /// - Parameters:
     ///   - credential: The credential for this request. Never `nil`; a scheme with a registered
-    ///     authenticator and no credential fails with `RequestError.authentication` before this
-    ///     is called.
-    ///   - components: The components built so far, with the path and the endpoint's own query
-    ///     items already applied.
-    func apply(_ credential: String, to components: inout URLComponents) throws(RequestError)
+    ///     authenticator and no credential fails with `RequestError.missingCredential` before
+    ///     this is called.
+    ///   - components: The components built so far, with the base URL, path, and the endpoint's
+    ///     own query items already applied. A scheme that signs the URL reads them here.
+    /// - Returns: Items to append. Every name must appear in `redactedQueryItemNames`.
+    func queryItems(
+        for credential: String,
+        on components: URLComponents
+    ) throws(RequestError) -> [URLQueryItem]
 
-    /// Applies the credential to the request, after the method, headers, and body are applied.
-    ///
-    /// Leave this empty for a scheme that does not carry its credential on the request.
+    /// Header fields carrying the credential, applied after the method, headers, and body.
     ///
     /// - Parameters:
-    ///   - credential: The credential for this request. Never `nil`; see the components variant.
-    ///   - request: The fully built request, awaiting only authentication.
-    func apply(_ credential: String, to request: inout URLRequest) throws(RequestError)
+    ///   - credential: The credential for this request. Never `nil`; see `queryItems(for:on:)`.
+    ///   - request: The request built so far, awaiting only authentication. A scheme that signs
+    ///     the request - HMAC over the body, for instance - reads everything it signs here.
+    /// - Returns: Fields to set, keyed by name.
+    func headers(
+        for credential: String,
+        on request: URLRequest
+    ) throws(RequestError) -> [String: String]
 
-    /// Query item names this authenticator may write.
+    /// Every query item name `queryItems(for:on:)` may return.
     ///
     /// `ServerConfiguration` unions these across its registered authenticators, and
     /// `HTTPResponseSnapshot` strips them from the URL it captures, so a credential carried in
     /// a URL does not survive into an error a consumer logs or attaches to a bug report.
     ///
-    /// Defaults to empty, which is correct for any authenticator that does not touch the URL.
+    /// Returning a name that is not listed here fails request construction, so this cannot fall
+    /// out of step with what the authenticator actually writes.
     var redactedQueryItemNames: Set<String> { get }
 
 }
 
 public extension Authenticator {
 
+    func queryItems(
+        for credential: String,
+        on components: URLComponents
+    ) throws(RequestError) -> [URLQueryItem] {
+        []
+    }
+
+    func headers(
+        for credential: String,
+        on request: URLRequest
+    ) throws(RequestError) -> [String: String] {
+        [:]
+    }
+
     var redactedQueryItemNames: Set<String> { [] }
 
 }
 
-// MARK: - Bearer
+// MARK: - Header
 
-/// Writes `Authorization: Bearer <credential>`. Registered for `.bearer` by default.
+/// Carries the credential in a header field.
 ///
-/// A caller-supplied `Authorization` header wins: this authenticator logs a diagnostic and
-/// leaves the caller's value in place.
-public struct BearerAuthenticator: Authenticator {
+/// ```swift
+/// .header("Authorization", prefix: "Bearer")   // Authorization: Bearer <credential>
+/// .header("X-API-Key")                         // X-API-Key: <credential>
+/// ```
+public struct HeaderAuthenticator: Authenticator {
 
-    /// The header field written. Defaults to `Authorization`.
-    public let headerName: String
+    /// The header field written.
+    public let name: String
 
-    /// The scheme token preceding the credential. Defaults to `Bearer`.
-    public let headerScheme: String
+    /// A token preceding the credential, separated by a space. `nil` writes the credential
+    /// alone.
+    public let prefix: String?
 
-    /// Creates a bearer authenticator.
+    /// Creates a header authenticator.
     /// - Parameters:
-    ///   - headerName: The header field to write. Defaults to `Authorization`.
-    ///   - headerScheme: The scheme token preceding the credential. Defaults to `Bearer`.
-    ///     Pass `"Basic"` for basic auth over a pre-encoded credential, or `""` for a bare
-    ///     header value.
-    public init(
-        headerName: String = "Authorization",
-        headerScheme: String = "Bearer"
-    ) {
-        self.headerName = headerName
-        self.headerScheme = headerScheme
+    ///   - name: The header field to write.
+    ///   - prefix: A token preceding the credential, such as `Bearer` or `Basic`. `nil`, the
+    ///     default, writes the credential alone.
+    public init(name: String, prefix: String? = nil) {
+        self.name = name
+        self.prefix = prefix
     }
 
-    public func apply(_ credential: String, to components: inout URLComponents) throws(RequestError) {}
-
-    public func apply(_ credential: String, to request: inout URLRequest) throws(RequestError) {
-        if request.value(forHTTPHeaderField: headerName) != nil {
-            Logger.diagnostics.warning(
-                """
-                RagnarNetworking: a custom \(self.headerName, privacy: .public) header \
-                overrides authentication for this request.
-                """
-            )
-            return
-        }
-
-        let value = headerScheme.isEmpty ? credential : "\(headerScheme) \(credential)"
-        request.setValue(value, forHTTPHeaderField: headerName)
+    public func headers(
+        for credential: String,
+        on request: URLRequest
+    ) throws(RequestError) -> [String: String] {
+        guard let prefix else { return [name: credential] }
+        return [name: "\(prefix) \(credential)"]
     }
 
 }
 
-// MARK: - Query Token
+public extension Authenticator where Self == HeaderAuthenticator {
 
-/// Writes the credential as a query item. Registered for `.url` by default, under the name
-/// `token`.
+    /// `Authorization: Bearer <credential>`. Registered for `.bearer` by default.
+    static var bearer: HeaderAuthenticator {
+        HeaderAuthenticator(name: "Authorization", prefix: "Bearer")
+    }
+
+    /// `Authorization: Basic <credential>`, over a credential the caller has already encoded.
+    static var basic: HeaderAuthenticator {
+        HeaderAuthenticator(name: "Authorization", prefix: "Basic")
+    }
+
+    /// A header carrying the credential alone, with no scheme token.
+    static func header(_ name: String, prefix: String? = nil) -> HeaderAuthenticator {
+        HeaderAuthenticator(name: name, prefix: prefix)
+    }
+
+}
+
+// MARK: - Query Item
+
+/// Carries the credential in a query item.
 ///
-/// Use this for a URL handed to something that cannot carry a header. Existing query items with
-/// the same name, whether from the configuration's base URL or the endpoint's own `queryItems`,
-/// are stripped with a diagnostic so a stale value cannot beat the live credential.
-public struct QueryTokenAuthenticator: Authenticator {
+/// Use this for a URL handed to something that cannot carry a header, such as an image loader
+/// or `AVPlayer`.
+///
+/// ```swift
+/// .token                          // ?token=<credential>
+/// .queryItem("access_token")      // ?access_token=<credential>
+/// ```
+public struct QueryItemAuthenticator: Authenticator {
 
-    /// The query item name written. Defaults to `token`.
+    /// The query item name written.
     public let name: String
 
-    /// Creates a query-token authenticator.
-    /// - Parameter name: The query item name to write. Defaults to `token`. A server using
-    ///   `?access_token=` passes `"access_token"`.
-    public init(name: String = "token") {
+    /// Creates a query item authenticator.
+    /// - Parameter name: The query item name to write.
+    public init(name: String) {
         self.name = name
     }
 
     public var redactedQueryItemNames: Set<String> { [name] }
 
-    public func apply(_ credential: String, to components: inout URLComponents) throws(RequestError) {
-        var queryItems = components.queryItems ?? []
-
-        let conflicts = queryItems.filter {
-            $0.name.caseInsensitiveCompare(name) == .orderedSame
-        }
-        if !conflicts.isEmpty {
-            Logger.diagnostics.warning(
-                """
-                RagnarNetworking: URL authentication overrides \(conflicts.count, privacy: .public) \
-                existing '\(self.name, privacy: .public)' query item(s).
-                """
-            )
-            queryItems.removeAll {
-                $0.name.caseInsensitiveCompare(name) == .orderedSame
-            }
-        }
-
-        queryItems.append(URLQueryItem(name: name, value: credential))
-        components.queryItems = queryItems
+    public func queryItems(
+        for credential: String,
+        on components: URLComponents
+    ) throws(RequestError) -> [URLQueryItem] {
+        [URLQueryItem(name: name, value: credential)]
     }
 
-    public func apply(_ credential: String, to request: inout URLRequest) throws(RequestError) {}
+}
+
+public extension Authenticator where Self == QueryItemAuthenticator {
+
+    /// `?token=<credential>`. Registered for `.url` by default.
+    static var token: QueryItemAuthenticator {
+        QueryItemAuthenticator(name: "token")
+    }
+
+    /// A query item carrying the credential under the given name.
+    static func queryItem(_ name: String) -> QueryItemAuthenticator {
+        QueryItemAuthenticator(name: name)
+    }
 
 }

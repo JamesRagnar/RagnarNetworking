@@ -38,7 +38,7 @@ makeComponents → applyPath → applyQueryItems → applyAuthentication(to: &co
   → applyAuthentication(to: &request)
 ```
 
-Authentication is two steps rather than one because a URL-carried credential must land before the URL is formed and a header-carried one after, and the pipeline never holds a live `URLComponents` and `URLRequest` at the same time. Each step resolves the `Authenticator` registered for the request's scheme; `.none` short-circuits with no lookup.
+Authentication is two steps rather than one because a URL-carried credential must land before the URL is formed and a header-carried one after, and the pipeline never holds a live `URLComponents` and `URLRequest` at the same time. Each step asks the `Authenticator` registered for the request's scheme what to apply, then applies it. A request declaring no scheme short-circuits with no lookup. Because the builder sees the names before they land, it rejects a credential that would overwrite something the request already carries, a query item name the authenticator does not declare for redaction, or an authenticator that applies nothing at all.
 
 The request-side step runs last, after the body, so a scheme that signs the request can see the method, headers, and body it signs.
 

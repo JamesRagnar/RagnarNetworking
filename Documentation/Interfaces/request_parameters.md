@@ -194,8 +194,10 @@ UpdateUser(nickname: .value("Bob"))
 `RequestParameters` declares two authentication-related members. The scheme names a strategy; `ServerConfiguration.authenticators` gives that name its meaning for a particular server.
 
 ```swift
-let authentication: AuthenticationScheme = .bearer
+let authentication: AuthenticationScheme? = .bearer
 ```
+
+`nil` means the request carries no credential. There is no scheme meaning "no scheme", so nothing can be registered against one by mistake.
 
 `AuthenticationScheme` is an open value rather than a closed enum, so a project can name schemes the package does not ship:
 
@@ -207,24 +209,18 @@ extension AuthenticationScheme {
 
 Built-in schemes, and what the default registry does with them:
 
-- `.none` - no credential. Short-circuits before any authenticator lookup.
-- `.bearer` - `BearerAuthenticator` writes `Authorization: Bearer <credential>`.
-- `.url` - `QueryTokenAuthenticator` writes `?token=<credential>`. Use this for a URL handed to something that cannot carry a header, such as an image loader or `AVPlayer`.
+- `.bearer` - writes `Authorization: Bearer <credential>`.
+- `.url` - writes `?token=<credential>`. Use this for a URL handed to something that cannot carry a header, such as an image loader or `AVPlayer`.
 
 The second member decides whether the request participates in challenge retry and coalesced refresh:
 
 ```swift
-var isAuthenticated: Bool { get }  // defaults to authentication != .none
+var isAuthenticated: Bool { get }  // defaults to authentication != nil
 ```
 
-This is the only member of `RequestParameters` with a default implementation, because it is the only one that is derived rather than declared. Override it to `true` when a request declares `.none` but still carries a credential by some route the package does not model - a cookie jar, a signing `Transport`, a proxy. Without the override such a request silently forfeits retry and refresh.
+This is the only member of `RequestParameters` with a default implementation, because it is the only one that is derived rather than declared. Override it to `true` when a request declares no scheme but still carries a credential by some route the package does not model - a cookie jar, a signing `Transport`, a proxy. Without the override such a request silently forfeits retry and refresh.
 
-Behavior notes:
-
-- A caller-supplied `Authorization` header still overrides `BearerAuthenticator`, with a diagnostic.
-- `QueryTokenAuthenticator` still strips existing items with its own name (case-insensitive) from both the base URL and `queryItems`, with a diagnostic, so a stale `?token=` cannot beat the live credential.
-
-See [Authentication](authentication.md) for registering authenticators and configuring the challenge policy.
+A credential that would overwrite a header or query item the request already carries fails request construction rather than silently winning or losing. See [Authentication](authentication.md).
 
 ## Methods
 

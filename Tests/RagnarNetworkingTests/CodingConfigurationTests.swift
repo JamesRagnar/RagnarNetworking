@@ -128,7 +128,7 @@ struct CodingConfigurationTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = LegacyOrder
@@ -177,7 +177,7 @@ struct CodingConfigurationTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: LegacyOrderDraft
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         let context = RequestContext(

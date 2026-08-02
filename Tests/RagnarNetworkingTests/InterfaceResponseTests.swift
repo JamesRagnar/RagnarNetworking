@@ -26,7 +26,7 @@ struct InterfaceResponseTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = SuccessResponse
@@ -49,7 +49,7 @@ struct InterfaceResponseTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = String
@@ -66,7 +66,7 @@ struct InterfaceResponseTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = Data
@@ -83,7 +83,7 @@ struct InterfaceResponseTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = Data
@@ -100,7 +100,7 @@ struct InterfaceResponseTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = String
@@ -117,7 +117,7 @@ struct InterfaceResponseTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = SuccessResponse
@@ -134,7 +134,7 @@ struct InterfaceResponseTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = EmptyResponse
@@ -155,7 +155,7 @@ struct InterfaceResponseTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = SnakeCaseResponse
@@ -176,7 +176,7 @@ struct InterfaceResponseTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = DatedResponse
@@ -193,7 +193,7 @@ struct InterfaceResponseTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = String
@@ -246,7 +246,7 @@ struct InterfaceResponseTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = SuccessResponse
@@ -263,7 +263,7 @@ struct InterfaceResponseTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = SuccessResponse
@@ -283,7 +283,7 @@ struct InterfaceResponseTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = SuccessResponse
@@ -317,7 +317,7 @@ struct InterfaceResponseTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = SuccessResponse
@@ -341,7 +341,7 @@ struct InterfaceResponseTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = SuccessResponse
@@ -376,7 +376,7 @@ struct InterfaceResponseTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = EmptyTolerantResponse
@@ -393,7 +393,7 @@ struct InterfaceResponseTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = SuccessResponse
@@ -688,7 +688,7 @@ struct InterfaceResponseTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationScheme = .none
+                let authentication: AuthenticationScheme? = nil
             }
 
             typealias Response = SuccessResponse
@@ -1131,7 +1131,7 @@ struct InterfaceResponseTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationScheme = .none
+                let authentication: AuthenticationScheme? = nil
             }
 
             typealias Response = NestedResponse
@@ -1174,7 +1174,7 @@ struct InterfaceResponseTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationScheme = .none
+                let authentication: AuthenticationScheme? = nil
             }
 
             typealias Response = [String]
@@ -1214,7 +1214,7 @@ struct InterfaceResponseTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationScheme = .none
+                let authentication: AuthenticationScheme? = nil
             }
 
             typealias Response = EmptyResponse
@@ -1261,7 +1261,7 @@ struct InterfaceResponseTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationScheme = .none
+                let authentication: AuthenticationScheme? = nil
             }
 
             typealias Response = EmptyResponse
@@ -1411,7 +1411,7 @@ struct InterfaceResponseTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationScheme = .none
+                let authentication: AuthenticationScheme? = nil
             }
 
             typealias Response = EmptyResponse
@@ -1635,7 +1635,7 @@ struct InterfaceResponseTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = CSVRows
@@ -1689,7 +1689,7 @@ struct InterfaceResponseTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = StrictlyPositiveCount
@@ -1811,7 +1811,7 @@ struct InterfaceResponseTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = T
@@ -1911,7 +1911,7 @@ struct InterfaceResponseTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = PagedNames
@@ -1960,7 +1960,7 @@ struct InterfaceResponseTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationScheme = .none
+                let authentication: AuthenticationScheme? = nil
             }
 
             typealias Response = StatusEcho

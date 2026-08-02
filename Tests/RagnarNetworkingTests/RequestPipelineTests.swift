@@ -26,7 +26,7 @@ struct RequestPipelineTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = TestResponse
@@ -169,7 +169,7 @@ struct RequestPipelineTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationScheme = .bearer
+                let authentication: AuthenticationScheme? = .bearer
             }
 
             typealias Response = TestResponse
@@ -346,7 +346,7 @@ struct RequestPipelineTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationScheme = .none
+                let authentication: AuthenticationScheme? = nil
             }
 
             typealias Response = SnakeCaseResponse
@@ -434,7 +434,7 @@ struct RequestPipelineTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationScheme = .none
+                let authentication: AuthenticationScheme? = nil
             }
 
             typealias Response = String
@@ -472,7 +472,7 @@ struct RequestPipelineTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationScheme = .none
+                let authentication: AuthenticationScheme? = nil
             }
 
             typealias Response = Data
@@ -519,7 +519,7 @@ struct RequestPipelineTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationScheme = .none
+                let authentication: AuthenticationScheme? = nil
             }
 
             typealias Response = ComplexResponse
@@ -572,7 +572,7 @@ struct RequestPipelineTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationScheme = .none
+                let authentication: AuthenticationScheme? = nil
             }
 
             typealias Response = [Item]
@@ -621,7 +621,7 @@ struct RequestPipelineTests {
             let queryItems: [URLQueryItem]? = [URLQueryItem(name: "page", value: "1")]
             let headers: [String: String]? = ["X-Custom": "value"]
             let body: BinaryBody
-            let authentication: AuthenticationScheme = .bearer
+            let authentication: AuthenticationScheme? = .bearer
         }
 
         struct CompleteInterface: Interface {
@@ -677,7 +677,7 @@ struct RequestPipelineTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationScheme = .bearer // Requires token
+                let authentication: AuthenticationScheme? = .bearer // Requires token
             }
 
             typealias Response = TestResponse

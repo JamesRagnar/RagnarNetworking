@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import OSLog
 
 /// A server's contract: where it lives, how bodies are encoded and decoded, which headers every
 /// request carries, and how requests and responses are shaped. Stable for a client's lifetime.
@@ -45,11 +44,11 @@ public struct ServerConfiguration: Sendable {
 
     /// Gives each `AuthenticationScheme` its meaning for this server.
     ///
-    /// An Interface declares a scheme; this decides how the credential for that scheme reaches
-    /// the request. A server using `?access_token=` instead of `?token=`, or an API key header,
-    /// is a change here rather than a `RequestBuilder` fork.
+    /// An Interface declares a scheme; this decides which header fields and query items carry
+    /// the credential for it. A server using `?access_token=` instead of `?token=`, or an API
+    /// key header, is a change here rather than a `RequestBuilder` fork.
     ///
-    /// `.none` short-circuits before any lookup, so an entry under it has no effect.
+    /// A request declaring no scheme never consults this.
     public let authenticators: [AuthenticationScheme: any Authenticator]
 
     /// Decides which failed responses mean the credential is stale.
@@ -60,9 +59,9 @@ public struct ServerConfiguration: Sendable {
 
     /// Query item names stripped from the URL captured in `HTTPResponseSnapshot`.
     ///
-    /// The union of `authenticators`' own `redactedQueryItemNames`, computed once at init. The
-    /// names originate from the authenticators that write them, so redaction cannot drift out of
-    /// step with the credential's actual parameter name.
+    /// The union of `authenticators`' own `redactedQueryItemNames`, computed once at init.
+    /// Request construction rejects an authenticator that writes a name outside its own
+    /// declaration, so this cannot fall out of step with what is actually written.
     public let redactedQueryItemNames: Set<String>
 
     /// Creates a server configuration.
@@ -87,20 +86,11 @@ public struct ServerConfiguration: Sendable {
         builder: any RequestBuilder = URLRequestBuilder(),
         responseHandler: any ResponseHandler = DefaultResponseHandler(),
         authenticators: [AuthenticationScheme: any Authenticator] = [
-            .bearer: BearerAuthenticator(),
-            .url: QueryTokenAuthenticator()
+            .bearer: .bearer,
+            .url: .token
         ],
         challengePolicy: AuthenticationChallengePolicy = .unmodelled401
     ) {
-        if authenticators[.none] != nil {
-            Logger.diagnostics.warning(
-                """
-                RagnarNetworking: an authenticator is registered for AuthenticationScheme.none, \
-                which short-circuits before lookup. It will never run.
-                """
-            )
-        }
-
         self.url = url
         self.requestEncoder = requestEncoder
         self.responseDecoder = responseDecoder
@@ -114,20 +104,17 @@ public struct ServerConfiguration: Sendable {
         }
     }
 
-    /// The authenticator for `scheme`, or `nil` when the scheme is `.none`.
+    /// The authenticator for `scheme`, or `nil` when the request declares no scheme.
     ///
-    /// - Throws: `RequestError.invalidRequest(description:)` naming the scheme when it has no
-    ///   registered authenticator. That is a client misconfiguration rather than something a
-    ///   caller branches on, so it reuses the existing case.
+    /// - Throws: `RequestError.unregisteredScheme` when a declared scheme has no registered
+    ///   authenticator.
     public func authenticator(
-        for scheme: AuthenticationScheme
+        for scheme: AuthenticationScheme?
     ) throws(RequestError) -> (any Authenticator)? {
-        guard scheme != .none else { return nil }
+        guard let scheme else { return nil }
 
         guard let authenticator = authenticators[scheme] else {
-            throw .invalidRequest(
-                description: "No authenticator registered for authentication scheme '\(scheme.rawValue)'"
-            )
+            throw .unregisteredScheme(scheme)
         }
 
         return authenticator

@@ -62,9 +62,8 @@ public actor APIClient {
     /// Use this initializer when the client will only send requests whose
     /// `RequestParameters.isAuthenticated` is `false`.
     ///
-    /// A request declaring any scheme with a registered authenticator fails with
-    /// `RequestError.authentication` through this initializer, because the token closure always
-    /// returns `nil`.
+    /// A request declaring any scheme fails with `RequestError.missingCredential` through this
+    /// initializer, because the token closure always returns `nil`.
     ///
     /// - Parameters:
     ///   - configuration: The server contract: URL, body coding, default headers, request
@@ -77,7 +76,7 @@ public actor APIClient {
         self.configuration = configuration
         self.pipeline = RequestPipeline(transport: transport)
         self.token = { nil }
-        self.refresh = { throw RequestError.authentication }
+        self.refresh = { throw APIClientError.noCredentialSource }
     }
 
     /// Sends a typed request.

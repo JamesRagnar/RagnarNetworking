@@ -22,10 +22,10 @@ private struct SchemeInterface: Interface {
         let queryItems: [URLQueryItem]?
         let headers: [String: String]?
         let body: EmptyBody = .init()
-        let authentication: AuthenticationScheme
+        let authentication: AuthenticationScheme?
 
         init(
-            authentication: AuthenticationScheme,
+            authentication: AuthenticationScheme?,
             queryItems: [URLQueryItem]? = nil,
             headers: [String: String]? = nil
         ) {
@@ -40,8 +40,8 @@ private struct SchemeInterface: Interface {
     static let responseCases: ResponseMap = [.code(200, .decode)]
 }
 
-/// Declares `.none` but carries its credential by some route the package does not model, so it
-/// opts back into challenge retry by hand.
+/// Declares no scheme but carries its credential by some route the package does not model, so
+/// it opts back into challenge retry by hand.
 private struct CookieAuthInterface: Interface {
     struct Parameters: RequestParameters {
         let method: RequestMethod = .get
@@ -49,7 +49,7 @@ private struct CookieAuthInterface: Interface {
         let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EmptyBody = .init()
-        let authentication: AuthenticationScheme = .none
+        let authentication: AuthenticationScheme? = nil
 
         var isAuthenticated: Bool { true }
     }
@@ -66,7 +66,7 @@ private struct UnauthenticatedInterface: Interface {
         let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EmptyBody = .init()
-        let authentication: AuthenticationScheme = .none
+        let authentication: AuthenticationScheme? = nil
     }
 
     typealias Response = ValueResponse
@@ -90,7 +90,7 @@ private struct Models401DecodedInterface: Interface {
         let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EmptyBody = .init()
-        let authentication: AuthenticationScheme = .bearer
+        let authentication: AuthenticationScheme? = .bearer
     }
 
     typealias Response = ValueResponse
@@ -109,7 +109,7 @@ private struct Models401FlatInterface: Interface {
         let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EmptyBody = .init()
-        let authentication: AuthenticationScheme = .bearer
+        let authentication: AuthenticationScheme? = .bearer
     }
 
     typealias Response = ValueResponse
@@ -128,7 +128,7 @@ private struct Range4xxInterface: Interface {
         let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EmptyBody = .init()
-        let authentication: AuthenticationScheme = .bearer
+        let authentication: AuthenticationScheme? = .bearer
     }
 
     typealias Response = ValueResponse
@@ -147,7 +147,7 @@ private struct Stale419Interface: Interface {
         let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EmptyBody = .init()
-        let authentication: AuthenticationScheme = .bearer
+        let authentication: AuthenticationScheme? = .bearer
     }
 
     typealias Response = ValueResponse
@@ -189,27 +189,41 @@ private actor CallLog {
 
 // MARK: - Custom Authenticators
 
-/// Writes `X-API-Key`, standing in for a scheme the package does not ship.
-private struct APIKeyAuthenticator: Authenticator {
-    func apply(_ credential: String, to components: inout URLComponents) throws(RequestError) {}
-
-    func apply(_ credential: String, to request: inout URLRequest) throws(RequestError) {
-        request.setValue(credential, forHTTPHeaderField: "X-API-Key")
-    }
-}
-
 /// Signs the request body, which is only possible if request-side authentication runs after
 /// `applyBody`.
 private struct BodySigningAuthenticator: Authenticator {
-    func apply(_ credential: String, to components: inout URLComponents) throws(RequestError) {}
-
-    func apply(_ credential: String, to request: inout URLRequest) throws(RequestError) {
+    func headers(
+        for credential: String,
+        on request: URLRequest
+    ) throws(RequestError) -> [String: String] {
         let body = request.httpBody ?? Data()
         let method = request.httpMethod ?? ""
-        request.setValue(
-            "\(credential):\(method):\(body.count)",
-            forHTTPHeaderField: "X-Signature"
-        )
+        return ["X-Signature": "\(credential):\(method):\(body.count)"]
+    }
+}
+
+/// Signs the path and query, which is only possible if the components-side step sees them.
+private struct URLSigningAuthenticator: Authenticator {
+    var redactedQueryItemNames: Set<String> { ["signature"] }
+
+    func queryItems(
+        for credential: String,
+        on components: URLComponents
+    ) throws(RequestError) -> [URLQueryItem] {
+        [URLQueryItem(name: "signature", value: "\(credential):\(components.path)")]
+    }
+}
+
+/// Contributes nothing, standing in for a conformance that implements the wrong half.
+private struct InertAuthenticator: Authenticator {}
+
+/// Writes a query item without declaring it for redaction.
+private struct LeakyAuthenticator: Authenticator {
+    func queryItems(
+        for credential: String,
+        on components: URLComponents
+    ) throws(RequestError) -> [URLQueryItem] {
+        [URLQueryItem(name: "secret", value: credential)]
     }
 }
 
@@ -224,7 +238,7 @@ private struct SignedInterface: Interface {
         let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: SignedBody = SignedBody(payload: "hello")
-        let authentication: AuthenticationScheme = .signature
+        let authentication: AuthenticationScheme? = .signature
     }
 
     typealias Response = ValueResponse
@@ -235,6 +249,9 @@ private struct SignedInterface: Interface {
 private extension AuthenticationScheme {
     static let signature = AuthenticationScheme("signature")
     static let apiKey = AuthenticationScheme("apiKey")
+    static let urlSignature = AuthenticationScheme("urlSignature")
+    static let inert = AuthenticationScheme("inert")
+    static let leaky = AuthenticationScheme("leaky")
 }
 
 // MARK: - A. The retry trigger is the credential, not the placement
@@ -242,7 +259,7 @@ private extension AuthenticationScheme {
 @Suite("Authentication: retry trigger", .timeLimit(.minutes(1)))
 struct AuthenticationRetryTriggerTests {
 
-    @Test("A .none request that overrides isAuthenticated gets challenge retry and refresh")
+    @Test("A schemeless request that overrides isAuthenticated gets challenge retry and refresh")
     func noneSchemeWithOverrideParticipatesInRefresh() async throws {
         let transport = RecordingTransport()
         await transport.enqueue(Data(), 401)
@@ -287,7 +304,7 @@ struct AuthenticationRetryTriggerTests {
 
     @Test("isAuthenticated derives from the scheme when a conformance does not declare it")
     func isAuthenticatedDerivesFromScheme() {
-        #expect(SchemeInterface.Parameters(authentication: .none).isAuthenticated == false)
+        #expect(SchemeInterface.Parameters(authentication: nil).isAuthenticated == false)
         #expect(SchemeInterface.Parameters(authentication: .bearer).isAuthenticated == true)
         #expect(SchemeInterface.Parameters(authentication: .url).isAuthenticated == true)
         #expect(SchemeInterface.Parameters(authentication: .apiKey).isAuthenticated == true)
@@ -306,14 +323,13 @@ struct AuthenticationSchemeTests {
         #expect(AuthenticationScheme.apiKey != .bearer)
         #expect(AuthenticationScheme("apiKey") == .apiKey)
 
-        let registry: [AuthenticationScheme: any Authenticator] = [.apiKey: APIKeyAuthenticator()]
+        let registry: [AuthenticationScheme: any Authenticator] = [.apiKey: .header("X-API-Key")]
         #expect(registry[.apiKey] != nil)
         #expect(registry[.bearer] == nil)
     }
 
     @Test("Built-in scheme names are stable")
     func builtInSchemeNames() {
-        #expect(AuthenticationScheme.none.rawValue == "none")
         #expect(AuthenticationScheme.bearer.rawValue == "bearer")
         #expect(AuthenticationScheme.url.rawValue == "url")
     }
@@ -364,7 +380,7 @@ struct AuthenticatorTests {
     func customAuthenticatorForBearer() throws {
         let configuration = ServerConfiguration(
             url: testServerURL,
-            authenticators: [.bearer: APIKeyAuthenticator()]
+            authenticators: [.bearer: .header("X-API-Key")]
         )
 
         let built = try request(
@@ -381,7 +397,7 @@ struct AuthenticatorTests {
     func renamedQueryParameterIsConfiguration() throws {
         let configuration = ServerConfiguration(
             url: testServerURL,
-            authenticators: [.url: QueryTokenAuthenticator(name: "access_token")]
+            authenticators: [.url: .queryItem("access_token")]
         )
 
         let built = try request(
@@ -397,7 +413,7 @@ struct AuthenticatorTests {
     func renamedQueryParameterIsRedacted() throws {
         let configuration = ServerConfiguration(
             url: testServerURL,
-            authenticators: [.url: QueryTokenAuthenticator(name: "access_token")]
+            authenticators: [.url: .queryItem("access_token")]
         )
 
         #expect(configuration.redactedQueryItemNames == ["access_token"])
@@ -423,9 +439,9 @@ struct AuthenticatorTests {
         let configuration = ServerConfiguration(
             url: testServerURL,
             authenticators: [
-                .bearer: BearerAuthenticator(),
-                .url: QueryTokenAuthenticator(),
-                .apiKey: QueryTokenAuthenticator(name: "access_token")
+                .bearer: .bearer,
+                .url: .token,
+                .apiKey: .queryItem("access_token")
             ]
         )
 
@@ -442,7 +458,7 @@ struct AuthenticatorTests {
             credential: "abc123"
         )
         let anonymous = try request(
-            SchemeInterface.Parameters(authentication: .none),
+            SchemeInterface.Parameters(authentication: nil),
             configuration: configuration,
             credential: "abc123"
         )
@@ -462,10 +478,10 @@ struct AuthenticatorTests {
                 configuration: configuration
             )
         } throws: { error in
-            guard case .invalidRequest(let description) = error as? RequestError else {
+            guard case .unregisteredScheme(let scheme) = error as? RequestError else {
                 return false
             }
-            return description.contains("apiKey")
+            return scheme == .apiKey
         }
     }
 
@@ -481,15 +497,18 @@ struct AuthenticatorTests {
                     credential: nil
                 )
             } throws: { error in
-                if case .authentication = error as? RequestError { true } else { false }
+                guard case .missingCredential(let failed) = error as? RequestError else {
+                    return false
+                }
+                return failed == scheme
             }
         }
     }
 
-    @Test("A .none request needs no credential")
+    @Test("A schemeless request needs no credential")
     func noneSchemeNeedsNoCredential() throws {
         let built = try request(
-            SchemeInterface.Parameters(authentication: .none),
+            SchemeInterface.Parameters(authentication: nil),
             configuration: ServerConfiguration(url: testServerURL),
             credential: nil
         )
@@ -497,66 +516,151 @@ struct AuthenticatorTests {
         #expect(built.url?.absoluteString == "https://api.example.com/resource")
     }
 
-    @Test("An authenticator registered for .none never runs")
-    func noneSchemeShortCircuitsBeforeLookup() throws {
+    @Test("An authenticator that applies nothing fails the request")
+    func inertAuthenticatorFails() {
         let configuration = ServerConfiguration(
             url: testServerURL,
-            authenticators: [.none: APIKeyAuthenticator()]
+            authenticators: [.inert: InertAuthenticator()]
+        )
+
+        #expect {
+            _ = try request(
+                SchemeInterface.Parameters(authentication: .inert),
+                configuration: configuration
+            )
+        } throws: { error in
+            guard case .authenticatorAppliedNothing(let scheme) = error as? RequestError else {
+                return false
+            }
+            return scheme == .inert
+        }
+    }
+
+    @Test("An authenticator writing an undeclared query item name fails the request")
+    func undeclaredQueryItemNameFails() {
+        let configuration = ServerConfiguration(
+            url: testServerURL,
+            authenticators: [.leaky: LeakyAuthenticator()]
+        )
+
+        #expect {
+            _ = try request(
+                SchemeInterface.Parameters(authentication: .leaky),
+                configuration: configuration
+            )
+        } throws: { error in
+            guard case .undeclaredQueryItemName(let scheme, let name) = error as? RequestError else {
+                return false
+            }
+            return scheme == .leaky && name == "secret"
+        }
+    }
+
+    @Test("A URL-signing authenticator sees the path and query it signs")
+    func urlSigningAuthenticatorSeesComponents() throws {
+        let configuration = ServerConfiguration(
+            url: testServerURL,
+            authenticators: [.urlSignature: URLSigningAuthenticator()]
         )
 
         let built = try request(
-            SchemeInterface.Parameters(authentication: .none),
+            SchemeInterface.Parameters(authentication: .urlSignature),
             configuration: configuration,
-            credential: "cred"
+            credential: "key"
         )
 
-        #expect(built.value(forHTTPHeaderField: "X-API-Key") == nil)
+        #expect(built.url?.query == "signature=key:/resource")
     }
 
-    @Test("A stale token query item in the base URL is stripped rather than winning")
-    func baseURLTokenIsStripped() throws {
+    @Test("A stale token query item in the base URL fails the request")
+    func baseURLTokenCollides() {
         let configuration = ServerConfiguration(
             url: URL(string: "https://api.example.com?token=stale")!
         )
 
-        let built = try request(
-            SchemeInterface.Parameters(authentication: .url),
-            configuration: configuration,
-            credential: "fresh"
-        )
-
-        #expect(built.url?.query == "token=fresh")
+        #expect {
+            _ = try request(
+                SchemeInterface.Parameters(authentication: .url),
+                configuration: configuration,
+                credential: "fresh"
+            )
+        } throws: { error in
+            guard case .credentialCollision(let scheme, let name) = error as? RequestError else {
+                return false
+            }
+            return scheme == .url && name == "token"
+        }
     }
 
-    @Test("A token query item in the endpoint's own parameters is stripped rather than winning")
-    func endpointTokenIsStripped() throws {
-        let built = try request(
-            SchemeInterface.Parameters(
-                authentication: .url,
-                queryItems: [URLQueryItem(name: "token", value: "stale"), URLQueryItem(name: "keep", value: "1")]
-            ),
-            configuration: ServerConfiguration(url: testServerURL),
-            credential: "fresh"
-        )
-
-        let query = try #require(built.url?.query)
-        #expect(query.contains("keep=1"))
-        #expect(query.contains("token=fresh"))
-        #expect(!query.contains("stale"))
+    @Test("A token query item in the endpoint's own parameters fails the request")
+    func endpointTokenCollides() {
+        #expect {
+            _ = try request(
+                SchemeInterface.Parameters(
+                    authentication: .url,
+                    queryItems: [URLQueryItem(name: "Token", value: "stale")]
+                ),
+                configuration: ServerConfiguration(url: testServerURL),
+                credential: "fresh"
+            )
+        } throws: { error in
+            guard case .credentialCollision(let scheme, _) = error as? RequestError else {
+                return false
+            }
+            return scheme == .url
+        }
     }
 
-    @Test("A caller-supplied Authorization header still overrides bearer auth")
-    func callerAuthorizationHeaderWins() throws {
+    @Test("A caller-supplied Authorization header fails a request declaring a header scheme")
+    func callerAuthorizationHeaderCollides() {
+        #expect {
+            _ = try request(
+                SchemeInterface.Parameters(
+                    authentication: .bearer,
+                    headers: ["Authorization": "Custom caller-value"]
+                ),
+                configuration: ServerConfiguration(url: testServerURL),
+                credential: "abc123"
+            )
+        } throws: { error in
+            guard case .credentialCollision(let scheme, let name) = error as? RequestError else {
+                return false
+            }
+            return scheme == .bearer && name == "Authorization"
+        }
+    }
+
+    @Test("A caller-supplied Authorization header is fine when the request declares no scheme")
+    func callerAuthorizationHeaderWithoutSchemeIsFine() throws {
         let built = try request(
             SchemeInterface.Parameters(
-                authentication: .bearer,
+                authentication: nil,
                 headers: ["Authorization": "Custom caller-value"]
             ),
             configuration: ServerConfiguration(url: testServerURL),
-            credential: "abc123"
+            credential: nil
         )
 
         #expect(built.value(forHTTPHeaderField: "Authorization") == "Custom caller-value")
+    }
+
+    @Test("A defaultHeaders Authorization collides with a header scheme")
+    func defaultHeaderAuthorizationCollides() {
+        let configuration = ServerConfiguration(
+            url: testServerURL,
+            defaultHeaders: ["Authorization": "Static"]
+        )
+
+        #expect {
+            _ = try request(
+                SchemeInterface.Parameters(authentication: .bearer),
+                configuration: configuration,
+                credential: "abc123"
+            )
+        } throws: { error in
+            if case .credentialCollision = error as? RequestError { return true }
+            return false
+        }
     }
 
     @Test("Request-side authentication runs after the body, so a signature can cover it")
@@ -585,7 +689,7 @@ struct AuthenticatorTests {
         let client = APIClient(
             configuration: ServerConfiguration(
                 url: testServerURL,
-                authenticators: [.bearer: APIKeyAuthenticator()]
+                authenticators: [.bearer: .header("X-API-Key")]
             ),
             transport: transport,
             token: { "key-1" },

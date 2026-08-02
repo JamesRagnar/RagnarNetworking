@@ -19,7 +19,7 @@ struct GetUserInterface: Interface {
         let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EmptyBody = .init()
-        let authentication: AuthenticationScheme = .bearer
+        let authentication: AuthenticationScheme? = .bearer
 
         init(userId: Int) {
             self.path = "/users/\(userId)"
@@ -51,7 +51,7 @@ let user = try await client.send(
 
 - Type-safe endpoints with explicit status code handling (exact codes + ranges)
 - Automatic request construction from declarative parameters
-- Built-in auth strategies (`.none`, `.bearer`, `.url`)
+- Pluggable authentication: open schemes, per-server `Authenticator` registry, configurable challenge policy
 - Strict request bodies via `RequestBody` and response types via `InterfaceResponse`, both open to
   non-JSON formats without changing the package
 - `APIClient` actor with automatic challenge retry, coalesced credential refresh, and terminal invalidation

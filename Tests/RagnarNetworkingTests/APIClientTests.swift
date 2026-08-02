@@ -11,7 +11,7 @@ private struct TestInterface: Interface {
         let queryItems: [URLQueryItem]?
         let headers: [String: String]?
         let body: EmptyBody
-        let authentication: AuthenticationScheme
+        let authentication: AuthenticationScheme?
 
         init(
             method: RequestMethod = .get,
@@ -19,7 +19,7 @@ private struct TestInterface: Interface {
             queryItems: [URLQueryItem]? = nil,
             headers: [String: String]? = nil,
             body: EmptyBody = .init(),
-            authentication: AuthenticationScheme
+            authentication: AuthenticationScheme?
         ) {
             self.method = method
             self.path = path
@@ -52,7 +52,7 @@ private struct BodyTestInterface: Interface {
         let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EncodableBody<Payload>
-        let authentication: AuthenticationScheme = .none
+        let authentication: AuthenticationScheme? = nil
     }
 
     struct Response: Codable, Sendable, Equatable, InterfaceResponse {
@@ -73,7 +73,7 @@ private struct SnakeCaseResponseInterface: Interface {
         let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EmptyBody = .init()
-        let authentication: AuthenticationScheme = .none
+        let authentication: AuthenticationScheme? = nil
     }
 
     struct Response: Codable, Sendable, Equatable, InterfaceResponse {

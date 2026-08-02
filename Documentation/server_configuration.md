@@ -155,27 +155,27 @@ context.resolvedHeaders(for: params) // defaultHeaders overlaid with the request
 
 The credential is applied by the `Authenticator` registered for the request's `AuthenticationScheme`:
 
-- `.none` ignores the credential entirely, with no authenticator lookup.
-- `.bearer` adds `Authorization: Bearer <credential>` by default. A caller-supplied `Authorization` header still wins.
-- `.url` appends `?token=<credential>` by default, removing any existing `token` query items (case-insensitive) from both the base URL and request parameters.
+- A request declaring no scheme ignores the credential entirely, with no authenticator lookup.
+- `.bearer` adds `Authorization: Bearer <credential>` by default. A caller-supplied `Authorization` header is a collision and fails the request.
+- `.url` appends `?token=<credential>` by default. An existing `token` query item in the base URL or the request parameters is a collision and fails the request.
 
-A context with no credential (`RequestContext(configuration: config)`) fails any request declaring a registered scheme with `RequestError.authentication`.
+A context with no credential (`RequestContext(configuration: config)`) fails any request declaring a scheme with `RequestError.missingCredential`.
 
 ## Authenticators
 
-`authenticators` gives each `AuthenticationScheme` its meaning for this server, defaulting to `[.bearer: BearerAuthenticator(), .url: QueryTokenAuthenticator()]`. A server using `?access_token=`, an API key header, or a request signature is a change here rather than a `RequestBuilder` fork.
+`authenticators` gives each `AuthenticationScheme` its meaning for this server, defaulting to `[.bearer: .bearer, .url: .token]`. A server using `?access_token=`, an API key header, or a request signature is a change here rather than a `RequestBuilder` fork.
 
 ```swift
 let config = ServerConfiguration(
     url: URL(string: "https://api.example.com")!,
     authenticators: [
-        .bearer: BearerAuthenticator(),
-        .url: QueryTokenAuthenticator(name: "access_token")
+        .bearer: .bearer,
+        .url: .queryItem("access_token")
     ]
 )
 ```
 
-`redactedQueryItemNames` is computed at init as the union of the registered authenticators' own names, and strips those query items from the URL captured in `HTTPResponseSnapshot`. Because the names come from the authenticators that write them, redaction cannot drift out of step with the credential's actual parameter name.
+`redactedQueryItemNames` is computed at init as the union of the registered authenticators' own names, and strips those query items from the URL captured in `HTTPResponseSnapshot`. Request construction rejects an authenticator that writes a name outside its own declaration, so redaction cannot drift out of step with what is actually written.
 
 ## Challenge Policy
 

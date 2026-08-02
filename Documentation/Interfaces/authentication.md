@@ -21,9 +21,11 @@ struct Parameters: RequestParameters {
     let queryItems: [URLQueryItem]? = nil
     let headers: [String: String]? = nil
     let body: EmptyBody = .init()
-    let authentication: AuthenticationScheme = .bearer
+    let authentication: AuthenticationScheme? = .bearer
 }
 ```
+
+A request that carries no credential declares `nil`. There is no scheme meaning "no scheme", so there is nothing to register an authenticator against by mistake.
 
 `AuthenticationScheme` is an open value, not a closed enum:
 
@@ -41,12 +43,12 @@ Out of the box, `ServerConfiguration` registers:
 
 ```swift
 [
-    .bearer: BearerAuthenticator(),          // Authorization: Bearer <credential>
-    .url: QueryTokenAuthenticator()          // ?token=<credential>
+    .bearer: .bearer,   // Authorization: Bearer <credential>
+    .url: .token        // ?token=<credential>
 ]
 ```
 
-`.none` short-circuits before any lookup: no authenticator is consulted and no credential is required. Registering an authenticator under `.none` has no effect and logs a diagnostic.
+A request declaring no scheme never consults this.
 
 ## Changing Placement
 
@@ -56,8 +58,8 @@ A server using `?access_token=` instead of `?token=` is configuration, not a bui
 let configuration = ServerConfiguration(
     url: url,
     authenticators: [
-        .bearer: BearerAuthenticator(),
-        .url: QueryTokenAuthenticator(name: "access_token")
+        .bearer: .bearer,
+        .url: .queryItem("access_token")
     ]
 )
 ```
@@ -65,46 +67,79 @@ let configuration = ServerConfiguration(
 Basic auth over a pre-encoded credential:
 
 ```swift
-authenticators: [.bearer: BearerAuthenticator(headerScheme: "Basic")]
+authenticators: [.bearer: .basic]                 // Authorization: Basic <credential>
+authenticators: [.apiKey: .header("X-API-Key")]  // X-API-Key: <credential>
 ```
 
 ## Writing an Authenticator
+
+An authenticator returns the header fields and query items that carry a credential. It does not mutate the request; `URLRequestBuilder` applies what it returns.
 
 ```swift
 struct APIKeyAuthenticator: Authenticator {
     let headerName: String
 
-    func apply(_ credential: String, to components: inout URLComponents) throws(RequestError) {}
-
-    func apply(_ credential: String, to request: inout URLRequest) throws(RequestError) {
-        request.setValue(credential, forHTTPHeaderField: headerName)
+    func headers(
+        for credential: String,
+        on request: URLRequest
+    ) throws(RequestError) -> [String: String] {
+        [headerName: credential]
     }
 }
 ```
 
-Both `apply` methods are required. A credential lands either in the URL, before it is formed, or on the request, after it is fully built, and the pipeline never holds a live `URLComponents` and `URLRequest` at the same time. Implement the one your scheme uses and leave the other empty; neither has a default so that an author reads both signatures and picks deliberately.
+Both requirements have empty defaults, so implement only the one your scheme uses.
 
-The request-side variant runs after the method, headers, and body are applied, so a scheme that signs the request can see everything it signs:
+### Why returning values rather than mutating
+
+The builder sees the names being written before they land, which is where three guarantees come from that an authenticator cannot be trusted to reproduce individually:
+
+- **A collision fails the request.** If a returned name is already present, construction throws `RequestError.credentialCollision`.
+- **Redaction cannot drift.** Every name returned from `queryItems(for:on:)` must be listed in `redactedQueryItemNames`, or construction throws `RequestError.undeclaredQueryItemName`.
+- **A silent no-op fails the request.** An authenticator contributing neither a header nor a query item throws `RequestError.authenticatorAppliedNothing`, so a conformance that implements the wrong half cannot produce an unauthenticated request that looks fine.
+
+The cost is that an authenticator cannot reach other parts of the request. In HTTP a credential is a header or a query item: cookies are the `Cookie` header, a password grant is a request *body* rather than an authenticator's business, and client certificates are `URLSession` configuration. The restriction is what buys the guarantees.
+
+### Signing
+
+Both requirements receive what has been built so far, so a scheme that signs can read it.
+
+`headers(for:on:)` runs after the method, headers, and body are applied:
 
 ```swift
-struct SigningAuthenticator: Authenticator {
-    func apply(_ credential: String, to components: inout URLComponents) throws(RequestError) {}
-
-    func apply(_ credential: String, to request: inout URLRequest) throws(RequestError) {
-        let signature = sign(request.httpBody ?? Data(), with: credential)
-        request.setValue(signature, forHTTPHeaderField: "X-Signature")
+struct BodySigningAuthenticator: Authenticator {
+    func headers(
+        for credential: String,
+        on request: URLRequest
+    ) throws(RequestError) -> [String: String] {
+        ["X-Signature": sign(request.httpBody ?? Data(), with: credential)]
     }
 }
 ```
 
-### Collision Handling
+`queryItems(for:on:)` runs after the path and the endpoint's own query items are applied, for a presigned URL:
 
-An authenticator owns what happens when the caller already wrote its header or query name, because only it knows those names. The built-in authenticators follow the package's established precedence:
+```swift
+struct URLSigningAuthenticator: Authenticator {
+    var redactedQueryItemNames: Set<String> { ["signature"] }
 
-- **Headers: the caller wins.** `BearerAuthenticator` finds an existing `Authorization`, logs a diagnostic, and leaves it alone.
-- **Query items: the authenticator wins.** `QueryTokenAuthenticator` strips matching items from the base URL and from the endpoint's own `queryItems`, logs a diagnostic for each, then appends the credential.
+    func queryItems(
+        for credential: String,
+        on components: URLComponents
+    ) throws(RequestError) -> [URLQueryItem] {
+        [URLQueryItem(name: "signature", value: sign(components, with: credential))]
+    }
+}
+```
 
-The asymmetry is deliberate. A stale `?token=` baked into a base URL must not beat the live credential, while a caller who explicitly writes an `Authorization` header is overriding on purpose.
+### Collisions
+
+Two sources claiming one slot is a contradiction in the configuration, not a preference to resolve. Both of these fail request construction:
+
+- A caller-supplied `Authorization` header, or one in `defaultHeaders`, alongside a request declaring a header scheme.
+- A base URL with the credential's query item already baked in.
+
+There is no precedence rule to learn, and no per-channel asymmetry, because nothing silently wins. A caller who wants to write an `Authorization` header by hand on one endpoint declares no scheme for it.
 
 ### Redaction
 
@@ -114,9 +149,9 @@ An authenticator that writes to the URL declares the names it uses:
 var redactedQueryItemNames: Set<String> { ["access_token"] }
 ```
 
-`ServerConfiguration` unions these across its registered authenticators into `redactedQueryItemNames`, and `HTTPResponseSnapshot` strips them from the URL it captures, so a credential carried in a URL does not survive into an error a consumer logs or attaches to a bug report. The names originate from the authenticators that write them, so redaction cannot drift out of step with the actual parameter name.
+`ServerConfiguration` unions these across its registered authenticators into `redactedQueryItemNames`, and `HTTPResponseSnapshot` strips them from the URL it captures, so a credential carried in a URL does not survive into an error a consumer logs or attaches to a bug report.
 
-Defaults to empty, which is correct for any authenticator that does not touch the URL.
+Returning a query item whose name is not declared here fails request construction, so the two cannot fall out of step.
 
 Header redaction is separate and static: `ResponseError`'s `description` and `debugDescription` always exclude `Set-Cookie`, `Authorization`, and `Proxy-Authorization`.
 
@@ -124,11 +159,14 @@ Header redaction is separate and static: `ResponseError`'s `description` and `de
 
 | Situation | Result |
 |---|---|
-| `.none` | No lookup, no credential required |
-| Scheme with no registered authenticator | `RequestError.invalidRequest(description:)` naming the scheme |
-| Registered scheme, `nil` credential | `RequestError.authentication` |
+| No scheme declared | No lookup, no credential required |
+| Scheme with no registered authenticator | `RequestError.unregisteredScheme(_:)` |
+| Registered scheme, `nil` credential | `RequestError.missingCredential(_:)` |
+| Credential would overwrite an existing name | `RequestError.credentialCollision(scheme:name:)` |
+| Query item name not declared for redaction | `RequestError.undeclaredQueryItemName(scheme:name:)` |
+| Authenticator contributed nothing | `RequestError.authenticatorAppliedNothing(_:)` |
 
-An unregistered scheme is a client misconfiguration rather than something a caller branches on, which is why it reuses `invalidRequest` rather than adding a case.
+Every one carries the scheme that failed, so a diagnostic never has to be reconstructed from a string.
 
 ## Retry and Refresh
 
@@ -136,12 +174,12 @@ An unregistered scheme is a client misconfiguration rather than something a call
 
 ### Credentials the Package Does Not Model
 
-A request whose credential arrives through a cookie jar, a signing `Transport`, or a proxy has no scheme to declare. It declares `.none` and opts back in:
+A request whose credential arrives through a cookie jar, a signing `Transport`, or a proxy has no scheme to declare. It declares `nil` and opts back in:
 
 ```swift
 struct Parameters: RequestParameters {
     // ...
-    let authentication: AuthenticationScheme = .none
+    let authentication: AuthenticationScheme? = nil
     var isAuthenticated: Bool { true }
 }
 ```

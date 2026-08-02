@@ -17,19 +17,18 @@ public struct RequestContext: Sendable {
     /// How the server is spoken to.
     public let configuration: ServerConfiguration
 
-    /// The credential to apply to a request whose `AuthenticationScheme` is anything but
-    /// `.none`.
+    /// The credential to apply to a request that declares an `AuthenticationScheme`.
     ///
     /// A bearer token, a signing key, a pre-encoded basic-auth pair - what it means is the
     /// registered `Authenticator`'s business. `nil` for unauthenticated flows; a request
     /// declaring a scheme with a registered authenticator and no credential fails with
-    /// `RequestError.authentication`.
+    /// `RequestError.missingCredential`.
     public let credential: String?
 
     /// Creates a request context.
     /// - Parameters:
     ///   - configuration: How the server is spoken to
-    ///   - credential: The credential for this request; required by any scheme other than `.none`
+    ///   - credential: The credential for this request; required by any declared scheme
     public init(
         configuration: ServerConfiguration,
         credential: String? = nil
@@ -56,12 +55,12 @@ public struct RequestContext: Sendable {
     /// Configuration for handling this request's response.
     public var responseContext: ResponseContext { configuration.responseContext }
 
-    /// The authenticator for `scheme`, or `nil` when the scheme is `.none`.
+    /// The authenticator for `scheme`, or `nil` when the request declares no scheme.
     ///
-    /// - Throws: `RequestError.invalidRequest(description:)` when the scheme has no registered
+    /// - Throws: `RequestError.unregisteredScheme` when a declared scheme has no registered
     ///   authenticator.
     public func authenticator(
-        for scheme: AuthenticationScheme
+        for scheme: AuthenticationScheme?
     ) throws(RequestError) -> (any Authenticator)? {
         try configuration.authenticator(for: scheme)
     }

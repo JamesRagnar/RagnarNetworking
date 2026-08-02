@@ -23,7 +23,7 @@ struct GetUserInterface: Interface {
         let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EmptyBody = .init()
-        let authentication: AuthenticationScheme = .bearer
+        let authentication: AuthenticationScheme? = .bearer
 
         init(userId: Int) {
             self.path = "/users/\(userId)"

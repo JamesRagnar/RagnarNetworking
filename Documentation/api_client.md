@@ -24,7 +24,7 @@ let client = APIClient(
 - `ServerConfiguration` holds no credential. The client pairs it with the current token in a `RequestContext` on every request, so token management goes through `token`/`refresh` exclusively.
 - `token` is evaluated lazily before each authenticated request, so it always reflects the current token - including after a refresh.
 - `refresh` must update whatever state `token` reads from. It is called at most once per challenge burst regardless of how many concurrent requests fail.
-- The convenience initializer is intended for clients that only send `.none` requests.
+- The convenience initializer is intended for clients that only send unauthenticated requests.
 - If a `.bearer` or `.url` request is sent through the convenience initializer, the request will fail with authentication-related errors.
 
 ## Customizing Request Construction and Response Decoding
@@ -79,12 +79,12 @@ let user = try await client.send(GetUserInterface.self, .init(userId: 123))
 
 ## Authentication Behavior
 
-`RequestParameters.isAuthenticated` controls whether the token closure is invoked and whether the request participates in challenge retry. It defaults to `authentication != .none`.
+`RequestParameters.isAuthenticated` controls whether the token closure is invoked and whether the request participates in challenge retry. It defaults to `authentication != nil`.
 
 - A request with `isAuthenticated == false` never calls the token closure and is never retried. Use for login, registration, and other unauthenticated endpoints.
 - A request with `isAuthenticated == true` resolves a credential, applies the `Authenticator` registered for its scheme, and on a challenge refreshes once and retries with a fresh credential.
 
-A request that declares `.none` but carries its credential some other way - a cookie jar, a signing `Transport` - overrides `isAuthenticated` to `true` to opt back into retry and refresh. See [Authentication](Interfaces/authentication.md).
+A request that declares no scheme but carries its credential some other way - a cookie jar, a signing `Transport` - overrides `isAuthenticated` to `true` to opt back into retry and refresh. See [Authentication](Interfaces/authentication.md).
 
 ## What Counts as a Challenge
 

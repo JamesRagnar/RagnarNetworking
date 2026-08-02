@@ -44,7 +44,8 @@ import Foundation
 /// ```
 ///
 /// Builder invariants:
-/// - Apply the `Authenticator` registered for the request's `authentication` scheme.
+/// - Apply the `Authenticator` registered for the request's `authentication` scheme, and
+///   preserve its collision, redaction, and no-op checks.
 /// - Preserve explicit `RequestError` failures for malformed configuration or invalid requests.
 /// - Keep body bytes and `Content-Type` in sync.
 /// - Return a fully formed `URLRequest` with a valid URL.
@@ -86,6 +87,11 @@ public protocol RequestBuilder: Sendable {
 ///
 /// The request-side step runs last, after the body. A scheme that signs the request can
 /// therefore see the method, headers, and body it needs to sign.
+///
+/// Both steps ask the registered `Authenticator` what to apply rather than handing it the
+/// request to mutate, so the builder can reject a credential that would overwrite something the
+/// request already carries, a query item name the authenticator does not declare for redaction,
+/// or an authenticator that applies nothing at all. See `Authenticator`.
 public struct URLRequestBuilder: RequestBuilder {
 
     /// Creates the default builder. Stateless; create one wherever you need it, including
@@ -119,7 +125,7 @@ public struct URLRequestBuilder: RequestBuilder {
         context: RequestContext
     ) throws(RequestError) -> URLRequest {
         var components = components
-        try applyAuthentication(
+        let appliedToURL = try applyAuthentication(
             requestParameters.authentication,
             context: context,
             to: &components
@@ -143,6 +149,7 @@ public struct URLRequestBuilder: RequestBuilder {
         try applyAuthentication(
             requestParameters.authentication,
             context: context,
+            appliedToURL: appliedToURL,
             to: &request
         )
 
@@ -206,21 +213,45 @@ public struct URLRequestBuilder: RequestBuilder {
 
     /// Applies a URL-carried credential, before the URL is formed.
     ///
-    /// Resolves the `Authenticator` registered for `scheme` and hands it the context's
-    /// credential. `.none` short-circuits with no lookup and no credential required.
+    /// Asks the `Authenticator` registered for `scheme` which query items carry the credential,
+    /// then validates and appends them. A request declaring no scheme short-circuits with no
+    /// lookup and no credential required.
     ///
-    /// - Throws: `RequestError.invalidRequest(description:)` when the scheme has no registered
-    ///   authenticator, or `RequestError.authentication` when it has one and the context carries
-    ///   no credential.
+    /// - Returns: Whether the authenticator contributed any query items.
+    /// - Throws: `RequestError.unregisteredScheme` for a scheme with no authenticator,
+    ///   `.missingCredential` when the context carries none, `.undeclaredQueryItemName` for an
+    ///   item the authenticator does not declare in `redactedQueryItemNames`, or
+    ///   `.credentialCollision` when the components already carry that name.
+    @discardableResult
     public func applyAuthentication(
-        _ scheme: AuthenticationScheme,
+        _ scheme: AuthenticationScheme?,
         context: RequestContext,
         to components: inout URLComponents
-    ) throws(RequestError) {
-        guard let authenticator = try context.authenticator(for: scheme) else { return }
-        guard let credential = context.credential else { throw .authentication }
+    ) throws(RequestError) -> Bool {
+        guard let authenticator = try context.authenticator(for: scheme) else { return false }
+        guard let scheme else { return false }
+        guard let credential = context.credential else { throw .missingCredential(scheme) }
 
-        try authenticator.apply(credential, to: &components)
+        let items = try authenticator.queryItems(for: credential, on: components)
+        guard !items.isEmpty else { return false }
+
+        let declared = authenticator.redactedQueryItemNames
+        var existing = components.queryItems ?? []
+
+        for item in items {
+            guard declared.contains(where: { $0.caseInsensitiveCompare(item.name) == .orderedSame }) else {
+                throw .undeclaredQueryItemName(scheme: scheme, name: item.name)
+            }
+
+            if existing.contains(where: { $0.name.caseInsensitiveCompare(item.name) == .orderedSame }) {
+                throw .credentialCollision(scheme: scheme, name: item.name)
+            }
+        }
+
+        existing.append(contentsOf: items)
+        components.queryItems = existing
+
+        return true
     }
 
     /// Builds a final URL from the components.
@@ -292,21 +323,39 @@ public struct URLRequestBuilder: RequestBuilder {
 
     /// Applies a request-carried credential, after the method, headers, and body are applied.
     ///
-    /// Runs last so a scheme that signs the request can see everything it signs. `.none`
-    /// short-circuits with no lookup and no credential required.
+    /// Asks the `Authenticator` registered for `scheme` which header fields carry the
+    /// credential, then validates and sets them. Runs last so a scheme that signs the request
+    /// can see everything it signs. A request declaring no scheme short-circuits with no lookup
+    /// and no credential required.
     ///
-    /// - Throws: `RequestError.invalidRequest(description:)` when the scheme has no registered
-    ///   authenticator, or `RequestError.authentication` when it has one and the context carries
-    ///   no credential.
+    /// - Parameter appliedToURL: Whether the components-side step already applied part of this
+    ///   credential. An authenticator that contributes nothing on either side is rejected.
+    /// - Throws: `RequestError.unregisteredScheme` for a scheme with no authenticator,
+    ///   `.missingCredential` when the context carries none, `.credentialCollision` when the
+    ///   request already carries a header the authenticator writes, or
+    ///   `.authenticatorAppliedNothing` when it contributed nothing anywhere.
     public func applyAuthentication(
-        _ scheme: AuthenticationScheme,
+        _ scheme: AuthenticationScheme?,
         context: RequestContext,
+        appliedToURL: Bool = false,
         to request: inout URLRequest
     ) throws(RequestError) {
         guard let authenticator = try context.authenticator(for: scheme) else { return }
-        guard let credential = context.credential else { throw .authentication }
+        guard let scheme else { return }
+        guard let credential = context.credential else { throw .missingCredential(scheme) }
 
-        try authenticator.apply(credential, to: &request)
+        let fields = try authenticator.headers(for: credential, on: request)
+
+        guard !fields.isEmpty || appliedToURL else {
+            throw .authenticatorAppliedNothing(scheme)
+        }
+
+        for (name, value) in fields {
+            if request.value(forHTTPHeaderField: name) != nil {
+                throw .credentialCollision(scheme: scheme, name: name)
+            }
+            request.setValue(value, forHTTPHeaderField: name)
+        }
     }
 
     /// Applies a request body's `Content-Type`, called by `applyBody`.

@@ -18,7 +18,7 @@ struct ServerConfigurationTests {
         let queryItems: [URLQueryItem]? = nil
         var headers: [String: String]?
         let body: EmptyBody = EmptyBody()
-        let authentication: AuthenticationScheme = .none
+        let authentication: AuthenticationScheme? = nil
     }
 
     @Test("Initializes with a URL")
