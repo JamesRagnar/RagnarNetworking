@@ -2,9 +2,10 @@ import Foundation
 
 /// App-agnostic actor that owns credential state and handles challenge retry.
 ///
-/// Requests whose `RequestParameters.isAuthenticated` is `false` never invoke the token closure
-/// and are never retried. `ServerConfiguration.challengePolicy` decides which failures are
-/// challenges, so no status code is hardcoded here.
+/// A request declaring no `AuthenticationScheme` never invokes the token closure, and one whose
+/// `RequestParameters.refreshesOnChallenge` is `false` is never retried.
+/// `ServerConfiguration.challengePolicy` decides which failures are challenges, so no status
+/// code is hardcoded here.
 ///
 /// Challenges coalesce into a single refresh per token generation: one `refresh` call fires for
 /// all requests that failed using the same token, whether those failures arrive simultaneously
@@ -57,8 +58,7 @@ public actor APIClient {
         self.refresh = refresh
     }
 
-    /// Creates an `APIClient` for requests whose `RequestParameters.isAuthenticated` is
-    /// `false`.
+    /// Creates an `APIClient` for requests that declare no `AuthenticationScheme`.
     ///
     /// The token closure always returns `nil`, so a request declaring any scheme fails with
     /// `RequestError.missingCredential`.
@@ -79,8 +79,8 @@ public actor APIClient {
 
     /// Sends a typed request.
     ///
-    /// A request whose `RequestParameters.isAuthenticated` is `true` is retried once after a
-    /// challenge: `refresh` fires, then `token` is re-evaluated for the retry.
+    /// A request whose `RequestParameters.refreshesOnChallenge` is `true` is retried once after
+    /// a challenge: `refresh` fires, then `token` is re-evaluated for the retry.
     /// `ServerConfiguration.challengePolicy` decides what counts as a challenge and receives the
     /// Interface's `responseCases`, so an endpoint that models the challenge status code
     /// surfaces its own error instead.
@@ -94,14 +94,14 @@ public actor APIClient {
     ) async throws -> T.Response {
         try checkValid()
 
-        guard params.isAuthenticated else {
-            return try await execute(type, params, credential: nil)
+        guard params.refreshesOnChallenge else {
+            return try await execute(type, params, credential: try await credential(for: params))
         }
 
         let generation = refreshGeneration
-        let currentToken = try await token()
+        let currentCredential = try await credential(for: params)
         do {
-            return try await execute(type, params, credential: currentToken)
+            return try await execute(type, params, credential: currentCredential)
         } catch let err as ResponseError where configuration.challengePolicy.isChallenge(
             err,
             T.responseCases
@@ -128,8 +128,7 @@ public actor APIClient {
             }
             try checkValid()
             try Task.checkCancellation()
-            let freshToken = try await token()
-            return try await execute(type, params, credential: freshToken)
+            return try await execute(type, params, credential: try await credential(for: params))
         }
     }
 
@@ -157,6 +156,15 @@ public actor APIClient {
     }
 
     // MARK: - Private
+
+    /// Resolves the credential for a request, or `nil` when it declares no scheme.
+    ///
+    /// Keyed on `authentication` rather than `refreshesOnChallenge`, so an endpoint that opts
+    /// out of refresh still sends its credential.
+    private func credential(for params: some RequestParameters) async throws -> String? {
+        guard params.authentication != nil else { return nil }
+        return try await token()
+    }
 
     /// Throws `APIClientError.invalidated` if the client has been invalidated.
     private func checkValid() throws {

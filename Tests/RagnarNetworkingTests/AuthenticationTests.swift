@@ -51,7 +51,26 @@ private struct CookieAuthInterface: Interface {
         let body: EmptyBody = .init()
         let authentication: AuthenticationScheme? = nil
 
-        var isAuthenticated: Bool { true }
+        var refreshesOnChallenge: Bool { true }
+    }
+
+    typealias Response = ValueResponse
+
+    static let responseCases: ResponseMap = [.code(200, .decode)]
+}
+
+/// A token-refresh endpoint: sends a credential, but a challenge on it must surface rather
+/// than recurse into another refresh.
+private struct RefreshEndpointInterface: Interface {
+    struct Parameters: RequestParameters {
+        let method: RequestMethod = .post
+        let path: String = "/oauth/refresh"
+        let queryItems: [URLQueryItem]? = nil
+        let headers: [String: String]? = nil
+        let body: EmptyBody = .init()
+        let authentication: AuthenticationScheme? = .bearer
+
+        var refreshesOnChallenge: Bool { false }
     }
 
     typealias Response = ValueResponse
@@ -259,7 +278,7 @@ private extension AuthenticationScheme {
 @Suite("Authentication: retry trigger", .timeLimit(.minutes(1)))
 struct AuthenticationRetryTriggerTests {
 
-    @Test("A schemeless request that overrides isAuthenticated gets challenge retry and refresh")
+    @Test("A schemeless request that opts in gets challenge retry and refresh")
     func noneSchemeWithOverrideParticipatesInRefresh() async throws {
         let transport = RecordingTransport()
         await transport.enqueue(Data(), 401)
@@ -302,12 +321,52 @@ struct AuthenticationRetryTriggerTests {
         #expect(await log.refreshCalls == 0)
     }
 
-    @Test("isAuthenticated derives from the scheme when a conformance does not declare it")
-    func isAuthenticatedDerivesFromScheme() {
-        #expect(SchemeInterface.Parameters(authentication: nil).isAuthenticated == false)
-        #expect(SchemeInterface.Parameters(authentication: .bearer).isAuthenticated == true)
-        #expect(SchemeInterface.Parameters(authentication: .url).isAuthenticated == true)
-        #expect(SchemeInterface.Parameters(authentication: .apiKey).isAuthenticated == true)
+    @Test("A refresh endpoint opting out still applies its credential but never refreshes")
+    func refreshEndpointAppliesCredentialWithoutRefreshing() async throws {
+        let transport = RecordingTransport()
+        await transport.enqueue(Data(), 401)
+
+        let log = CallLog()
+        let client = APIClient(
+            configuration: ServerConfiguration(url: testServerURL),
+            transport: transport,
+            token: { await log.recordToken(); return "refresh-token" },
+            refresh: { await log.recordRefresh() }
+        )
+
+        await #expect(throws: ResponseError.self) {
+            _ = try await client.send(RefreshEndpointInterface.self, .init())
+        }
+
+        // The credential is still applied, because that follows `authentication`.
+        let sent = try #require(await transport.requests.first)
+        #expect(sent.value(forHTTPHeaderField: "Authorization") == "Bearer refresh-token")
+
+        // But a 401 here surfaces rather than recursing into another refresh.
+        #expect(await transport.callCount == 1)
+        #expect(await log.refreshCalls == 0)
+    }
+
+    @Test("A refreshesOnChallenge override reaches APIClient through its generic constraint")
+    func refreshesOnChallengeOverrideIsWitnessDispatched() async throws {
+        // `APIClient.send` reads this on a generic `T.Parameters`. It is a protocol requirement
+        // rather than an extension-only member so that these overrides dispatch through the
+        // witness table; an extension-only member would resolve to the default here and both
+        // overrides would silently do nothing.
+        func read<T: Interface>(_ type: T.Type, _ params: T.Parameters) -> Bool {
+            params.refreshesOnChallenge
+        }
+
+        #expect(read(CookieAuthInterface.self, .init()))
+        #expect(!read(RefreshEndpointInterface.self, .init()))
+    }
+
+    @Test("refreshesOnChallenge derives from the scheme when a conformance does not declare it")
+    func refreshesOnChallengeDerivesFromScheme() {
+        #expect(SchemeInterface.Parameters(authentication: nil).refreshesOnChallenge == false)
+        #expect(SchemeInterface.Parameters(authentication: .bearer).refreshesOnChallenge == true)
+        #expect(SchemeInterface.Parameters(authentication: .url).refreshesOnChallenge == true)
+        #expect(SchemeInterface.Parameters(authentication: .apiKey).refreshesOnChallenge == true)
     }
 
 }

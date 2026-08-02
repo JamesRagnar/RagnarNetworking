@@ -101,14 +101,12 @@ public struct ServerConfiguration: Sendable {
         }
     }
 
-    /// The authenticator for `scheme`, or `nil` when the request declares no scheme.
+    /// The authenticator registered for `scheme`.
     ///
-    /// - Throws: `RequestError.unregisteredScheme` for a declared scheme with no authenticator.
+    /// - Throws: `RequestError.unregisteredScheme` when nothing is registered for it.
     public func authenticator(
-        for scheme: AuthenticationScheme?
-    ) throws(RequestError) -> (any Authenticator)? {
-        guard let scheme else { return nil }
-
+        for scheme: AuthenticationScheme
+    ) throws(RequestError) -> any Authenticator {
         guard let authenticator = authenticators[scheme] else {
             throw .unregisteredScheme(scheme)
         }

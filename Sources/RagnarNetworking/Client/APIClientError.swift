@@ -23,8 +23,8 @@ public enum APIClientError: LocalizedError, Sendable {
     /// An authenticated request was challenged on a client created without credential closures.
     ///
     /// Reached only by a request that declares no scheme but overrides
-    /// `RequestParameters.isAuthenticated` to `true`; any declared scheme fails at construction
-    /// with `RequestError.missingCredential` first.
+    /// `RequestParameters.refreshesOnChallenge` to `true`; any declared scheme fails at
+    /// construction with `RequestError.missingCredential` first.
     case noCredentialSource
 
     public var errorDescription: String? {

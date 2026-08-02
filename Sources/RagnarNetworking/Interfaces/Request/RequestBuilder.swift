@@ -212,8 +212,9 @@ public struct URLRequestBuilder: RequestBuilder {
         context: RequestContext,
         to components: inout URLComponents
     ) throws(RequestError) -> Bool {
-        guard let authenticator = try context.authenticator(for: scheme) else { return false }
         guard let scheme else { return false }
+
+        let authenticator = try context.authenticator(for: scheme)
         guard let credential = context.credential else { throw .missingCredential(scheme) }
 
         let items = try authenticator.queryItems(for: credential, on: components)
@@ -321,8 +322,9 @@ public struct URLRequestBuilder: RequestBuilder {
         appliedToURL: Bool = false,
         to request: inout URLRequest
     ) throws(RequestError) {
-        guard let authenticator = try context.authenticator(for: scheme) else { return }
         guard let scheme else { return }
+
+        let authenticator = try context.authenticator(for: scheme)
         guard let credential = context.credential else { throw .missingCredential(scheme) }
 
         let fields = try authenticator.headers(for: credential, on: request)

@@ -54,12 +54,12 @@ public struct RequestContext: Sendable {
     /// Configuration for handling this request's response.
     public var responseContext: ResponseContext { configuration.responseContext }
 
-    /// The authenticator for `scheme`, or `nil` when the request declares no scheme.
+    /// The authenticator registered for `scheme`.
     ///
-    /// - Throws: `RequestError.unregisteredScheme` for a declared scheme with no authenticator.
+    /// - Throws: `RequestError.unregisteredScheme` when nothing is registered for it.
     public func authenticator(
-        for scheme: AuthenticationScheme?
-    ) throws(RequestError) -> (any Authenticator)? {
+        for scheme: AuthenticationScheme
+    ) throws(RequestError) -> any Authenticator {
         try configuration.authenticator(for: scheme)
     }
 

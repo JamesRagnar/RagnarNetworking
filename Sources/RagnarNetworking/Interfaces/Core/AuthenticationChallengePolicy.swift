@@ -18,7 +18,7 @@ import Foundation
 /// }
 /// ```
 ///
-/// Only requests whose `RequestParameters.isAuthenticated` is `true` reach the policy.
+/// Only requests whose `RequestParameters.refreshesOnChallenge` is `true` reach the policy.
 public struct AuthenticationChallengePolicy: Sendable {
 
     /// Whether the error is a credential challenge.

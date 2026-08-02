@@ -79,12 +79,16 @@ let user = try await client.send(GetUserInterface.self, .init(userId: 123))
 
 ## Authentication Behavior
 
-`RequestParameters.isAuthenticated` controls whether the token closure is invoked and whether the request participates in challenge retry. It defaults to `authentication != nil`.
+Two independent members control this.
 
-- A request with `isAuthenticated == false` never calls the token closure and is never retried. Use for login, registration, and other unauthenticated endpoints.
-- A request with `isAuthenticated == true` resolves a credential, applies the `Authenticator` registered for its scheme, and on a challenge refreshes once and retries with a fresh credential.
+`RequestParameters.authentication` decides whether a credential is resolved at all. A request declaring no scheme never calls the token closure.
 
-A request that declares no scheme but carries its credential some other way - a cookie jar, a signing `Transport` - overrides `isAuthenticated` to `true`. See [Authentication](Interfaces/authentication.md).
+`RequestParameters.refreshesOnChallenge` decides whether a challenge triggers a refresh and one retry. It defaults to `authentication != nil`, and both overrides are meaningful:
+
+- `true` with no scheme, for a credential this package does not apply: a cookie jar, a signing `Transport`, a proxy.
+- `false` with a scheme, for a token-refresh endpoint. It still sends its own credential, but a challenge on it surfaces rather than recursing into another refresh.
+
+See [Authentication](Interfaces/authentication.md).
 
 ## What Counts as a Challenge
 

@@ -6,7 +6,7 @@ Authentication is split across two owners:
 |---|---|---|
 | Which scheme this endpoint uses | `RequestParameters` | `AuthenticationScheme` |
 | How that scheme is applied | `ServerConfiguration` | `[AuthenticationScheme: any Authenticator]` |
-| Whether a credential is carried at all | `RequestParameters` | `isAuthenticated` |
+| Whether a challenge triggers a refresh | `RequestParameters` | `refreshesOnChallenge` |
 | What counts as a stale credential | `ServerConfiguration` | `AuthenticationChallengePolicy` |
 | What the credential is | `RequestContext` | `credential` |
 
@@ -160,7 +160,9 @@ Every case carries the scheme that failed.
 
 ## Retry and Refresh
 
-`APIClient` refreshes and retries a request whose `isAuthenticated` is `true` when `ServerConfiguration.challengePolicy` recognizes the failure as a challenge. No status code is hardcoded in the client.
+`APIClient` refreshes and retries a request whose `refreshesOnChallenge` is `true` when `ServerConfiguration.challengePolicy` recognizes the failure as a challenge. No status code is hardcoded in the client.
+
+`refreshesOnChallenge` is independent of whether a credential is applied, which follows `authentication` alone. Both overrides are meaningful.
 
 ### Credentials the Package Does Not Model
 
@@ -170,11 +172,25 @@ A request whose credential arrives through a cookie jar, a signing `Transport`, 
 struct Parameters: RequestParameters {
     // ...
     let authentication: AuthenticationScheme? = nil
-    var isAuthenticated: Bool { true }
+    var refreshesOnChallenge: Bool { true }
 }
 ```
 
 Without the override, such a request gets no challenge retry and no coalesced refresh.
+
+### The Refresh Endpoint
+
+A token-refresh endpoint sends a credential of its own. A challenge on it has to surface rather than recurse into another refresh:
+
+```swift
+struct Parameters: RequestParameters {
+    // ...
+    let authentication: AuthenticationScheme? = .bearer
+    var refreshesOnChallenge: Bool { false }
+}
+```
+
+The credential is still applied, because that follows `authentication`.
 
 ### The Challenge Policy
 
