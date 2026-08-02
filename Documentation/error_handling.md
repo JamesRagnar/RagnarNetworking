@@ -4,7 +4,7 @@
 
 | Origin | Error type | Thrown by |
 |---|---|---|
-| Request construction | `RequestError` | `RequestBuilder.buildRequest` (via `RequestPipeline.send`) |
+| Request construction | `RequestError` | `RequestBuilder.buildRequest` and `URLRequest.applyAuthentication(_:context:)`, both via `URLRequest.init(requestParameters:context:)` (via `RequestPipeline.send`) |
 | Transport | `URLError` (unwrapped) | `Transport.data(for:)` (via `RequestPipeline.send`) |
 | Response handling | `ResponseError` | `Interface.handle(_:context:defaultHandler:)` (via `RequestPipeline.send`) |
 | `APIClient` lifecycle | `APIClientError` | `APIClient.send`, `APIClient.invalidate` |
