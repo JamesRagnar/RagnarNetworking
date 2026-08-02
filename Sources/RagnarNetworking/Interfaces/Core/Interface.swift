@@ -86,21 +86,15 @@ public protocol RequestParameters: Sendable {
     /// this server.
     var authentication: AuthenticationScheme? { get }
 
-    /// Whether a challenge on this request should trigger a refresh and one retry.
+    /// Whether a challenge on this request triggers a refresh and one retry.
     ///
     /// Independent of whether a credential is applied, which follows `authentication` alone.
-    /// Defaults to `authentication != nil`; both overrides are meaningful:
+    /// Defaults to `authentication != nil`.
     ///
-    /// - `true` with no scheme, for a credential this package does not apply: a cookie jar, a
-    ///   signing `Transport`, a proxy. Without it the request gets no retry and no refresh.
-    /// - `false` with a scheme, for an endpoint that must not refresh. A token-refresh endpoint
-    ///   sends a credential of its own, and a challenge on it has to surface rather than
-    ///   recurse into another refresh.
-    ///
-    /// The only member here with a default implementation, because it is the only derived one.
-    /// It is a requirement rather than an extension-only member so that an override reaches
-    /// `APIClient`, which reads it through a generic constraint; an extension-only member
-    /// would be dispatched statically there and the override would silently do nothing.
+    /// Override to `true` for a credential this package does not apply, such as one held in a
+    /// cookie jar or added by a signing `Transport`; the request otherwise gets no retry and no
+    /// refresh. Override to `false` for an endpoint that must not refresh, such as the
+    /// token-refresh endpoint itself, where a challenge has to surface to the caller.
     var refreshesOnChallenge: Bool { get }
 
 }
