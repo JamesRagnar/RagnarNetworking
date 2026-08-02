@@ -23,7 +23,7 @@ struct GetUserInterface: Interface {
         let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EmptyBody = .init()
-        let authentication: AuthenticationType = .bearer
+        let authentication: AuthenticationScheme? = .bearer
 
         init(userId: Int) {
             self.path = "/users/\(userId)"
@@ -61,7 +61,7 @@ To send without an `APIClient` managing credentials, use `RequestPipeline` direc
 
 ```swift
 let pipeline = RequestPipeline()
-let context = RequestContext(configuration: configuration, authToken: token)
+let context = RequestContext(configuration: configuration, credential: token)
 let user = try await pipeline.send(GetUserInterface.self, .init(userId: 123), context: context)
 ```
 
@@ -144,3 +144,4 @@ let queued = QueuedRequest { client in
 - [Request Parameters](request_parameters.md)
 - [Response Handling](response_handling.md)
 - [Request Builder](request_builder.md)
+- [Authentication](authentication.md)

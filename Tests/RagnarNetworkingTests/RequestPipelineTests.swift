@@ -26,7 +26,7 @@ struct RequestPipelineTests {
             let queryItems: [URLQueryItem]? = nil
             let headers: [String: String]? = nil
             let body: EmptyBody = .init()
-            let authentication: AuthenticationType = .none
+            let authentication: AuthenticationScheme? = nil
         }
 
         typealias Response = TestResponse
@@ -159,7 +159,7 @@ struct RequestPipelineTests {
         let url = URL(string: "https://custom.api.com")!
         let context = RequestContext(
             configuration: ServerConfiguration(url: url),
-            authToken: "test-token"
+            credential: "test-token"
         )
 
         struct AuthInterface: Interface {
@@ -169,7 +169,7 @@ struct RequestPipelineTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationType = .bearer
+                let authentication: AuthenticationScheme? = .bearer
             }
 
             typealias Response = TestResponse
@@ -204,22 +204,19 @@ struct RequestPipelineTests {
     @Test("Uses a custom RequestBuilder when provided")
     func testCustomBuilderIsUsed() async throws {
         struct CustomBuilder: RequestBuilder {
-            func applyHeaders(
-                _ headers: [String: String],
-                authentication: AuthenticationType,
-                authToken: String?,
-                to request: inout URLRequest
-            ) throws(RequestError) {
-                try URLRequestBuilder().applyHeaders(
-                    headers,
-                    authentication: authentication,
-                    authToken: authToken,
-                    to: &request
+            func buildRequest<Parameters: RequestParameters>(
+                _ requestParameters: Parameters,
+                context: RequestContext
+            ) throws(RequestError) -> URLRequest {
+                var request = try URLRequestBuilder().buildRequest(
+                    requestParameters,
+                    context: context
                 )
 
                 var current = request.allHTTPHeaderFields ?? [:]
                 current["X-Test-Builder"] = "true"
                 request.allHTTPHeaderFields = current
+                return request
             }
         }
 
@@ -255,22 +252,19 @@ struct RequestPipelineTests {
         struct SigningBuilder: RequestBuilder {
             let signature: String
 
-            func applyHeaders(
-                _ headers: [String: String],
-                authentication: AuthenticationType,
-                authToken: String?,
-                to request: inout URLRequest
-            ) throws(RequestError) {
-                try URLRequestBuilder().applyHeaders(
-                    headers,
-                    authentication: authentication,
-                    authToken: authToken,
-                    to: &request
+            func buildRequest<Parameters: RequestParameters>(
+                _ requestParameters: Parameters,
+                context: RequestContext
+            ) throws(RequestError) -> URLRequest {
+                var request = try URLRequestBuilder().buildRequest(
+                    requestParameters,
+                    context: context
                 )
 
                 var current = request.allHTTPHeaderFields ?? [:]
                 current["X-Signature"] = signature
                 request.allHTTPHeaderFields = current
+                return request
             }
         }
 
@@ -304,14 +298,13 @@ struct RequestPipelineTests {
                 _ requestParameters: Parameters,
                 context: RequestContext
             ) throws(RequestError) -> URLRequest {
-                var components = try makeComponents(context: context)
-                applyPath(requestParameters.path, to: &components)
-                var request = makeRequest(url: try makeURL(from: components))
-                applyMethod(requestParameters.method, to: &request)
-                try applyHeaders(
+                let base = URLRequestBuilder()
+                var components = try base.makeComponents(context: context)
+                base.applyPath(requestParameters.path, to: &components)
+                var request = base.makeRequest(url: try base.makeURL(from: components))
+                base.applyMethod(requestParameters.method, to: &request)
+                base.applyHeaders(
                     context.resolvedHeaders(for: requestParameters),
-                    authentication: requestParameters.authentication,
-                    authToken: context.authToken,
                     to: &request
                 )
                 return request
@@ -353,7 +346,7 @@ struct RequestPipelineTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationType = .none
+                let authentication: AuthenticationScheme? = nil
             }
 
             typealias Response = SnakeCaseResponse
@@ -441,7 +434,7 @@ struct RequestPipelineTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationType = .none
+                let authentication: AuthenticationScheme? = nil
             }
 
             typealias Response = String
@@ -479,7 +472,7 @@ struct RequestPipelineTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationType = .none
+                let authentication: AuthenticationScheme? = nil
             }
 
             typealias Response = Data
@@ -526,7 +519,7 @@ struct RequestPipelineTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationType = .none
+                let authentication: AuthenticationScheme? = nil
             }
 
             typealias Response = ComplexResponse
@@ -579,7 +572,7 @@ struct RequestPipelineTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationType = .none
+                let authentication: AuthenticationScheme? = nil
             }
 
             typealias Response = [Item]
@@ -628,7 +621,7 @@ struct RequestPipelineTests {
             let queryItems: [URLQueryItem]? = [URLQueryItem(name: "page", value: "1")]
             let headers: [String: String]? = ["X-Custom": "value"]
             let body: BinaryBody
-            let authentication: AuthenticationType = .bearer
+            let authentication: AuthenticationScheme? = .bearer
         }
 
         struct CompleteInterface: Interface {
@@ -643,7 +636,7 @@ struct RequestPipelineTests {
         let url = URL(string: "https://api.example.com")!
         let context = RequestContext(
             configuration: ServerConfiguration(url: url),
-            authToken: "auth-token"
+            credential: "auth-token"
         )
         let bodyData = "{\"test\":\"data\"}".data(using: .utf8)!
         let params = CompleteParameters(body: BinaryBody(data: bodyData, contentType: "application/octet-stream"))
@@ -684,7 +677,7 @@ struct RequestPipelineTests {
                 let queryItems: [URLQueryItem]? = nil
                 let headers: [String: String]? = nil
                 let body: EmptyBody = .init()
-                let authentication: AuthenticationType = .bearer // Requires token
+                let authentication: AuthenticationScheme? = .bearer // Requires token
             }
 
             typealias Response = TestResponse
@@ -739,14 +732,14 @@ struct RequestPipelineTests {
         func handle<T: Interface>(
             _ response: (data: Data, response: URLResponse),
             for interface: T.Type,
-            responseDecoder: ResponseDecoder
+            context: ResponseContext
         ) throws(ResponseError) -> T.Response {
             let rewritten = #"{"id": 99, "name": "from-configuration"}"#.data(using: .utf8)!
 
             return try DefaultResponseHandler().handle(
                 (data: rewritten, response: response.response),
                 for: interface,
-                responseDecoder: responseDecoder
+                context: context
             )
         }
     }
@@ -777,22 +770,19 @@ struct RequestPipelineTests {
     @Test("The pipeline uses the configuration's builder without being handed one")
     func testPipelineUsesConfigurationBuilder() async throws {
         struct StampingBuilder: RequestBuilder {
-            func applyHeaders(
-                _ headers: [String: String],
-                authentication: AuthenticationType,
-                authToken: String?,
-                to request: inout URLRequest
-            ) throws(RequestError) {
-                try URLRequestBuilder().applyHeaders(
-                    headers,
-                    authentication: authentication,
-                    authToken: authToken,
-                    to: &request
+            func buildRequest<Parameters: RequestParameters>(
+                _ requestParameters: Parameters,
+                context: RequestContext
+            ) throws(RequestError) -> URLRequest {
+                var request = try URLRequestBuilder().buildRequest(
+                    requestParameters,
+                    context: context
                 )
 
                 var current = request.allHTTPHeaderFields ?? [:]
                 current["X-Stamp"] = "configuration"
                 request.allHTTPHeaderFields = current
+                return request
             }
         }
 

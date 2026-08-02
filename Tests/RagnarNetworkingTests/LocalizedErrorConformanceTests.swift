@@ -14,10 +14,14 @@ struct LocalizedErrorConformanceTests {
 
     static let requestErrorCases: [RequestError] = [
         .configuration,
-        .authentication,
         .componentsURL,
         .encoding(underlying: ErrorSnapshot(typeName: "TestError", description: "desc", localizedDescription: "desc")),
         .invalidRequest(description: "bad parameters"),
+        .unregisteredScheme(.bearer),
+        .missingCredential(.bearer),
+        .credentialCollision(scheme: .bearer, name: "Authorization"),
+        .undeclaredQueryItemName(scheme: .url, name: "secret"),
+        .authenticatorAppliedNothing(.bearer),
     ]
 
     @Test("RequestError produces a non-empty, non-default errorDescription", arguments: requestErrorCases)

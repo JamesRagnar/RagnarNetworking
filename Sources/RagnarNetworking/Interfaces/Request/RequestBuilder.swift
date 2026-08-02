@@ -6,27 +6,42 @@
 //
 
 import Foundation
-import OSLog
 
-/// Advanced extension API for constructing `URLRequest` values from typed Interface parameters.
+/// Constructs a `URLRequest` from typed Interface parameters.
 ///
-/// `RequestBuilder` exposes the request-construction pipeline as a set of stable customization
-/// points. `URLRequestBuilder` provides the default implementation, and custom builders can
-/// override individual steps while inheriting the rest of the pipeline.
+/// `URLRequestBuilder` is the built-in implementation and exposes each step of its pipeline as a
+/// public method, so a custom builder composes against those steps rather than inheriting them.
 ///
 /// Builders are values rather than metatypes, so a builder may carry its own state - a request
-/// signer, a tenant path prefix, a clock - without reaching for globals.
+/// signer, a tenant path prefix, a clock.
 ///
-/// Most consumers should use the default `URLRequestBuilder`. Conform to this protocol only when
-/// you need to change request construction behavior in a targeted way.
+/// Narrower seams cover most cases: register an `Authenticator` to change how a credential
+/// reaches the request, decorate the `Transport` to add behavior around the whole exchange, and
+/// set `ServerConfiguration.defaultHeaders` for cross-cutting headers. Conform here to change
+/// how a `URLRequest` is constructed from its parameters.
 ///
-/// Recommended override style:
-/// - Override the smallest step that solves the problem.
-/// - Compose with `URLRequestBuilder` when you want additive behavior.
-/// - Reimplement `buildRequest` only when you need to change pipeline ordering or omit steps.
+/// A builder that wants the default pipeline plus a targeted change delegates to
+/// `URLRequestBuilder`'s steps:
+///
+/// ```swift
+/// struct TenantPrefixBuilder: RequestBuilder {
+///     let tenant: String
+///     private let base = URLRequestBuilder()
+///
+///     func buildRequest<Parameters: RequestParameters>(
+///         _ requestParameters: Parameters,
+///         context: RequestContext
+///     ) throws(RequestError) -> URLRequest {
+///         var components = try base.makeComponents(context: context)
+///         base.applyPath("/\(tenant)\(requestParameters.path)", to: &components)
+///         return try base.finishRequest(requestParameters, components: components, context: context)
+///     }
+/// }
+/// ```
 ///
 /// Builder invariants:
-/// - Respect the request's declared `AuthenticationType`.
+/// - Apply the `Authenticator` registered for the request's scheme, with its collision,
+///   redaction, and no-op checks.
 /// - Preserve explicit `RequestError` failures for malformed configuration or invalid requests.
 /// - Keep body bytes and `Content-Type` in sync.
 /// - Return a fully formed `URLRequest` with a valid URL.
@@ -35,110 +50,71 @@ import OSLog
 ///   `ServerConfiguration`, `context.builder` is the builder currently running, so calling it
 ///   recurses until the stack overflows. Construct `URLRequestBuilder()` directly instead.
 ///
-/// - Note: `buildRequest` receives headers already resolved by
-///   `ServerConfiguration.resolvedHeaders(for:)`, so overriding any pipeline step - including
-///   `buildRequest` itself - cannot silently drop the configuration's `defaultHeaders`.
+/// - Note: Resolve headers through `context.resolvedHeaders(for:)` rather than reading
+///   `parameters.headers` directly, so the configuration's `defaultHeaders` cannot be dropped.
 public protocol RequestBuilder: Sendable {
 
     /// Builds a `URLRequest` using the provided parameters and request context.
-    ///
-    /// Override this only when you need to change the overall construction flow.
     func buildRequest<Parameters: RequestParameters>(
         _ requestParameters: Parameters,
         context: RequestContext
     ) throws(RequestError) -> URLRequest
 
-    /// Creates base `URLComponents` from the request context.
-    func makeComponents(
-        context: RequestContext
-    ) throws(RequestError) -> URLComponents
-
-    /// Applies the request path to the URL components.
-    ///
-    /// Custom implementations should preserve the default path-joining semantics unless they are
-    /// intentionally redefining how interface paths combine with the configured base URL.
-    func applyPath(
-        _ path: String,
-        to components: inout URLComponents
-    )
-
-    /// Applies query items and URL authentication parameters.
-    ///
-    /// Custom implementations should ensure `.url` authentication still has a single final
-    /// `token` query item when authentication succeeds.
-    func applyQueryItems(
-        _ queryItems: [URLQueryItem]?,
-        authentication: AuthenticationType,
-        authToken: String?,
-        to components: inout URLComponents
-    ) throws(RequestError)
-
-    /// Builds a final URL from the components.
-    func makeURL(from components: URLComponents) throws(RequestError) -> URL
-
-    /// Creates the base `URLRequest`.
-    func makeRequest(url: URL) -> URLRequest
-
-    /// Applies the HTTP method.
-    func applyMethod(
-        _ method: RequestMethod,
-        to request: inout URLRequest
-    )
-
-    /// Applies headers, including authentication.
-    ///
-    /// `headers` arrives already resolved against the configuration's `defaultHeaders`.
-    /// Custom implementations should preserve case-insensitive header semantics and define how
-    /// caller-supplied headers interact with generated authentication headers.
-    func applyHeaders(
-        _ headers: [String: String],
-        authentication: AuthenticationType,
-        authToken: String?,
-        to request: inout URLRequest
-    ) throws(RequestError)
-
-    /// Encodes and applies the request body with its content type.
-    ///
-    /// Custom implementations must keep the encoded body bytes and `Content-Type` header aligned.
-    func applyBody<B: RequestBody>(
-        _ body: B,
-        encoder: RequestEncoder,
-        to request: inout URLRequest
-    ) throws(RequestError)
-
-    /// Applies a request body's `Content-Type`, called by the default `applyBody`.
-    ///
-    /// Custom implementations should preserve the existing-header conflict check unless they
-    /// are intentionally redefining how a caller-supplied `Content-Type` interacts with the
-    /// body's own.
-    func applyContentType(
-        _ contentType: String?,
-        to request: inout URLRequest
-    ) throws(RequestError)
-
-    /// Compares two `Content-Type` values for equivalence, ignoring parameters (for example
-    /// `charset`) and case. Called by the default `applyContentType`.
-    func mediaTypesMatch(_ value1: String, _ value2: String) -> Bool
-
 }
 
-// MARK: - Default Pipeline Implementation
+// MARK: - Default Builder
 
-public extension RequestBuilder {
+/// The built-in `RequestBuilder`. Each pipeline step is a public method, so a custom builder can
+/// reuse the parts it does not change.
+///
+/// ```
+/// makeComponents → applyPath → applyQueryItems → applyAuthentication(to: &components)
+///   → makeURL → makeRequest → applyMethod → applyHeaders → applyBody
+///   → applyAuthentication(to: &request)
+/// ```
+///
+/// Authentication is two steps because a URL-carried credential must land before the URL is
+/// formed and a header-carried one after, and the pipeline never holds a live `URLComponents`
+/// and `URLRequest` at once. The request-side step runs after the body so a scheme that signs
+/// the request can read what it signs.
+///
+/// Both steps validate what the `Authenticator` returns before applying it. See
+/// `Authenticator`.
+public struct URLRequestBuilder: RequestBuilder {
 
-    /// Default pipeline:
-    /// `makeComponents` → `applyPath` → `applyQueryItems` → `makeURL` →
-    /// `makeRequest` → `applyMethod` → `applyHeaders` → `applyBody`
-    func buildRequest<Parameters: RequestParameters>(
+    /// Creates the default builder. Stateless; create one wherever you need it, including
+    /// inside a custom builder that delegates to a default pipeline step.
+    public init() {}
+
+    public func buildRequest<Parameters: RequestParameters>(
         _ requestParameters: Parameters,
         context: RequestContext
     ) throws(RequestError) -> URLRequest {
         var components = try makeComponents(context: context)
         applyPath(requestParameters.path, to: &components)
-        try applyQueryItems(
-            requestParameters.queryItems,
-            authentication: requestParameters.authentication,
-            authToken: context.authToken,
+        applyQueryItems(requestParameters.queryItems, to: &components)
+
+        return try finishRequest(
+            requestParameters,
+            components: components,
+            context: context
+        )
+    }
+
+    /// Runs every pipeline step from authentication onward, given components whose base URL,
+    /// path, and query items are already applied.
+    ///
+    /// For a custom builder that only changes URL assembly: build the components, then hand
+    /// them here rather than reimplementing authentication, headers, and body handling.
+    public func finishRequest<Parameters: RequestParameters>(
+        _ requestParameters: Parameters,
+        components: URLComponents,
+        context: RequestContext
+    ) throws(RequestError) -> URLRequest {
+        var components = components
+        let appliedToURL = try applyAuthentication(
+            requestParameters.authentication,
+            context: context,
             to: &components
         )
 
@@ -146,10 +122,8 @@ public extension RequestBuilder {
         var request = makeRequest(url: url)
         applyMethod(requestParameters.method, to: &request)
 
-        try applyHeaders(
+        applyHeaders(
             context.resolvedHeaders(for: requestParameters),
-            authentication: requestParameters.authentication,
-            authToken: context.authToken,
             to: &request
         )
 
@@ -159,10 +133,18 @@ public extension RequestBuilder {
             to: &request
         )
 
+        try applyAuthentication(
+            requestParameters.authentication,
+            context: context,
+            appliedToURL: appliedToURL,
+            to: &request
+        )
+
         return request
     }
 
-    func makeComponents(
+    /// Creates base `URLComponents` from the request context.
+    public func makeComponents(
         context: RequestContext
     ) throws(RequestError) -> URLComponents {
         guard let components = URLComponents(
@@ -175,7 +157,8 @@ public extension RequestBuilder {
         return components
     }
 
-    func applyPath(
+    /// Joins the request path onto the configured base URL's path.
+    public func applyPath(
         _ path: String,
         to components: inout URLComponents
     ) {
@@ -198,63 +181,66 @@ public extension RequestBuilder {
         }
     }
 
-    func applyQueryItems(
+    /// Appends the request's own query items to any carried by the base URL.
+    ///
+    /// A URL-carried credential is appended afterward by `applyAuthentication(_:context:to:)`.
+    public func applyQueryItems(
         _ queryItems: [URLQueryItem]?,
-        authentication: AuthenticationType,
-        authToken: String?,
         to components: inout URLComponents
-    ) throws(RequestError) {
+    ) {
         var currentQueryItems = components.queryItems ?? []
 
-        if case .url = authentication {
-            if currentQueryItems.contains(where: {
-                $0.name.caseInsensitiveCompare("token") == .orderedSame
-            }) {
-                Logger.diagnostics.warning(
-                    "RagnarNetworking: URL authentication overrides an existing 'token' query item from the base URL."
-                )
-            }
-            currentQueryItems.removeAll {
-                $0.name.caseInsensitiveCompare("token") == .orderedSame
-            }
-        }
-
-        let newQueryItems: [URLQueryItem]?
-        if case .url = authentication {
-            if queryItems?.contains(where: {
-                $0.name.caseInsensitiveCompare("token") == .orderedSame
-            }) == true {
-                Logger.diagnostics.warning(
-                    "RagnarNetworking: URL auth overrides a 'token' query param in request parameters."
-                )
-            }
-            newQueryItems = queryItems?
-                .filter { $0.name.caseInsensitiveCompare("token") != .orderedSame }
-        } else {
-            newQueryItems = queryItems
-        }
-
-        if let newQueryItems {
-            currentQueryItems.append(contentsOf: newQueryItems)
-        }
-
-        if case .url = authentication {
-            guard let token = authToken else {
-                throw .authentication
-            }
-
-            currentQueryItems.append(
-                URLQueryItem(
-                    name: "token",
-                    value: token
-                )
-            )
+        if let queryItems {
+            currentQueryItems.append(contentsOf: queryItems)
         }
 
         components.queryItems = currentQueryItems.isEmpty ? nil : currentQueryItems
     }
 
-    func makeURL(from components: URLComponents) throws(RequestError) -> URL {
+    /// Applies a URL-carried credential, before the URL is formed.
+    ///
+    /// A request declaring no scheme returns without a lookup and needs no credential.
+    ///
+    /// - Returns: Whether the authenticator contributed any query items.
+    /// - Throws: `RequestError.unregisteredScheme` for a scheme with no authenticator,
+    ///   `.missingCredential` when the context carries none, `.undeclaredQueryItemName` for an
+    ///   item the authenticator does not declare in `redactedQueryItemNames`, or
+    ///   `.credentialCollision` when the components already carry that name.
+    @discardableResult
+    public func applyAuthentication(
+        _ scheme: AuthenticationScheme?,
+        context: RequestContext,
+        to components: inout URLComponents
+    ) throws(RequestError) -> Bool {
+        guard let scheme else { return false }
+
+        let authenticator = try context.authenticator(for: scheme)
+        guard let credential = context.credential else { throw .missingCredential(scheme) }
+
+        let items = try authenticator.queryItems(for: credential, on: components)
+        guard !items.isEmpty else { return false }
+
+        let declared = authenticator.redactedQueryItemNames
+        var existing = components.queryItems ?? []
+
+        for item in items {
+            guard declared.contains(where: { $0.caseInsensitiveCompare(item.name) == .orderedSame }) else {
+                throw .undeclaredQueryItemName(scheme: scheme, name: item.name)
+            }
+
+            if existing.contains(where: { $0.name.caseInsensitiveCompare(item.name) == .orderedSame }) {
+                throw .credentialCollision(scheme: scheme, name: item.name)
+            }
+        }
+
+        existing.append(contentsOf: items)
+        components.queryItems = existing
+
+        return true
+    }
+
+    /// Builds a final URL from the components.
+    public func makeURL(from components: URLComponents) throws(RequestError) -> URL {
         guard let url = components.url else {
             throw .componentsURL
         }
@@ -262,40 +248,30 @@ public extension RequestBuilder {
         return url
     }
 
-    func makeRequest(url: URL) -> URLRequest {
+    /// Creates the base `URLRequest`.
+    public func makeRequest(url: URL) -> URLRequest {
         URLRequest(url: url)
     }
 
-    func applyMethod(_ method: RequestMethod, to request: inout URLRequest) {
+    /// Applies the HTTP method.
+    public func applyMethod(_ method: RequestMethod, to request: inout URLRequest) {
         request.httpMethod = method.rawValue
     }
 
-    func applyHeaders(
+    /// Applies headers, matched case-insensitively.
+    ///
+    /// `headers` arrives resolved against `defaultHeaders` by
+    /// `RequestContext.resolvedHeaders(for:)`. A header-carried credential is applied afterward
+    /// by `applyAuthentication(_:context:appliedToURL:to:)`.
+    public func applyHeaders(
         _ headers: [String: String],
-        authentication: AuthenticationType,
-        authToken: String?,
         to request: inout URLRequest
-    ) throws(RequestError) {
+    ) {
         var currentHeaderFields = request.allHTTPHeaderFields ?? [:]
 
-        if case .bearer = authentication {
-            guard let token = authToken else {
-                throw .authentication
-            }
-
-            currentHeaderFields["Authorization"] = "Bearer \(token)"
-        }
-
         for (key, value) in headers {
-            if key.caseInsensitiveCompare("Authorization") == .orderedSame {
-                if case .bearer = authentication {
-                    Logger.diagnostics.warning(
-                        "RagnarNetworking: custom Authorization header overrides bearer auth for this request."
-                    )
-                }
-                currentHeaderFields = currentHeaderFields.filter {
-                    $0.key.caseInsensitiveCompare("Authorization") != .orderedSame
-                }
+            currentHeaderFields = currentHeaderFields.filter {
+                $0.key.caseInsensitiveCompare(key) != .orderedSame
             }
             currentHeaderFields[key] = value
         }
@@ -303,7 +279,8 @@ public extension RequestBuilder {
         request.allHTTPHeaderFields = currentHeaderFields
     }
 
-    func applyBody<B: RequestBody>(
+    /// Encodes and applies the request body with its content type.
+    public func applyBody<B: RequestBody>(
         _ body: B,
         encoder: RequestEncoder,
         to request: inout URLRequest
@@ -329,7 +306,46 @@ public extension RequestBuilder {
         try applyContentType(encoded.contentType, to: &request)
     }
 
-    func applyContentType(
+    /// Applies a request-carried credential, after the method, headers, and body are applied.
+    ///
+    /// A request declaring no scheme returns without a lookup and needs no credential.
+    ///
+    /// - Parameter appliedToURL: Whether the components-side step already applied part of this
+    ///   credential. An authenticator that contributes nothing on either side is rejected.
+    /// - Throws: `RequestError.unregisteredScheme` for a scheme with no authenticator,
+    ///   `.missingCredential` when the context carries none, `.credentialCollision` when the
+    ///   request already carries a header the authenticator writes, or
+    ///   `.authenticatorAppliedNothing` when it contributed nothing anywhere.
+    public func applyAuthentication(
+        _ scheme: AuthenticationScheme?,
+        context: RequestContext,
+        appliedToURL: Bool = false,
+        to request: inout URLRequest
+    ) throws(RequestError) {
+        guard let scheme else { return }
+
+        let authenticator = try context.authenticator(for: scheme)
+        guard let credential = context.credential else { throw .missingCredential(scheme) }
+
+        let fields = try authenticator.headers(for: credential, on: request)
+
+        guard !fields.isEmpty || appliedToURL else {
+            throw .authenticatorAppliedNothing(scheme)
+        }
+
+        for (name, value) in fields {
+            if request.value(forHTTPHeaderField: name) != nil {
+                throw .credentialCollision(scheme: scheme, name: name)
+            }
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+    }
+
+    /// Applies a request body's `Content-Type`, called by `applyBody`.
+    ///
+    /// A caller-supplied `Content-Type` disagreeing with the body's own throws
+    /// `RequestError.invalidRequest`.
+    public func applyContentType(
         _ contentType: String?,
         to request: inout URLRequest
     ) throws(RequestError) {
@@ -353,7 +369,9 @@ public extension RequestBuilder {
         request.allHTTPHeaderFields = currentHeaderFields
     }
 
-    func mediaTypesMatch(_ value1: String, _ value2: String) -> Bool {
+    /// Compares two `Content-Type` values for equivalence, ignoring parameters (for example
+    /// `charset`) and case. Called by `applyContentType`.
+    public func mediaTypesMatch(_ value1: String, _ value2: String) -> Bool {
         func extractMediaType(_ value: String) -> String {
             let mediaType = value.split(separator: ";").first ?? Substring(value)
             return mediaType.trimmingCharacters(in: .whitespaces).lowercased()
@@ -361,16 +379,5 @@ public extension RequestBuilder {
 
         return extractMediaType(value1) == extractMediaType(value2)
     }
-
-}
-
-// MARK: - Default Builder
-
-/// The built-in `RequestBuilder`, using the default pipeline unchanged.
-public struct URLRequestBuilder: RequestBuilder {
-
-    /// Creates the default builder. Stateless; create one wherever you need it, including
-    /// inside a custom builder that delegates to a default pipeline step.
-    public init() {}
 
 }

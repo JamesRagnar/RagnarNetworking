@@ -1,11 +1,15 @@
 import Foundation
 
-/// App-agnostic actor that owns auth state and handles 401 retry.
+/// App-agnostic actor that owns credential state and handles challenge retry.
 ///
-/// Unauthenticated requests (`.none` auth) never invoke the token closure.
-/// 401s coalesce into a single refresh per token generation - only one `refresh` call
-/// fires for requests that failed using the same token, whether those failures arrive
-/// simultaneously or are staggered over time.
+/// A request declaring no `AuthenticationScheme` never invokes the token closure, and one whose
+/// `RequestParameters.refreshesOnChallenge` is `false` is never retried.
+/// `ServerConfiguration.challengePolicy` decides which failures are challenges, so no status
+/// code is hardcoded here.
+///
+/// Challenges coalesce into a single refresh per token generation: one `refresh` call fires for
+/// all requests that failed using the same token, whether those failures arrive simultaneously
+/// or are staggered over time.
 ///
 /// A client can be permanently invalidated via `invalidate()`. Invalidation is a
 /// terminal, one-way boundary: it rejects new `send` calls, cancels any coalesced
@@ -40,7 +44,8 @@ public actor APIClient {
     ///     client if it changes.
     ///   - transport: The underlying transport. Defaults to `URLSession.shared`.
     ///   - token: Called before each authenticated request. Evaluated lazily to always return the post-refresh value.
-    ///   - refresh: Called on 401. Must update whatever state `token` reads from.
+    ///   - refresh: Called when the configuration's `challengePolicy` recognizes a challenge.
+    ///     Must update whatever state `token` reads from.
     public init(
         configuration: ServerConfiguration,
         transport: any Transport = URLSession.shared,
@@ -53,13 +58,10 @@ public actor APIClient {
         self.refresh = refresh
     }
 
-    /// Creates an `APIClient` for unauthenticated request flows.
+    /// Creates an `APIClient` for requests that declare no `AuthenticationScheme`.
     ///
-    /// Use this initializer when the client will only send requests whose
-    /// `AuthenticationType` is `.none`.
-    ///
-    /// Requests using `.bearer` or `.url` authentication through this initializer
-    /// will fail with authentication-related errors.
+    /// The token closure always returns `nil`, so a request declaring any scheme fails with
+    /// `RequestError.missingCredential`.
     ///
     /// - Parameters:
     ///   - configuration: The server contract: URL, body coding, default headers, request
@@ -72,13 +74,16 @@ public actor APIClient {
         self.configuration = configuration
         self.pipeline = RequestPipeline(transport: transport)
         self.token = { nil }
-        self.refresh = { throw RequestError.authentication }
+        self.refresh = { throw APIClientError.noCredentialSource }
     }
 
     /// Sends a typed request.
     ///
-    /// Authenticated requests (`.bearer` or `.url`) are retried once after a 401 -
-    /// the `refresh` closure fires first, then `token` is re-evaluated for the retry.
+    /// A request whose `RequestParameters.refreshesOnChallenge` is `true` is retried once after
+    /// a challenge: `refresh` fires, then `token` is re-evaluated for the retry.
+    /// `ServerConfiguration.challengePolicy` decides what counts as a challenge and receives the
+    /// Interface's `responseCases`, so an endpoint that models the challenge status code
+    /// surfaces its own error instead.
     ///
     /// - Throws: `APIClientError.invalidated` if the client has been invalidated. The
     ///   check is applied before token resolution, before and after transport, before
@@ -89,41 +94,41 @@ public actor APIClient {
     ) async throws -> T.Response {
         try checkValid()
 
-        switch params.authentication {
-        case .none:
-            return try await execute(type, params, token: nil)
+        guard params.refreshesOnChallenge else {
+            return try await execute(type, params, credential: try await credential(for: params))
+        }
 
-        case .bearer, .url:
-            let generation = refreshGeneration
-            let currentToken = try await token()
-            do {
-                return try await execute(type, params, token: currentToken)
-            } catch let err as ResponseError where err.statusCode == 401 {
-                try checkValid()
-                // If a refresh has already completed since this request read its token,
-                // another request's 401 already refreshed for us - retry directly with
-                // the now-current token rather than triggering a second refresh.
-                if refreshGeneration == generation {
-                    // Run the refresh in its own task so this request's own cancellation
-                    // can stop *waiting* for it without cancelling the refresh itself -
-                    // other requests may be relying on the same refresh completing.
-                    let refreshTask = Task { [self] in try await coalesceRefresh() }
-                    do {
-                        try await CancellableTaskWait.value(of: refreshTask)
-                    } catch {
-                        // A refresh cancelled by `invalidate()` surfaces as the terminal
-                        // invalidation error rather than a raw cancellation. Caller-initiated
-                        // cancellation surfaces as `CancellationError` here without affecting
-                        // the refresh, which keeps running for any other waiters.
-                        try checkValid()
-                        throw error
-                    }
+        let generation = refreshGeneration
+        let currentCredential = try await credential(for: params)
+        do {
+            return try await execute(type, params, credential: currentCredential)
+        } catch let err as ResponseError where configuration.challengePolicy.isChallenge(
+            err,
+            T.responseCases
+        ) {
+            try checkValid()
+            // If a refresh has already completed since this request read its token,
+            // another request's challenge already refreshed for us - retry directly with
+            // the now-current token rather than triggering a second refresh.
+            if refreshGeneration == generation {
+                // Run the refresh in its own task so this request's own cancellation
+                // can stop *waiting* for it without cancelling the refresh itself -
+                // other requests may be relying on the same refresh completing.
+                let refreshTask = Task { [self] in try await coalesceRefresh() }
+                do {
+                    try await CancellableTaskWait.value(of: refreshTask)
+                } catch {
+                    // A refresh cancelled by `invalidate()` surfaces as the terminal
+                    // invalidation error rather than a raw cancellation. Caller-initiated
+                    // cancellation surfaces as `CancellationError` here without affecting
+                    // the refresh, which keeps running for any other waiters.
+                    try checkValid()
+                    throw error
                 }
-                try checkValid()
-                try Task.checkCancellation()
-                let freshToken = try await token()
-                return try await execute(type, params, token: freshToken)
             }
+            try checkValid()
+            try Task.checkCancellation()
+            return try await execute(type, params, credential: try await credential(for: params))
         }
     }
 
@@ -152,6 +157,15 @@ public actor APIClient {
 
     // MARK: - Private
 
+    /// Resolves the credential for a request, or `nil` when it declares no scheme.
+    ///
+    /// Keyed on `authentication` rather than `refreshesOnChallenge`, so an endpoint that opts
+    /// out of refresh still sends its credential.
+    private func credential(for params: some RequestParameters) async throws -> String? {
+        guard params.authentication != nil else { return nil }
+        return try await token()
+    }
+
     /// Throws `APIClientError.invalidated` if the client has been invalidated.
     private func checkValid() throws {
         if isInvalidated {
@@ -162,13 +176,13 @@ public actor APIClient {
     private func execute<T: Interface>(
         _ type: T.Type,
         _ params: T.Parameters,
-        token: String?
+        credential: String?
     ) async throws -> T.Response {
         try checkValid()
 
         let context = RequestContext(
             configuration: configuration,
-            authToken: token
+            credential: credential
         )
 
         // Run transport inside a tracked child task so `invalidate()` can cancel it

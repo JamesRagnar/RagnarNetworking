@@ -80,8 +80,30 @@ public protocol RequestParameters: Sendable {
     /// Use `EmptyBody()` for requests without a body.
     var body: Body { get }
 
-    /// The authentication strategy for this request
-    var authentication: AuthenticationType { get }
+    /// The authentication scheme for this request, or `nil` if it carries no credential.
+    ///
+    /// Names a strategy; `ServerConfiguration.authenticators` decides what that name means for
+    /// this server.
+    var authentication: AuthenticationScheme? { get }
+
+    /// Whether a challenge on this request triggers a refresh and one retry.
+    ///
+    /// Independent of whether a credential is applied, which follows `authentication` alone.
+    /// Defaults to `authentication != nil`.
+    ///
+    /// Override to `true` for a credential this package does not apply, such as one held in a
+    /// cookie jar or added by a signing `Transport`; the request otherwise gets no retry and no
+    /// refresh. Override to `false` for an endpoint that must not refresh, such as the
+    /// token-refresh endpoint itself, where a challenge has to surface to the caller.
+    var refreshesOnChallenge: Bool { get }
+
+}
+
+public extension RequestParameters {
+
+    var refreshesOnChallenge: Bool {
+        authentication != nil
+    }
 
 }
 
@@ -99,21 +121,5 @@ public enum RequestMethod: String, Sendable {
     case options = "OPTIONS"
     case connect = "CONNECT"
     case trace = "TRACE"
-
-}
-
-// MARK: Authentication Type
-
-/// Specifies how authentication credentials should be included in a request.
-public enum AuthenticationType: Sendable {
-
-    /// No authentication required for this request
-    case none
-
-    /// Authentication token included in request headers as `Authorization: Bearer <token>`
-    case bearer
-
-    /// Authentication token included in query parameters as `?token=<token>`
-    case url
 
 }

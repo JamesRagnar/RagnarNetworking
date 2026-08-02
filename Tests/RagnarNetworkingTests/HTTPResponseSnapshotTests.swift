@@ -63,32 +63,67 @@ struct HTTPResponseSnapshotTests {
         #expect(coerced["X-Token"]?.contains("123E4567-E89B-12D3-A456-426614174000") == true)
     }
 
-    // MARK: - Token Redaction
+    // MARK: - Query Item Redaction
 
-    @Test("Removes a token query item from the captured URL")
+    @Test("Removes a redacted query item from the captured URL")
     func testRedactsTokenQueryItem() {
         let url = URL(string: "https://api.example.com/test?token=secret-value&other=kept")!
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
 
-        let snapshot = HTTPResponseSnapshot(response: response)
+        let snapshot = HTTPResponseSnapshot(
+            response: response,
+            redactedQueryItemNames: ["token"]
+        )
 
         #expect(snapshot.url?.absoluteString.contains("secret-value") == false)
         #expect(snapshot.url?.absoluteString.contains("other=kept") == true)
     }
 
-    @Test("Removes a token query item case-insensitively")
+    @Test("Removes a redacted query item case-insensitively")
     func testRedactsTokenQueryItemCaseInsensitively() {
         let url = URL(string: "https://api.example.com/test?Token=secret-value")!
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
 
-        let snapshot = HTTPResponseSnapshot(response: response)
+        let snapshot = HTTPResponseSnapshot(
+            response: response,
+            redactedQueryItemNames: ["token"]
+        )
 
         #expect(snapshot.url?.absoluteString.contains("secret-value") == false)
     }
 
-    @Test("URL with no token query item is unaffected")
+    @Test("Removes every redacted name when several are configured")
+    func testRedactsMultipleNames() {
+        let url = URL(string: "https://api.example.com/test?token=a&access_token=b&other=kept")!
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+
+        let snapshot = HTTPResponseSnapshot(
+            response: response,
+            redactedQueryItemNames: ["token", "access_token"]
+        )
+
+        let captured = try! #require(snapshot.url?.absoluteString)
+        #expect(!captured.contains("token=a"))
+        #expect(!captured.contains("access_token=b"))
+        #expect(captured.contains("other=kept"))
+    }
+
+    @Test("A URL with no redacted query item is unaffected")
     func testURLWithNoTokenIsUnaffected() {
         let url = URL(string: "https://api.example.com/test?other=kept")!
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+
+        let snapshot = HTTPResponseSnapshot(
+            response: response,
+            redactedQueryItemNames: ["token"]
+        )
+
+        #expect(snapshot.url == url)
+    }
+
+    @Test("Nothing is redacted when no names are configured")
+    func testNoNamesRedactsNothing() {
+        let url = URL(string: "https://api.example.com/test?token=secret-value")!
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
 
         let snapshot = HTTPResponseSnapshot(response: response)

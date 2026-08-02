@@ -13,7 +13,7 @@ public protocol RequestParameters: Sendable {
     var queryItems: [URLQueryItem]? { get }
     var headers: [String: String]? { get }
     var body: Body { get }
-    var authentication: AuthenticationType { get }
+    var authentication: AuthenticationScheme { get }
 }
 ```
 
@@ -191,19 +191,36 @@ UpdateUser(nickname: .value("Bob"))
 
 ## Authentication
 
-`AuthenticationType` controls how the `ServerConfiguration.authToken` is applied:
+`RequestParameters` declares two authentication-related members. The scheme names a strategy; `ServerConfiguration.authenticators` gives that name its meaning for a particular server.
 
 ```swift
-public enum AuthenticationType: Sendable {
-    case none
-    case bearer  // Authorization: Bearer <token>
-    case url     // ?token=<token>
+let authentication: AuthenticationScheme? = .bearer
+```
+
+`nil` means the request carries no credential.
+
+`AuthenticationScheme` is an open value rather than a closed enum, so a project can name its own schemes:
+
+```swift
+extension AuthenticationScheme {
+    static let apiKey = AuthenticationScheme("apiKey")
 }
 ```
 
-Behavior notes:
-- `.url` appends the auth token as a `token` query item and removes any existing `token` query item (case-insensitive) from both the base URL and `queryItems`.
-- `.bearer` adds the `Authorization` header before merging custom headers, and a caller can still override it by setting `Authorization` (case-insensitive) in `headers`.
+Built-in schemes, and what the default registry does with them:
+
+- `.bearer` - writes `Authorization: Bearer <credential>`.
+- `.url` - writes `?token=<credential>`. Use this for a URL handed to something that cannot carry a header, such as an image loader or `AVPlayer`.
+
+The second member decides whether a challenge triggers a refresh and one retry, independent of whether a credential is applied:
+
+```swift
+var refreshesOnChallenge: Bool { get }  // defaults to authentication != nil
+```
+
+The only member of `RequestParameters` with a default implementation, because it is the only derived one. Both overrides are meaningful: `true` with no scheme, for a credential this package does not apply; `false` with a scheme, for a token-refresh endpoint that must not recurse into another refresh.
+
+A credential that would overwrite a header or query item the request already carries fails request construction. See [Authentication](authentication.md).
 
 ## Methods
 

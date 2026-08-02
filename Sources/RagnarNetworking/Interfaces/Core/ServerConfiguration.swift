@@ -42,6 +42,25 @@ public struct ServerConfiguration: Sendable {
     /// `{ "data": ... }` envelope or reading a deprecation header.
     public let responseHandler: any ResponseHandler
 
+    /// Gives each `AuthenticationScheme` its meaning for this server: which header fields and
+    /// query items carry the credential for it.
+    ///
+    /// A request declaring no scheme never consults this.
+    public let authenticators: [AuthenticationScheme: any Authenticator]
+
+    /// Decides which failed responses mean the credential is stale.
+    ///
+    /// Defaults to `.unmodelled401`, which refreshes on 401 unless the Interface declared an
+    /// exact `.code(401, ...)` case. Use `.any401` to refresh on every 401.
+    public let challengePolicy: AuthenticationChallengePolicy
+
+    /// Query item names stripped from the URL captured in `HTTPResponseSnapshot`.
+    ///
+    /// The union of `authenticators`' own `redactedQueryItemNames`, computed at init. Request
+    /// construction rejects an authenticator that writes a name outside its own declaration, so
+    /// this cannot fall out of step with what is written.
+    public let redactedQueryItemNames: Set<String>
+
     /// Creates a server configuration.
     /// - Parameters:
     ///   - url: The base URL for the API server
@@ -51,13 +70,23 @@ public struct ServerConfiguration: Sendable {
     ///   - builder: Builds requests from Interface parameters. Defaults to `URLRequestBuilder()`.
     ///   - responseHandler: Handles responses for Interfaces that do not override their own.
     ///     Defaults to `DefaultResponseHandler()`.
+    ///   - authenticators: Gives each `AuthenticationScheme` its meaning. Defaults to
+    ///     `.bearer` writing `Authorization: Bearer <credential>` and `.url` writing
+    ///     `?token=<credential>`.
+    ///   - challengePolicy: Which failures mean the credential is stale. Defaults to
+    ///     `.unmodelled401`.
     public init(
         url: URL,
         requestEncoder: RequestEncoder = RequestEncoder(),
         responseDecoder: ResponseDecoder = ResponseDecoder(),
         defaultHeaders: [String: String] = [:],
         builder: any RequestBuilder = URLRequestBuilder(),
-        responseHandler: any ResponseHandler = DefaultResponseHandler()
+        responseHandler: any ResponseHandler = DefaultResponseHandler(),
+        authenticators: [AuthenticationScheme: any Authenticator] = [
+            .bearer: .bearer,
+            .url: .token
+        ],
+        challengePolicy: AuthenticationChallengePolicy = .unmodelled401
     ) {
         self.url = url
         self.requestEncoder = requestEncoder
@@ -65,6 +94,32 @@ public struct ServerConfiguration: Sendable {
         self.defaultHeaders = defaultHeaders
         self.builder = builder
         self.responseHandler = responseHandler
+        self.authenticators = authenticators
+        self.challengePolicy = challengePolicy
+        self.redactedQueryItemNames = authenticators.values.reduce(into: Set<String>()) {
+            $0.formUnion($1.redactedQueryItemNames)
+        }
+    }
+
+    /// The authenticator registered for `scheme`.
+    ///
+    /// - Throws: `RequestError.unregisteredScheme` when nothing is registered for it.
+    public func authenticator(
+        for scheme: AuthenticationScheme
+    ) throws(RequestError) -> any Authenticator {
+        guard let authenticator = authenticators[scheme] else {
+            throw .unregisteredScheme(scheme)
+        }
+
+        return authenticator
+    }
+
+    /// Configuration for handling a response from this server.
+    public var responseContext: ResponseContext {
+        ResponseContext(
+            responseDecoder: responseDecoder,
+            redactedQueryItemNames: redactedQueryItemNames
+        )
     }
 
     /// The headers a request should be built with: `defaultHeaders` overlaid with the
@@ -75,7 +130,8 @@ public struct ServerConfiguration: Sendable {
     /// two entries whose winner is unspecified.
     ///
     /// Resolution lives here rather than inside the request-building pipeline so no
-    /// `RequestBuilder` can drop `defaultHeaders` by overriding a pipeline step.
+    /// `RequestBuilder` can drop `defaultHeaders`, including one that replaces `buildRequest`
+    /// wholesale.
     public func resolvedHeaders(for parameters: some RequestParameters) -> [String: String] {
         resolvedHeaders(overriddenBy: parameters.headers)
     }

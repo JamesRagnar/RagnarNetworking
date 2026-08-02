@@ -18,7 +18,7 @@ struct ServerConfigurationTests {
         let queryItems: [URLQueryItem]? = nil
         var headers: [String: String]?
         let body: EmptyBody = EmptyBody()
-        let authentication: AuthenticationType = .none
+        let authentication: AuthenticationScheme? = nil
     }
 
     @Test("Initializes with a URL")
@@ -173,9 +173,9 @@ struct ServerConfigurationTests {
             defaultHeaders: ["X-App-Version": "1.0"]
         )
 
-        let context = RequestContext(configuration: config, authToken: "fresh-token")
+        let context = RequestContext(configuration: config, credential: "fresh-token")
 
-        #expect(context.authToken == "fresh-token")
+        #expect(context.credential == "fresh-token")
         #expect(context.url == config.url)
         #expect(context.resolvedHeaders(for: Params(headers: nil)) == ["X-App-Version": "1.0"])
     }
@@ -186,7 +186,7 @@ struct ServerConfigurationTests {
             configuration: ServerConfiguration(url: URL(string: "https://api.example.com")!)
         )
 
-        #expect(context.authToken == nil)
+        #expect(context.credential == nil)
     }
 
     @Test("RequestContext forwards the configuration's coders")
@@ -200,7 +200,7 @@ struct ServerConfigurationTests {
             requestEncoder: RequestEncoder(keyEncodingStrategy: .convertToSnakeCase),
             responseDecoder: ResponseDecoder(keyDecodingStrategy: .convertFromSnakeCase)
         )
-        let context = RequestContext(configuration: config, authToken: nil)
+        let context = RequestContext(configuration: config, credential: nil)
 
         let data = try! context.requestEncoder.makeJSONEncoder().encode(Payload(userId: 1))
         let json = try! JSONSerialization.jsonObject(with: data) as? [String: Any]

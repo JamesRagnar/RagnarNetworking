@@ -1,6 +1,6 @@
 # Response Handling
 
-Interfaces map HTTP status codes to outcomes (decode success, throw a predefined error, or decode an error body). The default `handle(_:responseDecoder:)` path applies this mapping and decodes the response.
+Interfaces map HTTP status codes to outcomes (decode success, throw a predefined error, or decode an error body). The default `handle(_:context:defaultHandler:)` path applies this mapping and decodes the response.
 
 ## Response Cases
 
@@ -19,7 +19,7 @@ Response cases can either decode a body or indicate a successful response with n
 - `.decode` expects a response body that can be decoded as the Interface `Response`.
 - `.noContent` marks a success with no body (e.g., 204/205/304).
 
-When `handle(_:responseDecoder:)` encounters `.noContent`, the default handler treats it as a success
+When `handle(_:context:defaultHandler:)` encounters `.noContent`, the default handler treats it as a success
 with an empty body. This succeeds for `Data`, `String`, or `EmptyResponse` responses.
 
 ```swift
@@ -30,7 +30,7 @@ struct DeleteUser: Interface {
         let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EmptyBody = .init()
-        let authentication: AuthenticationType = .bearer
+        let authentication: AuthenticationScheme = .bearer
     }
 
     typealias Response = EmptyResponse
@@ -75,10 +75,13 @@ public struct CoverResponseHandler: ResponseHandler {
     public func handle<T: Interface>(
         _ response: (data: Data, response: URLResponse),
         for interface: T.Type,
-        responseDecoder: ResponseDecoder
+        context: ResponseContext
     ) throws(ResponseError) -> T.Response {
-        let body = ResponseBody(response.data, decoder: responseDecoder)
-        let snapshot = HTTPResponseSnapshot(response: response.response)
+        let body = ResponseBody(response.data, decoder: context.responseDecoder)
+        let snapshot = HTTPResponseSnapshot(
+            response: response.response,
+            redactedQueryItemNames: context.redactedQueryItemNames
+        )
         guard let statusCode = snapshot.statusCode else {
             throw ResponseError.unknownResponse(body, snapshot)
         }
@@ -94,7 +97,7 @@ public struct CoverResponseHandler: ResponseHandler {
             return empty
         }
 
-        return try DefaultResponseHandler().handle(response, for: interface, responseDecoder: responseDecoder)
+        return try DefaultResponseHandler().handle(response, for: interface, context: context)
     }
 }
 ```
@@ -103,7 +106,7 @@ public struct CoverResponseHandler: ResponseHandler {
 
 A custom `ResponseHandler` that only needs a targeted addition to the default behavior
 (for example, inspecting a header before decoding) does not need to reimplement status-code
-matching. `DefaultResponseHandler.handleOutcome(_:for:responseDecoder:)` performs the same matching `handle`
+matching. `DefaultResponseHandler.handleOutcome(_:for:context:)` performs the same matching `handle`
 does, returning a `ResponseOutcomeResult` instead of deciding what to do with a `.noContent`
 result. `DefaultResponseHandler.decode(_:as:metadata:responseDecoder:)` performs the same decoding
 `handle` uses to finish a `.noContent` result: it asks `Response` to build itself via
@@ -116,24 +119,27 @@ public struct LoggingResponseHandler: ResponseHandler {
     public func handle<T: Interface>(
         _ response: (data: Data, response: URLResponse),
         for interface: T.Type,
-        responseDecoder: ResponseDecoder
+        context: ResponseContext
     ) throws(ResponseError) -> T.Response {
-        switch try base.handleOutcome(response, for: interface, responseDecoder: responseDecoder) {
+        switch try base.handleOutcome(response, for: interface, context: context) {
         case .decoded(let value):
             return value
 
         case .noContent:
-            let snapshot = HTTPResponseSnapshot(response: response.response)
+            let snapshot = HTTPResponseSnapshot(
+                response: response.response,
+                redactedQueryItemNames: context.redactedQueryItemNames
+            )
             do {
                 return try base.decode(
                     Data(),
                     as: interface,
                     metadata: snapshot,
-                    responseDecoder: responseDecoder
+                    responseDecoder: context.responseDecoder
                 )
             } catch {
                 throw ResponseError.decoding(
-                    ResponseBody(response.data, decoder: responseDecoder),
+                    ResponseBody(response.data, decoder: context.responseDecoder),
                     snapshot,
                     error
                 )
