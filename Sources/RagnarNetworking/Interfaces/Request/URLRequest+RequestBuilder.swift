@@ -32,22 +32,28 @@ public extension URLRequest {
 
     /// Constructs a URLRequest from Interface parameters and a request context.
     ///
-    /// This initializer builds a complete URLRequest by combining the server configuration
-    /// with request-specific parameters. It handles authentication, query parameters, headers,
-    /// and body data according to the Interface specification.
+    /// Two steps, in this order: the configuration's `builder` produces an unauthenticated
+    /// request from the parameters, then the `Authenticator` registered for the request's
+    /// declared scheme applies the credential to it.
     ///
     /// - Parameters:
     ///   - requestParameters: The Interface parameters defining the request
     ///   - context: The server configuration and credential for this request. The
     ///     configuration's `builder` constructs the request; set
     ///     `ServerConfiguration.builder` to change how.
-    /// - Throws: `RequestError` if the request cannot be constructed
+    /// - Throws: `RequestError` if the request cannot be constructed or the credential cannot
+    ///   be applied
     init<Parameters: RequestParameters>(
         requestParameters: Parameters,
         context: RequestContext
     ) throws(RequestError) {
         self = try context.builder.buildRequest(
             requestParameters,
+            context: context
+        )
+
+        try applyAuthentication(
+            requestParameters.authentication,
             context: context
         )
     }

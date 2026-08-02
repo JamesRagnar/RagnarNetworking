@@ -73,7 +73,7 @@ authenticators: [.apiKey: .header("X-API-Key")]  // X-API-Key: <credential>
 
 ## Writing an Authenticator
 
-An authenticator returns the header fields and query items that carry a credential. `URLRequestBuilder` applies what it returns.
+An authenticator returns the header fields and query items that carry a credential. `URLRequest.init(requestParameters:context:)` applies what it returns to the request the `RequestBuilder` has finished. See [Request Builder](request_builder.md).
 
 ```swift
 struct APIKeyAuthenticator: Authenticator {
@@ -90,13 +90,13 @@ struct APIKeyAuthenticator: Authenticator {
 
 Both requirements default to empty. Implement the one the scheme uses.
 
-Returning values rather than mutating lets the builder check names before they land. It rejects a name the request already carries, a query item outside `redactedQueryItemNames`, and an authenticator that returns nothing anywhere. A credential is therefore a header field or a query item and nothing else: a cookie is the `Cookie` header, a password grant is a `RequestBody`, and a client certificate is `URLSession` configuration.
+Returning values rather than mutating lets the package check names before they land. It rejects a name the request already carries, a query item outside `redactedQueryItemNames`, and an authenticator that returns nothing anywhere. A credential is therefore a header field or a query item and nothing else: a cookie is the `Cookie` header, a password grant is a `RequestBody`, and a client certificate is `URLSession` configuration.
 
 ### Signing
 
-Both requirements receive what has been built so far.
+Both requirements receive the finished request, so either can sign what is actually sent.
 
-`headers(for:on:)` runs after the method, headers, and body:
+`headers(for:on:)` runs last, with the method, headers, body, and final URL all in place:
 
 ```swift
 struct BodySigningAuthenticator: Authenticator {
@@ -109,7 +109,7 @@ struct BodySigningAuthenticator: Authenticator {
 }
 ```
 
-`queryItems(for:on:)` runs after the path and the endpoint's own query items, for a presigned URL:
+`queryItems(for:on:)` runs first, receiving the built URL as components - base URL, path, and the endpoint's own query items all applied - for a presigned URL:
 
 ```swift
 struct URLSigningAuthenticator: Authenticator {

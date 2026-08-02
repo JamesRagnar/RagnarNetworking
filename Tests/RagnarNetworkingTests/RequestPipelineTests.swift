@@ -247,45 +247,115 @@ struct RequestPipelineTests {
         #expect(capturedRequest?.value(forHTTPHeaderField: "X-Test-Builder") == "true")
     }
 
-    @Test("A stateful RequestBuilder can carry its own configuration")
-    func testStatefulBuilder() async throws {
-        struct SigningBuilder: RequestBuilder {
-            let signature: String
+    // MARK: - Transport Decoration
 
-            func buildRequest<Parameters: RequestParameters>(
-                _ requestParameters: Parameters,
-                context: RequestContext
-            ) throws(RequestError) -> URLRequest {
-                var request = try URLRequestBuilder().buildRequest(
-                    requestParameters,
-                    context: context
-                )
+    /// A `Transport` that wraps another, adds a header, and delegates.
+    struct SigningTransport: Transport {
+        let next: any Transport
+        let signature: String
 
-                var current = request.allHTTPHeaderFields ?? [:]
-                current["X-Signature"] = signature
-                request.allHTTPHeaderFields = current
-                return request
-            }
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            var signed = request
+            signed.setValue(signature, forHTTPHeaderField: "X-Signature")
+            return try await next.data(for: signed)
         }
+    }
 
+    /// A second decorator, to show the chain composes in order.
+    struct CorrelatingTransport: Transport {
+        let next: any Transport
+        let correlationID: String
+
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            var correlated = request
+            correlated.setValue(correlationID, forHTTPHeaderField: "X-Correlation-ID")
+            return try await next.data(for: correlated)
+        }
+    }
+
+    @Test("A Transport decorator adds a cross-cutting header without a custom RequestBuilder")
+    func testTransportDecoratorAddsHeader() async throws {
         let url = URL(string: "https://api.example.com")!
-        let context = RequestContext(
-            configuration: ServerConfiguration(
-                url: url,
-                builder: SigningBuilder(signature: "abc123")
-            )
-        )
+        let context = RequestContext(configuration: ServerConfiguration(url: url))
         let params = TestInterface.Parameters(path: "/users/1")
 
         let responseData = #"{"id": 1, "name": "John Doe"}"#.data(using: .utf8)!
 
         let transport = MockTransport()
         await transport.setMockResponse(data: responseData, statusCode: 200, url: url)
-        let pipeline = RequestPipeline(transport: transport)
+
+        let pipeline = RequestPipeline(
+            transport: SigningTransport(next: transport, signature: "abc123")
+        )
 
         _ = try await pipeline.send(TestInterface.self, params, context: context)
 
         let capturedRequest = await transport.capturedRequest
+        #expect(capturedRequest?.value(forHTTPHeaderField: "X-Signature") == "abc123")
+    }
+
+    @Test("Transport decorators compose as an ordered chain")
+    func testTransportDecoratorsCompose() async throws {
+        let url = URL(string: "https://api.example.com")!
+        let context = RequestContext(configuration: ServerConfiguration(url: url))
+        let params = TestInterface.Parameters(path: "/users/1")
+
+        let responseData = #"{"id": 1, "name": "John Doe"}"#.data(using: .utf8)!
+
+        let transport = MockTransport()
+        await transport.setMockResponse(data: responseData, statusCode: 200, url: url)
+
+        let pipeline = RequestPipeline(
+            transport: SigningTransport(
+                next: CorrelatingTransport(next: transport, correlationID: "corr-1"),
+                signature: "abc123"
+            )
+        )
+
+        _ = try await pipeline.send(TestInterface.self, params, context: context)
+
+        let capturedRequest = await transport.capturedRequest
+        #expect(capturedRequest?.value(forHTTPHeaderField: "X-Signature") == "abc123")
+        #expect(capturedRequest?.value(forHTTPHeaderField: "X-Correlation-ID") == "corr-1")
+    }
+
+    @Test("A Transport decorator sees the credential the pipeline applied")
+    func testTransportDecoratorSeesAuthenticatedRequest() async throws {
+        struct SecureInterface: Interface {
+            struct Parameters: RequestParameters {
+                let method: RequestMethod = .get
+                let path = "/secure"
+                let queryItems: [URLQueryItem]? = nil
+                let headers: [String: String]? = nil
+                let body: EmptyBody = .init()
+                let authentication: AuthenticationScheme? = .bearer
+            }
+
+            typealias Response = TestResponse
+
+            static var responseCases: ResponseMap { [.code(200, .decode)] }
+        }
+
+        let url = URL(string: "https://api.example.com")!
+        let context = RequestContext(
+            configuration: ServerConfiguration(url: url),
+            credential: "test-token"
+        )
+        let params = SecureInterface.Parameters()
+
+        let responseData = #"{"id": 1, "name": "Secure Data"}"#.data(using: .utf8)!
+
+        let transport = MockTransport()
+        await transport.setMockResponse(data: responseData, statusCode: 200, url: url)
+
+        let pipeline = RequestPipeline(
+            transport: SigningTransport(next: transport, signature: "abc123")
+        )
+
+        _ = try await pipeline.send(SecureInterface.self, params, context: context)
+
+        let capturedRequest = await transport.capturedRequest
+        #expect(capturedRequest?.value(forHTTPHeaderField: "Authorization") == "Bearer test-token")
         #expect(capturedRequest?.value(forHTTPHeaderField: "X-Signature") == "abc123")
     }
 
@@ -765,46 +835,6 @@ struct RequestPipelineTests {
 
         #expect(result.id == 99)
         #expect(result.name == "from-configuration")
-    }
-
-    @Test("The pipeline uses the configuration's builder without being handed one")
-    func testPipelineUsesConfigurationBuilder() async throws {
-        struct StampingBuilder: RequestBuilder {
-            func buildRequest<Parameters: RequestParameters>(
-                _ requestParameters: Parameters,
-                context: RequestContext
-            ) throws(RequestError) -> URLRequest {
-                var request = try URLRequestBuilder().buildRequest(
-                    requestParameters,
-                    context: context
-                )
-
-                var current = request.allHTTPHeaderFields ?? [:]
-                current["X-Stamp"] = "configuration"
-                request.allHTTPHeaderFields = current
-                return request
-            }
-        }
-
-        let url = URL(string: "https://api.example.com")!
-        let context = RequestContext(
-            configuration: ServerConfiguration(
-                url: url,
-                builder: StampingBuilder()
-            )
-        )
-        let params = TestInterface.Parameters(path: "/users/1")
-
-        let responseData = #"{"id": 1, "name": "John Doe"}"#.data(using: .utf8)!
-
-        let transport = MockTransport()
-        await transport.setMockResponse(data: responseData, statusCode: 200, url: url)
-        let pipeline = RequestPipeline(transport: transport)
-
-        _ = try await pipeline.send(TestInterface.self, params, context: context)
-
-        let capturedRequest = await transport.capturedRequest
-        #expect(capturedRequest?.value(forHTTPHeaderField: "X-Stamp") == "configuration")
     }
 
 }

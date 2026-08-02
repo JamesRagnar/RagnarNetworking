@@ -208,8 +208,8 @@ private actor CallLog {
 
 // MARK: - Custom Authenticators
 
-/// Signs the request body, which is only possible if request-side authentication runs after
-/// `applyBody`.
+/// Signs the request body, which is only possible if authentication runs on the request the
+/// builder has already finished.
 private struct BodySigningAuthenticator: Authenticator {
     func headers(
         for credential: String,
@@ -221,7 +221,7 @@ private struct BodySigningAuthenticator: Authenticator {
     }
 }
 
-/// Signs the path and query, which is only possible if the components-side step sees them.
+/// Signs the path and query, which is only possible if the query-item side sees the built URL.
 private struct URLSigningAuthenticator: Authenticator {
     var redactedQueryItemNames: Set<String> { ["signature"] }
 
@@ -935,6 +935,151 @@ struct AuthenticationChallengePolicyTests {
             error,
             [.code(401, .error(FlatError.unauthorized))]
         ))
+    }
+
+}
+
+// MARK: - E. The builder cannot drop the credential
+
+/// Builds a request from scratch and never mentions authentication, standing in for a builder
+/// whose author did not know a credential was expected of it.
+private struct CredentialObliviousBuilder: RequestBuilder {
+    func buildRequest<Parameters: RequestParameters>(
+        _ requestParameters: Parameters,
+        context: RequestContext
+    ) throws(RequestError) -> URLRequest {
+        let base = URLRequestBuilder()
+
+        var components = try base.makeComponents(context: context)
+        base.applyPath(requestParameters.path, to: &components)
+        base.applyQueryItems(requestParameters.queryItems, to: &components)
+
+        return try base.finishRequest(
+            requestParameters,
+            components: components,
+            context: context
+        )
+    }
+}
+
+/// Bakes in the header the bearer authenticator writes, so the collision check must still fire
+/// on a request the default pipeline never saw.
+private struct CollidingBuilder: RequestBuilder {
+    func buildRequest<Parameters: RequestParameters>(
+        _ requestParameters: Parameters,
+        context: RequestContext
+    ) throws(RequestError) -> URLRequest {
+        var request = try URLRequestBuilder().buildRequest(requestParameters, context: context)
+        request.setValue("Bearer baked-in", forHTTPHeaderField: "Authorization")
+        return request
+    }
+}
+
+@Suite("Authentication: builders cannot drop the credential", .timeLimit(.minutes(1)))
+struct BuilderCredentialTests {
+
+    private func request(
+        _ parameters: some RequestParameters,
+        builder: any RequestBuilder,
+        authenticators: [AuthenticationScheme: any Authenticator]? = nil,
+        credential: String? = "cred"
+    ) throws -> URLRequest {
+        let configuration =
+            if let authenticators {
+                ServerConfiguration(
+                    url: testServerURL,
+                    builder: builder,
+                    authenticators: authenticators
+                )
+            } else {
+                ServerConfiguration(url: testServerURL, builder: builder)
+            }
+
+        return try URLRequest(
+            requestParameters: parameters,
+            context: RequestContext(configuration: configuration, credential: credential)
+        )
+    }
+
+    @Test("A builder that never mentions authentication still sends the bearer credential")
+    func obliviousBuilderStillAuthenticates() throws {
+        let built = try request(
+            SchemeInterface.Parameters(authentication: .bearer),
+            builder: CredentialObliviousBuilder(),
+            credential: "abc123"
+        )
+
+        #expect(built.value(forHTTPHeaderField: "Authorization") == "Bearer abc123")
+    }
+
+    @Test("A builder that never mentions authentication still carries a URL credential")
+    func obliviousBuilderStillCarriesURLCredential() throws {
+        let built = try request(
+            SchemeInterface.Parameters(
+                authentication: .url,
+                queryItems: [URLQueryItem(name: "sort", value: "name")]
+            ),
+            builder: CredentialObliviousBuilder(),
+            credential: "abc123"
+        )
+
+        #expect(built.url?.query == "sort=name&token=abc123")
+    }
+
+    @Test("A credential the builder baked in is still a collision")
+    func bakedInCredentialCollides() throws {
+        #expect {
+            try request(
+                SchemeInterface.Parameters(authentication: .bearer),
+                builder: CollidingBuilder()
+            )
+        } throws: { error in
+            guard case .credentialCollision(let scheme, let name) = error as? RequestError else {
+                return false
+            }
+            return scheme == .bearer && name == "Authorization"
+        }
+    }
+
+    @Test("A missing credential fails construction regardless of the builder")
+    func missingCredentialSurvivesACustomBuilder() throws {
+        #expect {
+            try request(
+                SchemeInterface.Parameters(authentication: .bearer),
+                builder: CredentialObliviousBuilder(),
+                credential: nil
+            )
+        } throws: { error in
+            guard case .missingCredential(let scheme) = error as? RequestError else {
+                return false
+            }
+            return scheme == .bearer
+        }
+    }
+
+    @Test("A signing authenticator reads the body a custom builder produced")
+    func signingAuthenticatorSeesACustomBuilderSBody() throws {
+        let built = try request(
+            SignedInterface.Parameters(),
+            builder: CredentialObliviousBuilder(),
+            authenticators: [.signature: BodySigningAuthenticator()],
+            credential: "key"
+        )
+
+        let bodyCount = try #require(built.httpBody?.count)
+        #expect(built.value(forHTTPHeaderField: "X-Signature") == "key:POST:\(bodyCount)")
+    }
+
+    @Test("A request declaring no scheme is untouched by a custom builder's authentication pass")
+    func noSchemeNeedsNoCredential() throws {
+        let built = try request(
+            UnauthenticatedInterface.Parameters(),
+            builder: CredentialObliviousBuilder(),
+            credential: nil
+        )
+
+        #expect(built.value(forHTTPHeaderField: "Authorization") == nil)
+        #expect(built.url?.query == nil)
     }
 
 }

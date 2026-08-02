@@ -1048,11 +1048,6 @@ struct URLRequestInterfaceTests {
 
     /// A custom builder that reuses `URLRequestBuilder`'s steps but substitutes its own
     /// content-type handling.
-    ///
-    /// `RequestBuilder` has a single requirement, so a builder composes against
-    /// `URLRequestBuilder`'s public steps rather than overriding protocol members. That removes
-    /// the static-dispatch hazard this section previously guarded: there is no extension default
-    /// for a call from inside the default pipeline to bind to.
     struct ContentTypeOverridingBuilder: RequestBuilder {
         func buildRequest<Parameters: RequestParameters>(
             _ requestParameters: Parameters,
@@ -1071,12 +1066,6 @@ struct URLRequestInterfaceTests {
             headers["Content-Type"] = "application/vnd.custom+json"
             headers["X-Override-Ran"] = "yes"
             request.allHTTPHeaderFields = headers
-
-            try base.applyAuthentication(
-                requestParameters.authentication,
-                context: context,
-                to: &request
-            )
 
             return request
         }
@@ -1103,6 +1092,68 @@ struct URLRequestInterfaceTests {
 
         #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/vnd.custom+json")
         #expect(request.value(forHTTPHeaderField: "X-Override-Ran") == "yes")
+    }
+
+    /// Reassembles the default pipeline out of `URLRequestBuilder`'s public steps, changing
+    /// nothing. If delegation is a real substitute for the default builder, the two must agree
+    /// byte for byte.
+    struct DelegatingBuilder: RequestBuilder {
+        func buildRequest<Parameters: RequestParameters>(
+            _ requestParameters: Parameters,
+            context: RequestContext
+        ) throws(RequestError) -> URLRequest {
+            let base = URLRequestBuilder()
+
+            var components = try base.makeComponents(context: context)
+            base.applyPath(requestParameters.path, to: &components)
+            base.applyQueryItems(requestParameters.queryItems, to: &components)
+
+            return try base.finishRequest(
+                requestParameters,
+                components: components,
+                context: context
+            )
+        }
+    }
+
+    @Test("A builder delegating to URLRequestBuilder's steps matches the default pipeline byte for byte")
+    func delegatingBuilderMatchesDefaultPipeline() throws {
+        struct Body: RequestBody, Encodable { let a: Int }
+        struct Parameters: RequestParameters {
+            let method: RequestMethod = .post
+            let path: String = "/users/1"
+            let queryItems: [URLQueryItem]? = [URLQueryItem(name: "sort", value: "name")]
+            let headers: [String: String]? = ["X-Request-Header": "request"]
+            let body: Body = Body(a: 1)
+            let authentication: AuthenticationScheme? = .bearer
+        }
+
+        let context = RequestContext(
+            configuration: ServerConfiguration(
+                url: URL(string: "https://api.example.com/v1")!,
+                defaultHeaders: ["X-App-Version": "1.0"]
+            ),
+            credential: "abc123"
+        )
+
+        let expected = try URLRequest(requestParameters: Parameters(), context: context)
+
+        let delegated = try URLRequest(
+            requestParameters: Parameters(),
+            context: RequestContext(
+                configuration: ServerConfiguration(
+                    url: URL(string: "https://api.example.com/v1")!,
+                    defaultHeaders: ["X-App-Version": "1.0"],
+                    builder: DelegatingBuilder()
+                ),
+                credential: "abc123"
+            )
+        )
+
+        #expect(delegated.url == expected.url)
+        #expect(delegated.httpMethod == expected.httpMethod)
+        #expect(delegated.allHTTPHeaderFields == expected.allHTTPHeaderFields)
+        #expect(delegated.httpBody == expected.httpBody)
     }
 
     @Test("URLRequestBuilder's mediaTypesMatch is reusable on its own")
