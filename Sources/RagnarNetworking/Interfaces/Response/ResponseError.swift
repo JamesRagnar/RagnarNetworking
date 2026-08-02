@@ -47,12 +47,10 @@ public struct HTTPResponseSnapshot: Sendable {
     /// `ResponseError`'s `debugDescription` and `description`, this property is not redacted.
     public let headers: [String: String]
 
-    /// The request URL, with any credential-carrying query items removed so a captured snapshot
-    /// does not leak a credential into a log line or a bug report.
+    /// The request URL, with credential-carrying query items removed.
     ///
-    /// Which names those are comes from the configuration's registered `Authenticator` values,
-    /// via `ServerConfiguration.redactedQueryItemNames`, so redaction cannot drift out of step
-    /// with the parameter name a credential is actually written under.
+    /// The names come from the configuration's registered `Authenticator` values, via
+    /// `ServerConfiguration.redactedQueryItemNames`.
     public let url: URL?
 
     public let mimeType: String?
@@ -64,9 +62,8 @@ public struct HTTPResponseSnapshot: Sendable {
     /// Captures a response.
     /// - Parameters:
     ///   - response: The response to snapshot
-    ///   - redactedQueryItemNames: Query item names to strip from `url`, matched
-    ///     case-insensitively. Normally `ResponseContext.redactedQueryItemNames`. Defaults to
-    ///     empty, which redacts nothing.
+    ///   - redactedQueryItemNames: Names to strip from `url`, matched case-insensitively.
+    ///     Normally `ResponseContext.redactedQueryItemNames`. Empty redacts nothing.
     public init(
         response: URLResponse,
         redactedQueryItemNames: Set<String> = []

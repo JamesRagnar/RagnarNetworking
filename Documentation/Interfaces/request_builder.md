@@ -17,16 +17,14 @@ func buildRequest<Parameters: RequestParameters>(
 
 Builders are values, not metatypes, so a builder can carry its own state - a request signer, a tenant prefix, a client identifier - without reaching for globals.
 
-## Before Writing One
+## Narrower Seams
 
-Most problems that look like they need a custom builder do not:
-
-- **Changing how a credential reaches the request** is an `Authenticator` on `ServerConfiguration.authenticators`. See [Authentication](authentication.md).
-- **Adding behavior around the whole request/response exchange** - logging, retries, metrics, offline queuing - is a `Transport` decorator. That is this package's middleware seam, the same shape as OpenAPI's `ClientMiddleware`.
+- **How a credential reaches the request** is an `Authenticator` on `ServerConfiguration.authenticators`. See [Authentication](authentication.md).
+- **Behavior around the whole request/response exchange** - logging, retries, metrics, offline queuing - is a `Transport` decorator, this package's middleware seam.
 - **Cross-cutting headers** are `ServerConfiguration.defaultHeaders`.
 - **Per-request behavior** is a plain `RequestParameters` value.
 
-Write a builder when you need to change how a `URLRequest` is *constructed* from its parameters: path joining rules, query assembly, body and header interplay.
+Write a builder to change how a `URLRequest` is constructed from its parameters: path joining, query assembly, body and header interplay.
 
 ## Construction Pipeline
 
@@ -38,9 +36,9 @@ makeComponents → applyPath → applyQueryItems → applyAuthentication(to: &co
   → applyAuthentication(to: &request)
 ```
 
-Authentication is two steps rather than one because a URL-carried credential must land before the URL is formed and a header-carried one after, and the pipeline never holds a live `URLComponents` and `URLRequest` at the same time. Each step asks the `Authenticator` registered for the request's scheme what to apply, then applies it. A request declaring no scheme short-circuits with no lookup. Because the builder sees the names before they land, it rejects a credential that would overwrite something the request already carries, a query item name the authenticator does not declare for redaction, or an authenticator that applies nothing at all.
+Authentication is two steps because a URL-carried credential must land before the URL is formed and a header-carried one after, and the pipeline never holds a live `URLComponents` and `URLRequest` at once. The request-side step runs after the body so a scheme that signs the request can read what it signs. A request declaring no scheme skips both.
 
-The request-side step runs last, after the body, so a scheme that signs the request can see the method, headers, and body it signs.
+Each step validates what the `Authenticator` returns before applying it, rejecting a name the request already carries, a query item outside `redactedQueryItemNames`, and an authenticator that returns nothing anywhere.
 
 `applyHeaders` receives headers already resolved by `ServerConfiguration.resolvedHeaders(for:)`, so the configuration's `defaultHeaders` cannot be dropped by a builder that replaces `buildRequest` wholesale.
 
@@ -58,7 +56,7 @@ Custom builders should preserve these guarantees unless they are intentionally r
 
 ## Wrapping the Default Pipeline
 
-The simplest custom builder runs the whole default pipeline and then adjusts the result:
+Run the default pipeline, then adjust the result:
 
 ```swift
 struct ClientTaggingBuilder: RequestBuilder {
@@ -81,7 +79,7 @@ struct ClientTaggingBuilder: RequestBuilder {
 
 ## Changing a Step
 
-To change one step, run the steps before it yourself, then hand off. `finishRequest` runs everything from authentication onward, so a builder that only rewrites the URL never restates header, body, or authentication handling:
+Run the steps before it, then hand off. `finishRequest` runs everything from authentication onward, so a builder that only rewrites the URL does not restate header, body, or authentication handling:
 
 ```swift
 struct TenantPrefixBuilder: RequestBuilder {
@@ -111,7 +109,7 @@ struct TenantPrefixBuilder: RequestBuilder {
 
 ## Using a Custom Builder
 
-A builder is part of a server's contract, so it is set on `ServerConfiguration` rather than passed alongside the transport. Everything that reads a configuration then uses it, with no second place to set it and no precedence rule:
+A builder is part of a server's contract, so it is set on `ServerConfiguration` rather than passed alongside the transport. There is no second place to set it and no precedence rule:
 
 ```swift
 let config = ServerConfiguration(

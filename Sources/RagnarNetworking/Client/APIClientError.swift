@@ -20,13 +20,11 @@ public enum APIClientError: LocalizedError, Sendable {
     /// valid again - create a new client for a new connection generation.
     case invalidated
 
-    /// An authenticated request was challenged on a client created without credential
-    /// closures.
+    /// An authenticated request was challenged on a client created without credential closures.
     ///
     /// Reached only by a request that declares no scheme but overrides
-    /// `RequestParameters.isAuthenticated` to `true`, since any declared scheme fails at
-    /// construction with `RequestError.missingCredential` first. Create the client with
-    /// `token` and `refresh` if such a request should be able to recover.
+    /// `RequestParameters.isAuthenticated` to `true`; any declared scheme fails at construction
+    /// with `RequestError.missingCredential` first.
     case noCredentialSource
 
     public var errorDescription: String? {

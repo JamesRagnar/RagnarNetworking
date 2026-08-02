@@ -30,23 +30,17 @@ public enum RequestError: LocalizedError, Sendable {
     /// available for it.
     case missingCredential(AuthenticationScheme)
 
-    /// The authenticator's credential would have overwritten a header field or query item the
-    /// request already carried.
-    ///
-    /// Two sources claim one slot: a caller-supplied `Authorization` header alongside a header
-    /// scheme, or a base URL with the credential's query item already baked in. Neither one
-    /// silently wins.
+    /// The credential would have overwritten a header field or query item the request already
+    /// carried, such as a caller-supplied `Authorization` or a base URL with the credential's
+    /// query item baked in.
     case credentialCollision(scheme: AuthenticationScheme, name: String)
 
-    /// The authenticator returned a query item whose name it does not declare in
-    /// `redactedQueryItemNames`.
-    ///
-    /// A credential written under a name the response side does not know to redact would leak
-    /// into any captured `HTTPResponseSnapshot`.
+    /// The authenticator returned a query item outside its own `redactedQueryItemNames`, which
+    /// would leak the credential into any captured `HTTPResponseSnapshot`.
     case undeclaredQueryItemName(scheme: AuthenticationScheme, name: String)
 
-    /// The registered authenticator contributed neither a header field nor a query item, so the
-    /// request would have gone out unauthenticated despite declaring a scheme.
+    /// The registered authenticator returned neither a header field nor a query item, so the
+    /// request would have been sent unauthenticated despite declaring a scheme.
     case authenticatorAppliedNothing(AuthenticationScheme)
 
     public var errorDescription: String? {

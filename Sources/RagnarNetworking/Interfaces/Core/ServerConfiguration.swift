@@ -42,11 +42,8 @@ public struct ServerConfiguration: Sendable {
     /// `{ "data": ... }` envelope or reading a deprecation header.
     public let responseHandler: any ResponseHandler
 
-    /// Gives each `AuthenticationScheme` its meaning for this server.
-    ///
-    /// An Interface declares a scheme; this decides which header fields and query items carry
-    /// the credential for it. A server using `?access_token=` instead of `?token=`, or an API
-    /// key header, is a change here rather than a `RequestBuilder` fork.
+    /// Gives each `AuthenticationScheme` its meaning for this server: which header fields and
+    /// query items carry the credential for it.
     ///
     /// A request declaring no scheme never consults this.
     public let authenticators: [AuthenticationScheme: any Authenticator]
@@ -59,9 +56,9 @@ public struct ServerConfiguration: Sendable {
 
     /// Query item names stripped from the URL captured in `HTTPResponseSnapshot`.
     ///
-    /// The union of `authenticators`' own `redactedQueryItemNames`, computed once at init.
-    /// Request construction rejects an authenticator that writes a name outside its own
-    /// declaration, so this cannot fall out of step with what is actually written.
+    /// The union of `authenticators`' own `redactedQueryItemNames`, computed at init. Request
+    /// construction rejects an authenticator that writes a name outside its own declaration, so
+    /// this cannot fall out of step with what is written.
     public let redactedQueryItemNames: Set<String>
 
     /// Creates a server configuration.
@@ -106,8 +103,7 @@ public struct ServerConfiguration: Sendable {
 
     /// The authenticator for `scheme`, or `nil` when the request declares no scheme.
     ///
-    /// - Throws: `RequestError.unregisteredScheme` when a declared scheme has no registered
-    ///   authenticator.
+    /// - Throws: `RequestError.unregisteredScheme` for a declared scheme with no authenticator.
     public func authenticator(
         for scheme: AuthenticationScheme?
     ) throws(RequestError) -> (any Authenticator)? {

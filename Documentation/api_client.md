@@ -84,15 +84,15 @@ let user = try await client.send(GetUserInterface.self, .init(userId: 123))
 - A request with `isAuthenticated == false` never calls the token closure and is never retried. Use for login, registration, and other unauthenticated endpoints.
 - A request with `isAuthenticated == true` resolves a credential, applies the `Authenticator` registered for its scheme, and on a challenge refreshes once and retries with a fresh credential.
 
-A request that declares no scheme but carries its credential some other way - a cookie jar, a signing `Transport` - overrides `isAuthenticated` to `true` to opt back into retry and refresh. See [Authentication](Interfaces/authentication.md).
+A request that declares no scheme but carries its credential some other way - a cookie jar, a signing `Transport` - overrides `isAuthenticated` to `true`. See [Authentication](Interfaces/authentication.md).
 
 ## What Counts as a Challenge
 
 `ServerConfiguration.challengePolicy` decides. No status code is hardcoded in `APIClient`.
 
-The default, `.unmodelled401`, challenges on 401 unless the Interface declared an exact `.code(401, ...)` case. An endpoint that deliberately models 401 surfaces its own error rather than triggering a refresh it did not ask for, which also stops a failing refresh from masking that error. A 4xx *range* case does not count as modelling 401.
+The default, `.unmodelled401`, challenges on 401 unless the Interface declared an exact `.code(401, ...)` case. An endpoint that models 401 surfaces its own error rather than refreshing, which also stops a throwing `refresh` from replacing that error at the catch site. A 4xx range case does not count as modelling 401.
 
-`.any401` challenges on every 401, matching the behavior before challenge policies existed.
+`.any401` challenges on every 401.
 
 ```swift
 ServerConfiguration(

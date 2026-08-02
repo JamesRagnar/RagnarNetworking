@@ -9,22 +9,18 @@ import Foundation
 
 /// Constructs a `URLRequest` from typed Interface parameters.
 ///
-/// One requirement. `URLRequestBuilder` is the built-in implementation and exposes each step of
-/// its pipeline as a public method, so a custom builder can compose against those steps rather
-/// than inherit them.
+/// `URLRequestBuilder` is the built-in implementation and exposes each step of its pipeline as a
+/// public method, so a custom builder composes against those steps rather than inheriting them.
 ///
 /// Builders are values rather than metatypes, so a builder may carry its own state - a request
-/// signer, a tenant path prefix, a clock - without reaching for globals.
+/// signer, a tenant path prefix, a clock.
 ///
-/// Most consumers need no custom builder at all:
+/// Narrower seams cover most cases: register an `Authenticator` to change how a credential
+/// reaches the request, decorate the `Transport` to add behavior around the whole exchange, and
+/// set `ServerConfiguration.defaultHeaders` for cross-cutting headers. Conform here to change
+/// how a `URLRequest` is constructed from its parameters.
 ///
-/// - To change how a credential reaches the request, register an `Authenticator` on
-///   `ServerConfiguration.authenticators`.
-/// - To add behavior around the whole request/response exchange, decorate the `Transport`.
-///   That is this package's middleware seam.
-/// - Conform here only to change how a `URLRequest` is *constructed* from its parameters.
-///
-/// A custom builder that wants the default pipeline plus a targeted change delegates to
+/// A builder that wants the default pipeline plus a targeted change delegates to
 /// `URLRequestBuilder`'s steps:
 ///
 /// ```swift
@@ -44,8 +40,8 @@ import Foundation
 /// ```
 ///
 /// Builder invariants:
-/// - Apply the `Authenticator` registered for the request's `authentication` scheme, and
-///   preserve its collision, redaction, and no-op checks.
+/// - Apply the `Authenticator` registered for the request's scheme, with its collision,
+///   redaction, and no-op checks.
 /// - Preserve explicit `RequestError` failures for malformed configuration or invalid requests.
 /// - Keep body bytes and `Content-Type` in sync.
 /// - Return a fully formed `URLRequest` with a valid URL.
@@ -68,12 +64,8 @@ public protocol RequestBuilder: Sendable {
 
 // MARK: - Default Builder
 
-/// The built-in `RequestBuilder`.
-///
-/// Each pipeline step is a public method, so a custom `RequestBuilder` can reuse the parts it
-/// does not want to change.
-///
-/// Pipeline order:
+/// The built-in `RequestBuilder`. Each pipeline step is a public method, so a custom builder can
+/// reuse the parts it does not change.
 ///
 /// ```
 /// makeComponents → applyPath → applyQueryItems → applyAuthentication(to: &components)
@@ -81,17 +73,13 @@ public protocol RequestBuilder: Sendable {
 ///   → applyAuthentication(to: &request)
 /// ```
 ///
-/// Authentication is two steps rather than one because a URL-carried credential must land
-/// before the URL is formed and a header-carried one after, and the pipeline never holds a live
-/// `URLComponents` and `URLRequest` at the same time.
+/// Authentication is two steps because a URL-carried credential must land before the URL is
+/// formed and a header-carried one after, and the pipeline never holds a live `URLComponents`
+/// and `URLRequest` at once. The request-side step runs after the body so a scheme that signs
+/// the request can read what it signs.
 ///
-/// The request-side step runs last, after the body. A scheme that signs the request can
-/// therefore see the method, headers, and body it needs to sign.
-///
-/// Both steps ask the registered `Authenticator` what to apply rather than handing it the
-/// request to mutate, so the builder can reject a credential that would overwrite something the
-/// request already carries, a query item name the authenticator does not declare for redaction,
-/// or an authenticator that applies nothing at all. See `Authenticator`.
+/// Both steps validate what the `Authenticator` returns before applying it. See
+/// `Authenticator`.
 public struct URLRequestBuilder: RequestBuilder {
 
     /// Creates the default builder. Stateless; create one wherever you need it, including
@@ -116,9 +104,8 @@ public struct URLRequestBuilder: RequestBuilder {
     /// Runs every pipeline step from authentication onward, given components whose base URL,
     /// path, and query items are already applied.
     ///
-    /// The seam for a custom builder that only changes how the URL is assembled: build the
-    /// components however you like, then hand them here rather than reimplementing
-    /// authentication, headers, and body handling.
+    /// For a custom builder that only changes URL assembly: build the components, then hand
+    /// them here rather than reimplementing authentication, headers, and body handling.
     public func finishRequest<Parameters: RequestParameters>(
         _ requestParameters: Parameters,
         components: URLComponents,
@@ -196,8 +183,7 @@ public struct URLRequestBuilder: RequestBuilder {
 
     /// Appends the request's own query items to any carried by the base URL.
     ///
-    /// Knows nothing about authentication; a URL-carried credential is appended afterward by
-    /// `applyAuthentication(_:context:to:)`.
+    /// A URL-carried credential is appended afterward by `applyAuthentication(_:context:to:)`.
     public func applyQueryItems(
         _ queryItems: [URLQueryItem]?,
         to components: inout URLComponents
@@ -213,9 +199,7 @@ public struct URLRequestBuilder: RequestBuilder {
 
     /// Applies a URL-carried credential, before the URL is formed.
     ///
-    /// Asks the `Authenticator` registered for `scheme` which query items carry the credential,
-    /// then validates and appends them. A request declaring no scheme short-circuits with no
-    /// lookup and no credential required.
+    /// A request declaring no scheme returns without a lookup and needs no credential.
     ///
     /// - Returns: Whether the authenticator contributed any query items.
     /// - Throws: `RequestError.unregisteredScheme` for a scheme with no authenticator,
@@ -275,9 +259,9 @@ public struct URLRequestBuilder: RequestBuilder {
 
     /// Applies headers, matched case-insensitively.
     ///
-    /// `headers` arrives already resolved against the configuration's `defaultHeaders` by
-    /// `RequestContext.resolvedHeaders(for:)`. Knows nothing about authentication; a
-    /// header-carried credential is applied afterward by `applyAuthentication(_:context:to:)`.
+    /// `headers` arrives resolved against `defaultHeaders` by
+    /// `RequestContext.resolvedHeaders(for:)`. A header-carried credential is applied afterward
+    /// by `applyAuthentication(_:context:appliedToURL:to:)`.
     public func applyHeaders(
         _ headers: [String: String],
         to request: inout URLRequest
@@ -323,10 +307,7 @@ public struct URLRequestBuilder: RequestBuilder {
 
     /// Applies a request-carried credential, after the method, headers, and body are applied.
     ///
-    /// Asks the `Authenticator` registered for `scheme` which header fields carry the
-    /// credential, then validates and sets them. Runs last so a scheme that signs the request
-    /// can see everything it signs. A request declaring no scheme short-circuits with no lookup
-    /// and no credential required.
+    /// A request declaring no scheme returns without a lookup and needs no credential.
     ///
     /// - Parameter appliedToURL: Whether the components-side step already applied part of this
     ///   credential. An authenticator that contributes nothing on either side is rejected.
@@ -360,8 +341,8 @@ public struct URLRequestBuilder: RequestBuilder {
 
     /// Applies a request body's `Content-Type`, called by `applyBody`.
     ///
-    /// A caller-supplied `Content-Type` that disagrees with the body's own is an error rather
-    /// than a silent override.
+    /// A caller-supplied `Content-Type` disagreeing with the body's own throws
+    /// `RequestError.invalidRequest`.
     public func applyContentType(
         _ contentType: String?,
         to request: inout URLRequest

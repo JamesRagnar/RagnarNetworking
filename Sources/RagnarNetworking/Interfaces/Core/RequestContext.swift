@@ -17,12 +17,11 @@ public struct RequestContext: Sendable {
     /// How the server is spoken to.
     public let configuration: ServerConfiguration
 
-    /// The credential to apply to a request that declares an `AuthenticationScheme`.
+    /// The credential for a request that declares an `AuthenticationScheme`.
     ///
-    /// A bearer token, a signing key, a pre-encoded basic-auth pair - what it means is the
-    /// registered `Authenticator`'s business. `nil` for unauthenticated flows; a request
-    /// declaring a scheme with a registered authenticator and no credential fails with
-    /// `RequestError.missingCredential`.
+    /// A bearer token, a signing key, a pre-encoded basic-auth pair; what it means is the
+    /// registered `Authenticator`'s business. A request declaring a scheme with no credential
+    /// fails with `RequestError.missingCredential`.
     public let credential: String?
 
     /// Creates a request context.
@@ -57,8 +56,7 @@ public struct RequestContext: Sendable {
 
     /// The authenticator for `scheme`, or `nil` when the request declares no scheme.
     ///
-    /// - Throws: `RequestError.unregisteredScheme` when a declared scheme has no registered
-    ///   authenticator.
+    /// - Throws: `RequestError.unregisteredScheme` for a declared scheme with no authenticator.
     public func authenticator(
         for scheme: AuthenticationScheme?
     ) throws(RequestError) -> (any Authenticator)? {

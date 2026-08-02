@@ -18,14 +18,12 @@ public protocol ResponseHandler: Sendable {
     /// - Parameters:
     ///   - response: Tuple containing the response data and URLResponse
     ///   - interface: The interface type defining the response contract
-    ///   - context: The configuration this response is handled under: the decoder to use for
-    ///     every body, including typed error bodies, and the query item names to strip from any
-    ///     `HTTPResponseSnapshot` the handler captures.
+    ///   - context: The decoder to use for every body, including typed error bodies, and the
+    ///     query item names to strip from any `HTTPResponseSnapshot` the handler captures.
     ///
-    /// - Important: A status code the Interface's `responseCases` does not match should be
-    ///   surfaced as `ResponseError.unknownResponseCase`. Consumers distinguish "the endpoint
-    ///   declared nothing for this code" from a mapped failure, and a handler that collapses
-    ///   the two takes that away.
+    /// - Important: Surface a status code the Interface's `responseCases` does not match as
+    ///   `ResponseError.unknownResponseCase`. Consumers, including
+    ///   `AuthenticationChallengePolicy`, distinguish it from a mapped failure.
     func handle<T: Interface>(
         _ response: (data: Data, response: URLResponse),
         for interface: T.Type,

@@ -89,16 +89,11 @@ public protocol RequestParameters: Sendable {
     /// Whether this request carries a credential and should participate in challenge retry and
     /// coalesced refresh.
     ///
-    /// Defaults to `authentication != nil`, which is right for every request whose credential
-    /// this package applies.
+    /// Defaults to `authentication != nil`. Override it to `true` when the credential arrives by
+    /// a route this package does not model - a cookie jar, a signing `Transport`, a proxy - and
+    /// the request therefore declares no scheme; otherwise it gets no retry and no refresh.
     ///
-    /// Override it to `true` when the credential arrives by a route the package does not model -
-    /// a cookie jar, a signing `Transport`, a proxy - and the request therefore declares no
-    /// scheme. Without the override such a request silently forfeits retry and refresh, because
-    /// nothing about it looks authenticated.
-    ///
-    /// This is the only member of this protocol with a default implementation, because it is the
-    /// only one that is derived rather than declared.
+    /// The only member here with a default implementation, because it is the only derived one.
     var isAuthenticated: Bool { get }
 
 }

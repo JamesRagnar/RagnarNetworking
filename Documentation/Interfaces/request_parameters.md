@@ -197,9 +197,9 @@ UpdateUser(nickname: .value("Bob"))
 let authentication: AuthenticationScheme? = .bearer
 ```
 
-`nil` means the request carries no credential. There is no scheme meaning "no scheme", so nothing can be registered against one by mistake.
+`nil` means the request carries no credential.
 
-`AuthenticationScheme` is an open value rather than a closed enum, so a project can name schemes the package does not ship:
+`AuthenticationScheme` is an open value rather than a closed enum, so a project can name its own schemes:
 
 ```swift
 extension AuthenticationScheme {
@@ -218,9 +218,9 @@ The second member decides whether the request participates in challenge retry an
 var isAuthenticated: Bool { get }  // defaults to authentication != nil
 ```
 
-This is the only member of `RequestParameters` with a default implementation, because it is the only one that is derived rather than declared. Override it to `true` when a request declares no scheme but still carries a credential by some route the package does not model - a cookie jar, a signing `Transport`, a proxy. Without the override such a request silently forfeits retry and refresh.
+The only member of `RequestParameters` with a default implementation, because it is the only derived one. Override it to `true` when a request declares no scheme but carries a credential by some route this package does not model - a cookie jar, a signing `Transport`, a proxy; otherwise it gets no retry and no refresh.
 
-A credential that would overwrite a header or query item the request already carries fails request construction rather than silently winning or losing. See [Authentication](authentication.md).
+A credential that would overwrite a header or query item the request already carries fails request construction. See [Authentication](authentication.md).
 
 ## Methods
 

@@ -163,7 +163,7 @@ A context with no credential (`RequestContext(configuration: config)`) fails any
 
 ## Authenticators
 
-`authenticators` gives each `AuthenticationScheme` its meaning for this server, defaulting to `[.bearer: .bearer, .url: .token]`. A server using `?access_token=`, an API key header, or a request signature is a change here rather than a `RequestBuilder` fork.
+`authenticators` gives each `AuthenticationScheme` its meaning for this server, defaulting to `[.bearer: .bearer, .url: .token]`.
 
 ```swift
 let config = ServerConfiguration(
@@ -175,7 +175,7 @@ let config = ServerConfiguration(
 )
 ```
 
-`redactedQueryItemNames` is computed at init as the union of the registered authenticators' own names, and strips those query items from the URL captured in `HTTPResponseSnapshot`. Request construction rejects an authenticator that writes a name outside its own declaration, so redaction cannot drift out of step with what is actually written.
+`redactedQueryItemNames` is computed at init as the union of the registered authenticators' own names, and strips those query items from the URL captured in `HTTPResponseSnapshot`. Request construction rejects an authenticator that writes a name outside its own declaration, so redaction cannot drift out of step with what is written.
 
 ## Challenge Policy
 

@@ -3,12 +3,12 @@ import Foundation
 /// App-agnostic actor that owns credential state and handles challenge retry.
 ///
 /// Requests whose `RequestParameters.isAuthenticated` is `false` never invoke the token closure
-/// and are never retried. Which failures count as a challenge is
-/// `ServerConfiguration.challengePolicy`, so no status code is hardcoded here.
+/// and are never retried. `ServerConfiguration.challengePolicy` decides which failures are
+/// challenges, so no status code is hardcoded here.
 ///
-/// Challenges coalesce into a single refresh per token generation - only one `refresh` call
-/// fires for requests that failed using the same token, whether those failures arrive
-/// simultaneously or are staggered over time.
+/// Challenges coalesce into a single refresh per token generation: one `refresh` call fires for
+/// all requests that failed using the same token, whether those failures arrive simultaneously
+/// or are staggered over time.
 ///
 /// A client can be permanently invalidated via `invalidate()`. Invalidation is a
 /// terminal, one-way boundary: it rejects new `send` calls, cancels any coalesced
@@ -57,13 +57,11 @@ public actor APIClient {
         self.refresh = refresh
     }
 
-    /// Creates an `APIClient` for unauthenticated request flows.
+    /// Creates an `APIClient` for requests whose `RequestParameters.isAuthenticated` is
+    /// `false`.
     ///
-    /// Use this initializer when the client will only send requests whose
-    /// `RequestParameters.isAuthenticated` is `false`.
-    ///
-    /// A request declaring any scheme fails with `RequestError.missingCredential` through this
-    /// initializer, because the token closure always returns `nil`.
+    /// The token closure always returns `nil`, so a request declaring any scheme fails with
+    /// `RequestError.missingCredential`.
     ///
     /// - Parameters:
     ///   - configuration: The server contract: URL, body coding, default headers, request
@@ -82,10 +80,10 @@ public actor APIClient {
     /// Sends a typed request.
     ///
     /// A request whose `RequestParameters.isAuthenticated` is `true` is retried once after a
-    /// challenge - the `refresh` closure fires first, then `token` is re-evaluated for the
-    /// retry. `ServerConfiguration.challengePolicy` decides what counts as a challenge, and
-    /// sees the Interface's `responseCases` so an endpoint that deliberately models the
-    /// challenge status code surfaces its own error instead.
+    /// challenge: `refresh` fires, then `token` is re-evaluated for the retry.
+    /// `ServerConfiguration.challengePolicy` decides what counts as a challenge and receives the
+    /// Interface's `responseCases`, so an endpoint that models the challenge status code
+    /// surfaces its own error instead.
     ///
     /// - Throws: `APIClientError.invalidated` if the client has been invalidated. The
     ///   check is applied before token resolution, before and after transport, before
