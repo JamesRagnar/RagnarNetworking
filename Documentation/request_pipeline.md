@@ -20,6 +20,40 @@ public protocol Transport: Sendable {
 
 `URLSession` conforms by default.
 
+## Transport Decoration
+
+A `Transport` that holds another `Transport`, acts, and calls `next` is this package's middleware seam. It covers retry, backoff, logging with timing, correlation IDs, user-agent stamping, request signing, and cache short-circuiting.
+
+```swift
+struct SigningTransport: Transport {
+    let next: any Transport
+    let sign: @Sendable (URLRequest) -> String
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        var signed = request
+        signed.setValue(sign(request), forHTTPHeaderField: "X-Signature")
+        return try await next.data(for: signed)
+    }
+}
+```
+
+Decorators compose as an ordered chain. The outermost runs first on the way out and last on the way back:
+
+```swift
+let pipeline = RequestPipeline(
+    transport: SigningTransport(
+        next: RetryingTransport(next: URLSession.shared),
+        sign: sign
+    )
+)
+```
+
+A decorator receives the finished, authenticated request: the builder has run and the credential is applied.
+
+Choose a decorator over a `RequestBuilder` when the concern is the exchange rather than the endpoint. A builder sees typed parameters and runs once per request; a decorator sees a `URLRequest` and may run zero times on a cache hit or many times on retry.
+
+The request carries no operation identity, so per-endpoint metrics cannot name the endpoint. Carry a correlation header to associate them.
+
 ## Default Usage
 
 Most consumers should use `APIClient`. Use `RequestPipeline` directly when you manage the token yourself:
@@ -72,11 +106,13 @@ let context = RequestContext(
 let pipeline = RequestPipeline(transport: URLSession.shared)
 ```
 
-Overriding a single `RequestBuilder` step and delegating to `URLRequestBuilder()` for the remaining steps limits the change to that step. See [Request Builder](Interfaces/request_builder.md) for invariants and override behavior.
+Delegating to `URLRequestBuilder()`'s public steps for everything a builder does not change limits the change to that step. See [Request Builder](Interfaces/request_builder.md) for invariants and composition.
+
+A builder does not apply credentials. `URLRequest.init(requestParameters:context:)` runs the builder and then the registered `Authenticator`.
 
 ## Testing
 
-Implement `Transport` in a mock to control responses without making real network calls. Because the mock only supplies bytes, tests still exercise the real request-construction and response-handling paths:
+A mock `Transport` terminates the chain instead of extending it. Because it only supplies bytes, tests still exercise the real request-construction and response-handling paths:
 
 ```swift
 actor MockTransport: Transport {

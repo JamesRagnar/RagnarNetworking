@@ -20,7 +20,7 @@ Builders are values, not metatypes, so a builder can carry its own state - a req
 ## Narrower Seams
 
 - **How a credential reaches the request** is an `Authenticator` on `ServerConfiguration.authenticators`. See [Authentication](authentication.md).
-- **Behavior around the whole request/response exchange** - logging, retries, metrics, offline queuing - is a `Transport` decorator, this package's middleware seam.
+- **Behavior around the whole request/response exchange** - logging, retries, metrics, offline queuing, request signing - is a `Transport` decorator, this package's middleware seam. See [Transport Decoration](../request_pipeline.md#transport-decoration).
 - **Cross-cutting headers** are `ServerConfiguration.defaultHeaders`.
 - **Per-request behavior** is a plain `RequestParameters` value.
 
@@ -31,25 +31,27 @@ Write a builder to change how a `URLRequest` is constructed from its parameters:
 `URLRequestBuilder.buildRequest` runs:
 
 ```
-makeComponents → applyPath → applyQueryItems → applyAuthentication(to: &components)
-  → makeURL → makeRequest → applyMethod → applyHeaders → applyBody
-  → applyAuthentication(to: &request)
+makeComponents → applyPath → applyQueryItems → makeURL
+  → makeRequest → applyMethod → applyHeaders → applyBody
 ```
-
-Authentication is two steps because a URL-carried credential must land before the URL is formed and a header-carried one after, and the pipeline never holds a live `URLComponents` and `URLRequest` at once. The request-side step runs after the body so a scheme that signs the request can read what it signs. A request declaring no scheme skips both.
-
-Each step validates what the `Authenticator` returns before applying it, rejecting a name the request already carries, a query item outside `redactedQueryItemNames`, and an authenticator that returns nothing anywhere.
 
 `applyHeaders` receives headers already resolved by `ServerConfiguration.resolvedHeaders(for:)`, so the configuration's `defaultHeaders` cannot be dropped by a builder that replaces `buildRequest` wholesale.
 
 `applyBody` encodes the request body using the configured `RequestEncoder`, then calls `applyContentType` to apply the inferred `Content-Type`. If a `Content-Type` header already exists, `applyContentType` calls `mediaTypesMatch` to compare it against the inferred value (case-insensitive, ignoring parameters such as `charset`); a mismatch fails request construction with `RequestError.invalidRequest`.
 
+## Authentication
+
+No builder step applies a credential. `URLRequest.init(requestParameters:context:)` runs two things in order: the configuration's builder, then `URLRequest.applyAuthentication(_:context:)` on the request it returned. A builder that never mentions `AuthenticationScheme` still produces authenticated requests.
+
+The authenticator therefore reads the final URL, method, headers, and body. Query items land before header fields, so a signing `headers(for:on:)` sees the URL its own `queryItems(for:on:)` produced.
+
+Both sides are validated before anything is written: a query item outside the authenticator's `redactedQueryItemNames`, a name the request already carries, and an authenticator that contributes nothing all fail construction. See [Authentication](authentication.md).
+
 ## Builder Invariants
 
 Custom builders should preserve these guarantees unless they are intentionally redefining package behavior:
 
-- successful construction returns a valid `URLRequest`
-- the `Authenticator` registered for the request's `AuthenticationScheme` is applied
+- successful construction returns a valid `URLRequest` with a valid URL
 - body bytes and `Content-Type` stay aligned
 - invalid construction still surfaces as `RequestError`
 - caller-supplied overrides are handled deliberately and predictably
@@ -79,7 +81,7 @@ struct ClientTaggingBuilder: RequestBuilder {
 
 ## Changing a Step
 
-Run the steps before it, then hand off. `finishRequest` runs everything from authentication onward, so a builder that only rewrites the URL does not restate header, body, or authentication handling:
+Run the steps before it, then hand off. `finishRequest` runs everything from URL assembly onward, so a builder that only rewrites the URL does not restate header or body handling:
 
 ```swift
 struct TenantPrefixBuilder: RequestBuilder {

@@ -47,7 +47,7 @@ public struct RequestPipeline: Sendable {
         _ parameters: T.Parameters,
         context: RequestContext
     ) async throws -> T.Response {
-        let request = try context.builder.buildRequest(parameters, context: context)
+        let request = try URLRequest(requestParameters: parameters, context: context)
 
         let response = try await transport.data(for: request)
 

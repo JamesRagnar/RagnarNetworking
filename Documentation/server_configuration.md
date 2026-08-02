@@ -9,7 +9,7 @@
 Two things are deliberately not on the configuration:
 
 - **Credentials.** A per-request token travels in `RequestContext`, so a configuration can be shared freely without carrying a volatile secret.
-- **The `Transport`.** A transport answers "what process are we in?" - a live `URLSession`, a mock, a recorded fixture - rather than "which server is this?", so it belongs to `RequestPipeline` and stays available as the test seam.
+- **The `Transport`.** A transport answers "what process are we in?" - a live `URLSession`, a mock, a recorded fixture, a signing or retrying decorator around any of them - rather than "which server is this?", so it belongs to `RequestPipeline`. It is both the test seam and the middleware seam; see [Transport Decoration](request_pipeline.md#transport-decoration).
 
 Everything else that describes the server belongs here: `url`, `requestEncoder`, `responseDecoder`, `defaultHeaders`, `builder`, and `responseHandler`.
 
