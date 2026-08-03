@@ -312,7 +312,7 @@ struct AuthenticationRetryTriggerTests {
             refresh: { await log.recordRefresh() }
         )
 
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             _ = try await client.send(UnauthenticatedInterface.self, .init())
         }
         #expect(failure?.responseError != nil)
@@ -335,7 +335,7 @@ struct AuthenticationRetryTriggerTests {
             refresh: { await log.recordRefresh() }
         )
 
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             _ = try await client.send(RefreshEndpointInterface.self, .init())
         }
         #expect(failure?.responseError != nil)
@@ -807,7 +807,7 @@ struct AuthenticationChallengePolicyTests {
         await transport.enqueue(try JSONEncoder().encode(AuthFailure(reason: "bad password")), 401)
         let log = CallLog()
 
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             _ = try await self.client(transport, log).send(Models401DecodedInterface.self, .init())
         }
         #expect(failure?.responseError != nil)
@@ -822,7 +822,7 @@ struct AuthenticationChallengePolicyTests {
         await transport.enqueue(Data(), 401)
         let log = CallLog()
 
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             _ = try await self.client(transport, log).send(Models401FlatInterface.self, .init())
         }
         #expect(failure?.responseError != nil)
@@ -884,7 +884,7 @@ struct AuthenticationChallengePolicyTests {
 
         let policy = AuthenticationChallengePolicy { _, _ in false }
 
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             _ = try await self.client(transport, log, policy: policy)
                 .send(SchemeInterface.self, .init(authentication: .bearer))
         }

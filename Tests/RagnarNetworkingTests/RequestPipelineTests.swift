@@ -126,7 +126,7 @@ struct RequestPipelineTests {
         await transport.setMockResponse(data: Data(), statusCode: 404, url: url)
         let pipeline = RequestPipeline(transport: transport)
 
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await pipeline.send(
                 TestInterface.self,
                 params,
@@ -146,7 +146,7 @@ struct RequestPipelineTests {
         await transport.setError(TestError.networkError)
         let pipeline = RequestPipeline(transport: transport)
 
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await pipeline.send(
                 TestInterface.self,
                 params,
@@ -768,7 +768,7 @@ struct RequestPipelineTests {
         let params = AuthRequiredInterface.Parameters()
         let pipeline = RequestPipeline(transport: MockTransport())
 
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await pipeline.send(
                 AuthRequiredInterface.self,
                 params,

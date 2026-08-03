@@ -123,7 +123,7 @@ struct APIFailureTransportTests {
         ]
     )
     func offlineCodesClassifyAsOffline(code: URLError.Code) async throws {
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await client(transport: ThrowingTransport(error: URLError(code)))
                 .send(PlainInterface.self, .init())
         }
@@ -134,7 +134,7 @@ struct APIFailureTransportTests {
 
     @Test("A timeout classifies as .transport(.timedOut)")
     func timeoutClassifiesAsTimedOut() async throws {
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await client(transport: ThrowingTransport(error: URLError(.timedOut)))
                 .send(PlainInterface.self, .init())
         }
@@ -144,7 +144,7 @@ struct APIFailureTransportTests {
 
     @Test("Any other URLError classifies as .transport(.url) with the error preserved")
     func otherURLErrorPreservesTheError() async throws {
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await client(transport: ThrowingTransport(error: URLError(.cannotFindHost)))
                 .send(PlainInterface.self, .init())
         }
@@ -165,7 +165,7 @@ struct APIFailureTransportTests {
         }
 
         let thrown = CustomTransportError(detail: "socket closed")
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await client(transport: ThrowingTransport(error: thrown))
                 .send(PlainInterface.self, .init())
         }
@@ -180,7 +180,7 @@ struct APIFailureTransportTests {
 
     @Test("URLError.cancelled surfaces as .cancelled, not as a transport failure")
     func urlErrorCancelledSurfacesAsCancelled() async throws {
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await client(transport: ThrowingTransport(error: URLError(.cancelled)))
                 .send(PlainInterface.self, .init())
         }
@@ -191,7 +191,7 @@ struct APIFailureTransportTests {
 
     @Test("A transport throwing CancellationError surfaces as .cancelled")
     func cancellationErrorSurfacesAsCancelled() async throws {
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await client(transport: ThrowingTransport(error: CancellationError()))
                 .send(PlainInterface.self, .init())
         }
@@ -206,7 +206,7 @@ struct APIFailureTransportTests {
         )
         let context = RequestContext(configuration: ServerConfiguration(url: testServerURL))
 
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await pipeline.send(PlainInterface.self, .init(), context: context)
         }
 
@@ -227,7 +227,7 @@ struct APIFailureCredentialTests {
     @Test("A throwing token closure surfaces as .credential with the error intact")
     func throwingTokenSurfacesAsCredential() async throws {
         let thrown = KeychainError(status: -25300)
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await client(
                 transport: StatusTransport(statusCode: 200),
                 token: { throw thrown }
@@ -240,7 +240,7 @@ struct APIFailureCredentialTests {
     @Test("A throwing refresh closure surfaces as .credential with the error intact")
     func throwingRefreshSurfacesAsCredential() async throws {
         let thrown = KeychainError(status: -25293)
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await client(
                 transport: StatusTransport(statusCode: 401),
                 refresh: { throw thrown }
@@ -252,7 +252,7 @@ struct APIFailureCredentialTests {
 
     @Test("A missing credential is .request, not .credential")
     func missingCredentialIsARequestFailure() async throws {
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await client(
                 transport: StatusTransport(statusCode: 200),
                 token: { nil }
@@ -274,7 +274,7 @@ struct APIFailureCredentialTests {
             transport: StatusTransport(statusCode: 401)
         )
 
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await apiClient.send(CookieAuthInterface.self, .init())
         }
 

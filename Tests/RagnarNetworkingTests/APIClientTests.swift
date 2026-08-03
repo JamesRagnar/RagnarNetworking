@@ -497,7 +497,7 @@ struct APIClientTests {
         )
 
         let params = TestInterface.Parameters(authentication: .bearer)
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await client.send(TestInterface.self, params)
         }
         #expect(failure?.responseError != nil)
@@ -522,7 +522,7 @@ struct APIClientTests {
         )
 
         let params = TestInterface.Parameters(authentication: .bearer)
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await client.send(TestInterface.self, params)
         }
         #expect(failure?.credentialError as? RefreshError == RefreshError())
@@ -662,7 +662,7 @@ struct APIClientTests {
         )
 
         let params = TestInterface.Parameters(authentication: .bearer)
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await client.send(TestInterface.self, params)
         }
         #expect(failure?.responseError != nil)
@@ -687,7 +687,7 @@ struct APIClientTests {
         await client.invalidate()
 
         let params = TestInterface.Parameters(authentication: .bearer)
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await client.send(TestInterface.self, params)
         }
         #expect(failure?.isInvalidated == true)
@@ -711,7 +711,7 @@ struct APIClientTests {
         await mock.waitUntilStarted()
         await client.invalidate()
 
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await sendTask.value
         }
         #expect(failure?.isInvalidated == true)
@@ -750,7 +750,7 @@ struct APIClientTests {
         await refreshStarted.wait()
         await client.invalidate()
 
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await sendTask.value
         }
         #expect(failure?.isInvalidated == true)
@@ -771,7 +771,7 @@ struct APIClientTests {
         await client.invalidate()
 
         let params = TestInterface.Parameters(authentication: .bearer)
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await client.send(TestInterface.self, params)
         }
         #expect(failure?.isInvalidated == true)
@@ -810,7 +810,7 @@ struct APIClientTests {
         await mock.waitUntilStarted()
         task.cancel()
 
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await task.value
         }
         #expect(failure?.isCancelled == true)
@@ -844,7 +844,7 @@ struct APIClientTests {
         await refreshStarted.wait()
         task.cancel()
 
-        let failure = await #expect(throws: APIFailure.self) {
+        let failure = await apiFailure {
             try await task.value
         }
         #expect(failure?.isCancelled == true)
