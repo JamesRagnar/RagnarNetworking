@@ -22,7 +22,7 @@ themselves from an empty body, so `.code(204, .decode)` is the mapping:
 
 ```swift
 struct DeleteUser: Interface {
-    struct Parameters: RequestParameters {
+    struct Request: InterfaceRequest {
         let method: RequestMethod = .delete
         let path = "/users/123"
         let queryItems: [URLQueryItem]? = nil
@@ -249,7 +249,7 @@ The package ships conformances for:
 - `Array` of `Decodable` elements (top-level JSON array)
 - `Dictionary` of `Decodable` keys and values, with the caveat below
 
-The explicit conformance is deliberate, for the same reason `RequestParameters` has no defaulted
+The explicit conformance is deliberate, for the same reason `InterfaceRequest` has no defaulted
 members: it keeps the response contract stated rather than inferred.
 
 ### Dictionary Key Types
@@ -311,7 +311,7 @@ Against a client configured with `.convertFromSnakeCase` and `.iso8601`, this de
 strategy is replaced. `modified` composes, and the last applied strategy wins.
 
 `RequestEncoder.modified(_:)` is the request-side equivalent. See
-[Request Parameters](request_parameters.md#deriving-an-encoder).
+[Request Request](request_parameters.md#deriving-an-encoder).
 
 ### Non-JSON Responses
 

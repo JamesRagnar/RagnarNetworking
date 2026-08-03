@@ -3,7 +3,7 @@ import Foundation
 /// App-agnostic actor that owns credential state and handles challenge retry.
 ///
 /// A request declaring no `AuthenticationScheme` never invokes the token closure, and one whose
-/// `RequestParameters.refreshesOnChallenge` is `false` is never retried.
+/// `InterfaceRequest.refreshesOnChallenge` is `false` is never retried.
 /// `ServerConfiguration.challengePolicy` decides which failures are challenges, so no status
 /// code is hardcoded here.
 ///
@@ -79,7 +79,7 @@ public actor APIClient {
 
     /// Sends a typed request.
     ///
-    /// A request whose `RequestParameters.refreshesOnChallenge` is `true` is retried once after
+    /// A request whose `InterfaceRequest.refreshesOnChallenge` is `true` is retried once after
     /// a challenge: `refresh` fires, then `token` is re-evaluated for the retry.
     /// `ServerConfiguration.challengePolicy` decides what counts as a challenge and receives the
     /// Interface's `responseCases`, so an endpoint that models the challenge status code
@@ -90,7 +90,7 @@ public actor APIClient {
     ///   refresh, and before retry.
     public func send<T: Interface>(
         _ type: T.Type,
-        _ params: T.Parameters
+        _ params: T.Request
     ) async throws -> T.Response {
         try checkValid()
 
@@ -161,7 +161,7 @@ public actor APIClient {
     ///
     /// Keyed on `authentication` rather than `refreshesOnChallenge`, so an endpoint that opts
     /// out of refresh still sends its credential.
-    private func credential(for params: some RequestParameters) async throws -> String? {
+    private func credential(for params: some InterfaceRequest) async throws -> String? {
         guard params.authentication != nil else { return nil }
         return try await token()
     }
@@ -175,7 +175,7 @@ public actor APIClient {
 
     private func execute<T: Interface>(
         _ type: T.Type,
-        _ params: T.Parameters,
+        _ params: T.Request,
         credential: String?
     ) async throws -> T.Response {
         try checkValid()

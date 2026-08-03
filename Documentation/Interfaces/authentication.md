@@ -4,9 +4,9 @@ Authentication is split across two owners:
 
 | Axis | Owner | Type |
 |---|---|---|
-| Which scheme this endpoint uses | `RequestParameters` | `AuthenticationScheme` |
+| Which scheme this endpoint uses | `InterfaceRequest` | `AuthenticationScheme` |
 | How that scheme is applied | `ServerConfiguration` | `[AuthenticationScheme: any Authenticator]` |
-| Whether a challenge triggers a refresh | `RequestParameters` | `refreshesOnChallenge` |
+| Whether a challenge triggers a refresh | `InterfaceRequest` | `refreshesOnChallenge` |
 | What counts as a stale credential | `ServerConfiguration` | `AuthenticationChallengePolicy` |
 | What the credential is | `RequestContext` | `credential` |
 
@@ -15,7 +15,7 @@ Placement is a property of the server; the choice of scheme is a property of the
 ## Declaring a Scheme
 
 ```swift
-struct Parameters: RequestParameters {
+struct Request: InterfaceRequest {
     let method: RequestMethod = .get
     let path: String = "/me"
     let queryItems: [URLQueryItem]? = nil
@@ -73,7 +73,7 @@ authenticators: [.apiKey: .header("X-API-Key")]  // X-API-Key: <credential>
 
 ## Writing an Authenticator
 
-An authenticator returns the header fields and query items that carry a credential. `URLRequest.init(requestParameters:context:)` applies what it returns to the request the `RequestBuilder` has finished. See [Request Builder](request_builder.md).
+An authenticator returns the header fields and query items that carry a credential. `URLRequest.init(interfaceRequest:context:)` applies what it returns to the request the `RequestBuilder` has finished. See [Request Builder](request_builder.md).
 
 ```swift
 struct APIKeyAuthenticator: Authenticator {
@@ -169,7 +169,7 @@ Every case carries the scheme that failed.
 A request whose credential arrives through a cookie jar, a signing `Transport`, or a proxy has no scheme to declare. It declares `nil` and opts back in:
 
 ```swift
-struct Parameters: RequestParameters {
+struct Request: InterfaceRequest {
     // ...
     let authentication: AuthenticationScheme? = nil
     var refreshesOnChallenge: Bool { true }
@@ -183,7 +183,7 @@ Without the override, such a request gets no challenge retry and no coalesced re
 A token-refresh endpoint sends a credential of its own. A challenge on it has to surface rather than recurse into another refresh:
 
 ```swift
-struct Parameters: RequestParameters {
+struct Request: InterfaceRequest {
     // ...
     let authentication: AuthenticationScheme? = .bearer
     var refreshesOnChallenge: Bool { false }

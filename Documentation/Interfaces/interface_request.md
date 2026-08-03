@@ -1,11 +1,11 @@
-# Request Parameters
+# Interface Request
 
-`RequestParameters` defines everything needed to build a request.
+`InterfaceRequest` defines everything needed to build a request.
 
 This is the primary modeling API for the Interface layer.
 
 ```swift
-public protocol RequestParameters: Sendable {
+public protocol InterfaceRequest: Sendable {
     associatedtype Body: RequestBody = EmptyBody
 
     var method: RequestMethod { get }
@@ -70,7 +70,7 @@ struct CreateUser: RequestBody, Encodable, Sendable {
     let email: String
 }
 
-struct Parameters: RequestParameters {
+struct Request: InterfaceRequest {
     typealias Body = CreateUser
     let body: CreateUser
 }
@@ -81,7 +81,7 @@ struct Parameters: RequestParameters {
 Use `EmptyBody()` for requests without a body.
 
 ```swift
-struct Parameters: RequestParameters {
+struct Request: InterfaceRequest {
     let body: EmptyBody = .init()
 }
 ```
@@ -99,12 +99,12 @@ let body = BinaryBody(data: imageData, contentType: "image/jpeg")
 Use `ArrayBody` for top-level JSON arrays.
 
 ```swift
-struct Parameters: RequestParameters {
+struct Request: InterfaceRequest {
     typealias Body = ArrayBody<Int>
     let body: ArrayBody<Int>
 }
 
-let params = Parameters(body: ArrayBody([1, 2, 3]))
+let params = Request(body: ArrayBody([1, 2, 3]))
 // Encodes as: [1, 2, 3]
 ```
 
@@ -117,12 +117,12 @@ struct LegacyPayload: Encodable, Sendable {
     let id: Int
 }
 
-struct Parameters: RequestParameters {
+struct Request: InterfaceRequest {
     typealias Body = EncodableBody<LegacyPayload>
     let body: EncodableBody<LegacyPayload>
 }
 
-let params = Parameters(body: EncodableBody(LegacyPayload(id: 1)))
+let params = Request(body: EncodableBody(LegacyPayload(id: 1)))
 ```
 
 ### Deriving an Encoder
@@ -191,7 +191,7 @@ UpdateUser(nickname: .value("Bob"))
 
 ## Authentication
 
-`RequestParameters` declares two authentication-related members. The scheme names a strategy; `ServerConfiguration.authenticators` gives that name its meaning for a particular server.
+`InterfaceRequest` declares two authentication-related members. The scheme names a strategy; `ServerConfiguration.authenticators` gives that name its meaning for a particular server.
 
 ```swift
 let authentication: AuthenticationScheme? = .bearer
@@ -218,7 +218,7 @@ The second member decides whether a challenge triggers a refresh and one retry, 
 var refreshesOnChallenge: Bool { get }  // defaults to authentication != nil
 ```
 
-The only member of `RequestParameters` with a default implementation, because it is the only derived one. Both overrides are meaningful: `true` with no scheme, for a credential this package does not apply; `false` with a scheme, for a token-refresh endpoint that must not recurse into another refresh.
+The only member of `InterfaceRequest` with a default implementation, because it is the only derived one. Both overrides are meaningful: `true` with no scheme, for a credential this package does not apply; `false` with a scheme, for a token-refresh endpoint that must not recurse into another refresh.
 
 A credential that would overwrite a header or query item the request already carries fails request construction. See [Authentication](authentication.md).
 

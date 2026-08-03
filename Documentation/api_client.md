@@ -81,9 +81,9 @@ let user = try await client.send(GetUserInterface.self, .init(userId: 123))
 
 Two independent members control this.
 
-`RequestParameters.authentication` decides whether a credential is resolved at all. A request declaring no scheme never calls the token closure.
+`InterfaceRequest.authentication` decides whether a credential is resolved at all. A request declaring no scheme never calls the token closure.
 
-`RequestParameters.refreshesOnChallenge` decides whether a challenge triggers a refresh and one retry. It defaults to `authentication != nil`, and both overrides are meaningful:
+`InterfaceRequest.refreshesOnChallenge` decides whether a challenge triggers a refresh and one retry. It defaults to `authentication != nil`, and both overrides are meaningful:
 
 - `true` with no scheme, for a credential this package does not apply: a cookie jar, a signing `Transport`, a proxy.
 - `false` with a scheme, for a token-refresh endpoint. It still sends its own credential, but a challenge on it surfaces rather than recursing into another refresh.

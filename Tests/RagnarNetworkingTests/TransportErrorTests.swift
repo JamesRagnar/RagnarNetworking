@@ -18,7 +18,7 @@ private struct ValueResponse: Codable, Sendable, Equatable, InterfaceResponse {
 }
 
 private struct PlainInterface: Interface {
-    struct Parameters: RequestParameters {
+    struct Request: InterfaceRequest {
         let method: RequestMethod = .get
         let path: String = "/resource"
         let queryItems: [URLQueryItem]? = nil

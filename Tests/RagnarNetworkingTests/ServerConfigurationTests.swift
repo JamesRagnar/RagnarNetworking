@@ -12,7 +12,7 @@ import Testing
 @Suite("ServerConfiguration Tests", .timeLimit(.minutes(1)))
 struct ServerConfigurationTests {
 
-    private struct Params: RequestParameters {
+    private struct Params: InterfaceRequest {
         let method: RequestMethod = .get
         let path: String = "/test"
         let queryItems: [URLQueryItem]? = nil
@@ -133,7 +133,7 @@ struct ServerConfigurationTests {
     @Test("resolvedHeaders(overriddenBy:) overlays an arbitrary header set, case-insensitively")
     func testResolvedHeadersOverriddenBy() {
         // The primitive a custom RequestBuilder reaches for when its headers do not come
-        // from RequestParameters; merging by hand would reintroduce case-sensitive duplicates.
+        // from InterfaceRequest; merging by hand would reintroduce case-sensitive duplicates.
         let config = ServerConfiguration(
             url: URL(string: "https://api.example.com")!,
             defaultHeaders: ["accept-language": "en-US", "X-App-Version": "1.0"]

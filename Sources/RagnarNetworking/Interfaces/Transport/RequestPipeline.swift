@@ -37,7 +37,7 @@ public struct RequestPipeline: Sendable {
     ///
     /// - Parameters:
     ///   - interface: The interface type defining the request/response contract
-    ///   - parameters: The parameters for constructing the request
+    ///   - interfaceRequest: The request shape defining how to construct the network request
     ///   - context: Server configuration plus the credential for this request
     /// - Returns: The decoded response matching the interface's Response type
     /// - Throws: `RequestError` for request construction and credential application,
@@ -45,10 +45,10 @@ public struct RequestPipeline: Sendable {
     ///   `CancellationError` if the call was cancelled.
     public func send<T: Interface>(
         _ interface: T.Type,
-        _ parameters: T.Parameters,
+        _ interfaceRequest: T.Request,
         context: RequestContext
     ) async throws -> T.Response {
-        let request = try URLRequest(requestParameters: parameters, context: context)
+        let request = try URLRequest(interfaceRequest: interfaceRequest, context: context)
 
         // `Transport.data(for:)` is untyped `throws` by design, so whatever it throws is
         // classified here rather than escaping as a raw `URLError` a caller has to know to

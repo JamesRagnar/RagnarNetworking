@@ -16,7 +16,7 @@ private struct ValueResponse: Codable, Sendable, Equatable, InterfaceResponse {
 
 /// An endpoint whose scheme and 401 handling both vary per test.
 private struct SchemeInterface: Interface {
-    struct Parameters: RequestParameters {
+    struct Request: InterfaceRequest {
         let method: RequestMethod = .get
         let path: String = "/resource"
         let queryItems: [URLQueryItem]?
@@ -43,7 +43,7 @@ private struct SchemeInterface: Interface {
 /// Declares no scheme but carries its credential by some route the package does not model, so
 /// it opts back into challenge retry by hand.
 private struct CookieAuthInterface: Interface {
-    struct Parameters: RequestParameters {
+    struct Request: InterfaceRequest {
         let method: RequestMethod = .get
         let path: String = "/cookie"
         let queryItems: [URLQueryItem]? = nil
@@ -62,7 +62,7 @@ private struct CookieAuthInterface: Interface {
 /// A token-refresh endpoint: sends a credential, but a challenge on it must surface rather
 /// than recurse into another refresh.
 private struct RefreshEndpointInterface: Interface {
-    struct Parameters: RequestParameters {
+    struct Request: InterfaceRequest {
         let method: RequestMethod = .post
         let path: String = "/oauth/refresh"
         let queryItems: [URLQueryItem]? = nil
@@ -79,7 +79,7 @@ private struct RefreshEndpointInterface: Interface {
 }
 
 private struct UnauthenticatedInterface: Interface {
-    struct Parameters: RequestParameters {
+    struct Request: InterfaceRequest {
         let method: RequestMethod = .get
         let path: String = "/public"
         let queryItems: [URLQueryItem]? = nil
@@ -103,7 +103,7 @@ private enum FlatError: Error, Equatable {
 
 /// Models 401 exactly, as a typed error body.
 private struct Models401DecodedInterface: Interface {
-    struct Parameters: RequestParameters {
+    struct Request: InterfaceRequest {
         let method: RequestMethod = .get
         let path: String = "/models-401"
         let queryItems: [URLQueryItem]? = nil
@@ -122,7 +122,7 @@ private struct Models401DecodedInterface: Interface {
 
 /// Models 401 exactly, as a flat error.
 private struct Models401FlatInterface: Interface {
-    struct Parameters: RequestParameters {
+    struct Request: InterfaceRequest {
         let method: RequestMethod = .get
         let path: String = "/models-401-flat"
         let queryItems: [URLQueryItem]? = nil
@@ -141,7 +141,7 @@ private struct Models401FlatInterface: Interface {
 
 /// Covers 401 only through a 4xx catch-all, which is not a statement about 401.
 private struct Range4xxInterface: Interface {
-    struct Parameters: RequestParameters {
+    struct Request: InterfaceRequest {
         let method: RequestMethod = .get
         let path: String = "/range-4xx"
         let queryItems: [URLQueryItem]? = nil
@@ -160,7 +160,7 @@ private struct Range4xxInterface: Interface {
 
 /// Signals staleness with 419 rather than 401.
 private struct Stale419Interface: Interface {
-    struct Parameters: RequestParameters {
+    struct Request: InterfaceRequest {
         let method: RequestMethod = .get
         let path: String = "/stale"
         let queryItems: [URLQueryItem]? = nil
@@ -251,7 +251,7 @@ private struct SignedBody: RequestBody, Encodable {
 }
 
 private struct SignedInterface: Interface {
-    struct Parameters: RequestParameters {
+    struct Request: InterfaceRequest {
         let method: RequestMethod = .post
         let path: String = "/signed"
         let queryItems: [URLQueryItem]? = nil
@@ -349,11 +349,11 @@ struct AuthenticationRetryTriggerTests {
 
     @Test("A refreshesOnChallenge override reaches APIClient through its generic constraint")
     func refreshesOnChallengeOverrideIsWitnessDispatched() async throws {
-        // `APIClient.send` reads this on a generic `T.Parameters`. It is a protocol requirement
+        // `APIClient.send` reads this on a generic `T.Request`. It is a protocol requirement
         // rather than an extension-only member so that these overrides dispatch through the
         // witness table; an extension-only member would resolve to the default here and both
         // overrides would silently do nothing.
-        func read<T: Interface>(_ type: T.Type, _ params: T.Parameters) -> Bool {
+        func read<T: Interface>(_ type: T.Type, _ params: T.Request) -> Bool {
             params.refreshesOnChallenge
         }
 
@@ -363,10 +363,10 @@ struct AuthenticationRetryTriggerTests {
 
     @Test("refreshesOnChallenge derives from the scheme when a conformance does not declare it")
     func refreshesOnChallengeDerivesFromScheme() {
-        #expect(SchemeInterface.Parameters(authentication: nil).refreshesOnChallenge == false)
-        #expect(SchemeInterface.Parameters(authentication: .bearer).refreshesOnChallenge == true)
-        #expect(SchemeInterface.Parameters(authentication: .url).refreshesOnChallenge == true)
-        #expect(SchemeInterface.Parameters(authentication: .apiKey).refreshesOnChallenge == true)
+        #expect(SchemeInterface.Request(authentication: nil).refreshesOnChallenge == false)
+        #expect(SchemeInterface.Request(authentication: .bearer).refreshesOnChallenge == true)
+        #expect(SchemeInterface.Request(authentication: .url).refreshesOnChallenge == true)
+        #expect(SchemeInterface.Request(authentication: .apiKey).refreshesOnChallenge == true)
     }
 
 }
@@ -401,12 +401,12 @@ struct AuthenticationSchemeTests {
 struct AuthenticatorTests {
 
     private func request(
-        _ parameters: some RequestParameters,
+        _ parameters: some InterfaceRequest,
         configuration: ServerConfiguration,
         credential: String? = "cred"
     ) throws -> URLRequest {
         try URLRequest(
-            requestParameters: parameters,
+            interfaceRequest: parameters,
             context: RequestContext(configuration: configuration, credential: credential)
         )
     }
@@ -414,7 +414,7 @@ struct AuthenticatorTests {
     @Test("The default registry writes today's bearer header")
     func defaultBearerIsUnchanged() throws {
         let built = try request(
-            SchemeInterface.Parameters(authentication: .bearer),
+            SchemeInterface.Request(authentication: .bearer),
             configuration: ServerConfiguration(url: testServerURL),
             credential: "abc123"
         )
@@ -426,7 +426,7 @@ struct AuthenticatorTests {
     @Test("The default registry writes today's token query item")
     func defaultURLAuthIsUnchanged() throws {
         let built = try request(
-            SchemeInterface.Parameters(authentication: .url),
+            SchemeInterface.Request(authentication: .url),
             configuration: ServerConfiguration(url: testServerURL),
             credential: "abc123"
         )
@@ -443,7 +443,7 @@ struct AuthenticatorTests {
         )
 
         let built = try request(
-            SchemeInterface.Parameters(authentication: .bearer),
+            SchemeInterface.Request(authentication: .bearer),
             configuration: configuration,
             credential: "key-1"
         )
@@ -460,7 +460,7 @@ struct AuthenticatorTests {
         )
 
         let built = try request(
-            SchemeInterface.Parameters(authentication: .url),
+            SchemeInterface.Request(authentication: .url),
             configuration: configuration,
             credential: "abc123"
         )
@@ -512,12 +512,12 @@ struct AuthenticatorTests {
         let configuration = ServerConfiguration(url: testServerURL)
 
         let authenticated = try request(
-            SchemeInterface.Parameters(authentication: .bearer),
+            SchemeInterface.Request(authentication: .bearer),
             configuration: configuration,
             credential: "abc123"
         )
         let anonymous = try request(
-            SchemeInterface.Parameters(authentication: nil),
+            SchemeInterface.Request(authentication: nil),
             configuration: configuration,
             credential: "abc123"
         )
@@ -533,7 +533,7 @@ struct AuthenticatorTests {
 
         #expect {
             _ = try request(
-                SchemeInterface.Parameters(authentication: .apiKey),
+                SchemeInterface.Request(authentication: .apiKey),
                 configuration: configuration
             )
         } throws: { error in
@@ -551,7 +551,7 @@ struct AuthenticatorTests {
         for scheme in [AuthenticationScheme.bearer, .url] {
             #expect {
                 _ = try request(
-                    SchemeInterface.Parameters(authentication: scheme),
+                    SchemeInterface.Request(authentication: scheme),
                     configuration: configuration,
                     credential: nil
                 )
@@ -567,7 +567,7 @@ struct AuthenticatorTests {
     @Test("A schemeless request needs no credential")
     func noneSchemeNeedsNoCredential() throws {
         let built = try request(
-            SchemeInterface.Parameters(authentication: nil),
+            SchemeInterface.Request(authentication: nil),
             configuration: ServerConfiguration(url: testServerURL),
             credential: nil
         )
@@ -584,7 +584,7 @@ struct AuthenticatorTests {
 
         #expect {
             _ = try request(
-                SchemeInterface.Parameters(authentication: .inert),
+                SchemeInterface.Request(authentication: .inert),
                 configuration: configuration
             )
         } throws: { error in
@@ -604,7 +604,7 @@ struct AuthenticatorTests {
 
         #expect {
             _ = try request(
-                SchemeInterface.Parameters(authentication: .leaky),
+                SchemeInterface.Request(authentication: .leaky),
                 configuration: configuration
             )
         } throws: { error in
@@ -623,7 +623,7 @@ struct AuthenticatorTests {
         )
 
         let built = try request(
-            SchemeInterface.Parameters(authentication: .urlSignature),
+            SchemeInterface.Request(authentication: .urlSignature),
             configuration: configuration,
             credential: "key"
         )
@@ -639,7 +639,7 @@ struct AuthenticatorTests {
 
         #expect {
             _ = try request(
-                SchemeInterface.Parameters(authentication: .url),
+                SchemeInterface.Request(authentication: .url),
                 configuration: configuration,
                 credential: "fresh"
             )
@@ -655,7 +655,7 @@ struct AuthenticatorTests {
     func endpointTokenCollides() {
         #expect {
             _ = try request(
-                SchemeInterface.Parameters(
+                SchemeInterface.Request(
                     authentication: .url,
                     queryItems: [URLQueryItem(name: "Token", value: "stale")]
                 ),
@@ -674,7 +674,7 @@ struct AuthenticatorTests {
     func callerAuthorizationHeaderCollides() {
         #expect {
             _ = try request(
-                SchemeInterface.Parameters(
+                SchemeInterface.Request(
                     authentication: .bearer,
                     headers: ["Authorization": "Custom caller-value"]
                 ),
@@ -692,7 +692,7 @@ struct AuthenticatorTests {
     @Test("A caller-supplied Authorization header is fine when the request declares no scheme")
     func callerAuthorizationHeaderWithoutSchemeIsFine() throws {
         let built = try request(
-            SchemeInterface.Parameters(
+            SchemeInterface.Request(
                 authentication: nil,
                 headers: ["Authorization": "Custom caller-value"]
             ),
@@ -712,7 +712,7 @@ struct AuthenticatorTests {
 
         #expect {
             _ = try request(
-                SchemeInterface.Parameters(authentication: .bearer),
+                SchemeInterface.Request(authentication: .bearer),
                 configuration: configuration,
                 credential: "abc123"
             )
@@ -730,7 +730,7 @@ struct AuthenticatorTests {
         )
 
         let built = try request(
-            SignedInterface.Parameters(),
+            SignedInterface.Request(),
             configuration: configuration,
             credential: "key"
         )
@@ -944,18 +944,18 @@ struct AuthenticationChallengePolicyTests {
 /// Builds a request from scratch and never mentions authentication, standing in for a builder
 /// whose author did not know a credential was expected of it.
 private struct CredentialObliviousBuilder: RequestBuilder {
-    func buildRequest<Parameters: RequestParameters>(
-        _ requestParameters: Parameters,
+    func buildRequest<Request: InterfaceRequest>(
+        _ interfaceRequest: Request,
         context: RequestContext
     ) throws(RequestError) -> URLRequest {
         let base = URLRequestBuilder()
 
         var components = try base.makeComponents(context: context)
-        base.applyPath(requestParameters.path, to: &components)
-        base.applyQueryItems(requestParameters.queryItems, to: &components)
+        base.applyPath(interfaceRequest.path, to: &components)
+        base.applyQueryItems(interfaceRequest.queryItems, to: &components)
 
         return try base.finishRequest(
-            requestParameters,
+            interfaceRequest,
             components: components,
             context: context
         )
@@ -965,11 +965,11 @@ private struct CredentialObliviousBuilder: RequestBuilder {
 /// Bakes in the header the bearer authenticator writes, so the collision check must still fire
 /// on a request the default pipeline never saw.
 private struct CollidingBuilder: RequestBuilder {
-    func buildRequest<Parameters: RequestParameters>(
-        _ requestParameters: Parameters,
+    func buildRequest<Request: InterfaceRequest>(
+        _ interfaceRequest: Request,
         context: RequestContext
     ) throws(RequestError) -> URLRequest {
-        var request = try URLRequestBuilder().buildRequest(requestParameters, context: context)
+        var request = try URLRequestBuilder().buildRequest(interfaceRequest, context: context)
         request.setValue("Bearer baked-in", forHTTPHeaderField: "Authorization")
         return request
     }
@@ -979,7 +979,7 @@ private struct CollidingBuilder: RequestBuilder {
 struct BuilderCredentialTests {
 
     private func request(
-        _ parameters: some RequestParameters,
+        _ parameters: some InterfaceRequest,
         builder: any RequestBuilder,
         authenticators: [AuthenticationScheme: any Authenticator]? = nil,
         credential: String? = "cred"
@@ -996,7 +996,7 @@ struct BuilderCredentialTests {
             }
 
         return try URLRequest(
-            requestParameters: parameters,
+            interfaceRequest: parameters,
             context: RequestContext(configuration: configuration, credential: credential)
         )
     }
@@ -1004,7 +1004,7 @@ struct BuilderCredentialTests {
     @Test("A builder that never mentions authentication still sends the bearer credential")
     func obliviousBuilderStillAuthenticates() throws {
         let built = try request(
-            SchemeInterface.Parameters(authentication: .bearer),
+            SchemeInterface.Request(authentication: .bearer),
             builder: CredentialObliviousBuilder(),
             credential: "abc123"
         )
@@ -1015,7 +1015,7 @@ struct BuilderCredentialTests {
     @Test("A builder that never mentions authentication still carries a URL credential")
     func obliviousBuilderStillCarriesURLCredential() throws {
         let built = try request(
-            SchemeInterface.Parameters(
+            SchemeInterface.Request(
                 authentication: .url,
                 queryItems: [URLQueryItem(name: "sort", value: "name")]
             ),
@@ -1030,7 +1030,7 @@ struct BuilderCredentialTests {
     func bakedInCredentialCollides() throws {
         #expect {
             try request(
-                SchemeInterface.Parameters(authentication: .bearer),
+                SchemeInterface.Request(authentication: .bearer),
                 builder: CollidingBuilder()
             )
         } throws: { error in
@@ -1045,7 +1045,7 @@ struct BuilderCredentialTests {
     func missingCredentialSurvivesACustomBuilder() throws {
         #expect {
             try request(
-                SchemeInterface.Parameters(authentication: .bearer),
+                SchemeInterface.Request(authentication: .bearer),
                 builder: CredentialObliviousBuilder(),
                 credential: nil
             )
@@ -1060,7 +1060,7 @@ struct BuilderCredentialTests {
     @Test("A signing authenticator reads the body a custom builder produced")
     func signingAuthenticatorSeesACustomBuilderSBody() throws {
         let built = try request(
-            SignedInterface.Parameters(),
+            SignedInterface.Request(),
             builder: CredentialObliviousBuilder(),
             authenticators: [.signature: BodySigningAuthenticator()],
             credential: "key"
@@ -1073,7 +1073,7 @@ struct BuilderCredentialTests {
     @Test("A request declaring no scheme is untouched by a custom builder's authentication pass")
     func noSchemeNeedsNoCredential() throws {
         let built = try request(
-            UnauthenticatedInterface.Parameters(),
+            UnauthenticatedInterface.Request(),
             builder: CredentialObliviousBuilder(),
             credential: nil
         )

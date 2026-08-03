@@ -122,7 +122,7 @@ struct CodingConfigurationTests {
     }
 
     struct LegacyOrderInterface: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path = "/legacy/orders/1"
             let queryItems: [URLQueryItem]? = nil
@@ -171,7 +171,7 @@ struct CodingConfigurationTests {
 
     @Test("A RequestBody overriding one strategy still receives the client's other rules")
     func testRequestBodyDerivesFromConfiguredEncoder() throws {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .post
             let path = "/legacy/orders"
             let queryItems: [URLQueryItem]? = nil
@@ -188,7 +188,7 @@ struct CodingConfigurationTests {
         )
 
         let request = try URLRequest(
-            requestParameters: Parameters(
+            interfaceRequest: Request(
                 body: LegacyOrderDraft(orderId: 7, placedAt: Self.epoch)
             ),
             context: context

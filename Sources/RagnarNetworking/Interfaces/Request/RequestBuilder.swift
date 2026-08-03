@@ -18,7 +18,7 @@ import Foundation
 /// Narrower seams cover most cases: register an `Authenticator` to change how a credential
 /// reaches the request, decorate the `Transport` to add behavior around the whole exchange, and
 /// set `ServerConfiguration.defaultHeaders` for cross-cutting headers. Conform here to change
-/// how a `URLRequest` is constructed from its parameters: path joining, query assembly, body
+/// how a `URLRequest` is constructed from its request: path joining, query assembly, body
 /// and header interplay.
 ///
 /// A builder that wants the default pipeline plus a targeted change delegates to
@@ -29,20 +29,20 @@ import Foundation
 ///     let tenant: String
 ///     private let base = URLRequestBuilder()
 ///
-///     func buildRequest<Parameters: RequestParameters>(
-///         _ requestParameters: Parameters,
+///     func buildRequest<Request: InterfaceRequest>(
+///         _ interfaceRequest: Request,
 ///         context: RequestContext
 ///     ) throws(RequestError) -> URLRequest {
 ///         var components = try base.makeComponents(context: context)
-///         base.applyPath("/\(tenant)\(requestParameters.path)", to: &components)
-///         base.applyQueryItems(requestParameters.queryItems, to: &components)
-///         return try base.finishRequest(requestParameters, components: components, context: context)
+///         base.applyPath("/\(tenant)\(interfaceRequest.path)", to: &components)
+///         base.applyQueryItems(interfaceRequest.queryItems, to: &components)
+///         return try base.finishRequest(interfaceRequest, components: components, context: context)
 ///     }
 /// }
 /// ```
 ///
 /// A builder returns an unauthenticated request.
-/// `URLRequest.init(requestParameters:context:)` applies the credential afterward.
+/// `URLRequest.init(interfaceRequest:context:)` applies the credential afterward.
 ///
 /// Builder invariants:
 /// - Preserve explicit `RequestError` failures for malformed configuration or invalid requests.
@@ -54,12 +54,12 @@ import Foundation
 ///   recurses until the stack overflows. Construct `URLRequestBuilder()` directly instead.
 ///
 /// - Note: Resolve headers through `context.resolvedHeaders(for:)` rather than reading
-///   `parameters.headers` directly, so the configuration's `defaultHeaders` cannot be dropped.
+///   `request.headers` directly, so the configuration's `defaultHeaders` cannot be dropped.
 public protocol RequestBuilder: Sendable {
 
-    /// Builds a `URLRequest` using the provided parameters and request context.
-    func buildRequest<Parameters: RequestParameters>(
-        _ requestParameters: Parameters,
+    /// Builds a `URLRequest` from the request and request context.
+    func buildRequest<Request: InterfaceRequest>(
+        _ interfaceRequest: Request,
         context: RequestContext
     ) throws(RequestError) -> URLRequest
 
@@ -75,7 +75,7 @@ public protocol RequestBuilder: Sendable {
 ///   → makeRequest → applyMethod → applyHeaders → applyBody
 /// ```
 ///
-/// No step here applies a credential. `URLRequest.init(requestParameters:context:)` runs
+/// No step here applies a credential. `URLRequest.init(interfaceRequest:context:)` runs
 /// `URLRequest.applyAuthentication(_:context:)` on the finished request, so an authenticator
 /// reads the final URL, method, headers, and body. See `Authenticator`.
 public struct URLRequestBuilder: RequestBuilder {
@@ -84,16 +84,16 @@ public struct URLRequestBuilder: RequestBuilder {
     /// inside a custom builder that delegates to a default pipeline step.
     public init() {}
 
-    public func buildRequest<Parameters: RequestParameters>(
-        _ requestParameters: Parameters,
+    public func buildRequest<Request: InterfaceRequest>(
+        _ interfaceRequest: Request,
         context: RequestContext
     ) throws(RequestError) -> URLRequest {
         var components = try makeComponents(context: context)
-        applyPath(requestParameters.path, to: &components)
-        applyQueryItems(requestParameters.queryItems, to: &components)
+        applyPath(interfaceRequest.path, to: &components)
+        applyQueryItems(interfaceRequest.queryItems, to: &components)
 
         return try finishRequest(
-            requestParameters,
+            interfaceRequest,
             components: components,
             context: context
         )
@@ -104,22 +104,22 @@ public struct URLRequestBuilder: RequestBuilder {
     ///
     /// For a custom builder that only changes URL assembly: build the components, then hand
     /// them here rather than reimplementing header and body handling.
-    public func finishRequest<Parameters: RequestParameters>(
-        _ requestParameters: Parameters,
+    public func finishRequest<Request: InterfaceRequest>(
+        _ interfaceRequest: Request,
         components: URLComponents,
         context: RequestContext
     ) throws(RequestError) -> URLRequest {
         let url = try makeURL(from: components)
         var request = makeRequest(url: url)
-        applyMethod(requestParameters.method, to: &request)
+        applyMethod(interfaceRequest.method, to: &request)
 
         applyHeaders(
-            context.resolvedHeaders(for: requestParameters),
+            context.resolvedHeaders(for: interfaceRequest),
             to: &request
         )
 
         try applyBody(
-            requestParameters.body,
+            interfaceRequest.body,
             encoder: context.requestEncoder,
             to: &request
         )

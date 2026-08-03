@@ -5,7 +5,7 @@ import Testing
 // MARK: - Test Interface
 
 private struct TestInterface: Interface {
-    struct Parameters: RequestParameters {
+    struct Request: InterfaceRequest {
         let method: RequestMethod
         let path: String
         let queryItems: [URLQueryItem]?
@@ -46,7 +46,7 @@ private struct BodyTestInterface: Interface {
         let userId: Int
     }
 
-    struct Parameters: RequestParameters {
+    struct Request: InterfaceRequest {
         let method: RequestMethod = .post
         let path: String = "/body-test"
         let queryItems: [URLQueryItem]? = nil
@@ -67,7 +67,7 @@ private struct BodyTestInterface: Interface {
 // MARK: - Snake Case Response Interface
 
 private struct SnakeCaseResponseInterface: Interface {
-    struct Parameters: RequestParameters {
+    struct Request: InterfaceRequest {
         let method: RequestMethod = .get
         let path: String = "/snake-case"
         let queryItems: [URLQueryItem]? = nil
@@ -371,7 +371,7 @@ struct APIClientTests {
             return "should-not-be-called"
         })
 
-        let params = TestInterface.Parameters(authentication: .none)
+        let params = TestInterface.Request(authentication: .none)
         _ = try await client.send(TestInterface.self, params)
 
         #expect(await tokenCounter.value == 0)
@@ -387,7 +387,7 @@ struct APIClientTests {
             transport: mock
         )
 
-        let params = TestInterface.Parameters(authentication: .none)
+        let params = TestInterface.Request(authentication: .none)
         let result = try await client.send(TestInterface.self, params)
 
         #expect(result.value == "public")
@@ -407,7 +407,7 @@ struct APIClientTests {
             return "my-bearer-token"
         })
 
-        let params = TestInterface.Parameters(authentication: .bearer)
+        let params = TestInterface.Request(authentication: .bearer)
         _ = try await client.send(TestInterface.self, params)
 
         #expect(await tokenCounter.value == 1)
@@ -429,7 +429,7 @@ struct APIClientTests {
             return "my-url-token"
         })
 
-        let params = TestInterface.Parameters(authentication: .url)
+        let params = TestInterface.Request(authentication: .url)
         _ = try await client.send(TestInterface.self, params)
 
         #expect(await tokenCounter.value == 1)
@@ -450,7 +450,7 @@ struct APIClientTests {
 
         let client = makeClient(mock: mock, token: { "tok" })
 
-        let params = TestInterface.Parameters(authentication: .bearer)
+        let params = TestInterface.Request(authentication: .bearer)
         let result = try await client.send(TestInterface.self, params)
 
         #expect(result.value == "hello")
@@ -473,7 +473,7 @@ struct APIClientTests {
             refresh: { await refreshCounter.increment() }
         )
 
-        let params = TestInterface.Parameters(authentication: .bearer)
+        let params = TestInterface.Request(authentication: .bearer)
         let result = try await client.send(TestInterface.self, params)
 
         #expect(result.value == "retried")
@@ -496,7 +496,7 @@ struct APIClientTests {
             refresh: { await refreshCounter.increment() }
         )
 
-        let params = TestInterface.Parameters(authentication: .bearer)
+        let params = TestInterface.Request(authentication: .bearer)
         await #expect(throws: ResponseError.self) {
             try await client.send(TestInterface.self, params)
         }
@@ -520,7 +520,7 @@ struct APIClientTests {
             refresh: { throw RefreshError() }
         )
 
-        let params = TestInterface.Parameters(authentication: .bearer)
+        let params = TestInterface.Request(authentication: .bearer)
         await #expect(throws: RefreshError.self) {
             try await client.send(TestInterface.self, params)
         }
@@ -542,7 +542,7 @@ struct APIClientTests {
             refresh: {}
         )
 
-        let params = TestInterface.Parameters(authentication: .bearer)
+        let params = TestInterface.Request(authentication: .bearer)
         _ = try await client.send(TestInterface.self, params)
 
         let requests = await mock.capturedRequests
@@ -578,7 +578,7 @@ struct APIClientTests {
             }
         )
 
-        let params = TestInterface.Parameters(authentication: .bearer)
+        let params = TestInterface.Request(authentication: .bearer)
 
         async let r1 = client.send(TestInterface.self, params)
         async let r2 = client.send(TestInterface.self, params)
@@ -626,7 +626,7 @@ struct APIClientTests {
             }
         )
 
-        let params = TestInterface.Parameters(authentication: .bearer)
+        let params = TestInterface.Request(authentication: .bearer)
 
         async let r1 = client.send(TestInterface.self, params)
         async let r2 = client.send(TestInterface.self, params)
@@ -659,7 +659,7 @@ struct APIClientTests {
             refresh: { await refreshCounter.increment() }
         )
 
-        let params = TestInterface.Parameters(authentication: .bearer)
+        let params = TestInterface.Request(authentication: .bearer)
         await #expect(throws: ResponseError.self) {
             try await client.send(TestInterface.self, params)
         }
@@ -683,7 +683,7 @@ struct APIClientTests {
 
         await client.invalidate()
 
-        let params = TestInterface.Parameters(authentication: .bearer)
+        let params = TestInterface.Request(authentication: .bearer)
         await #expect(throws: APIClientError.self) {
             try await client.send(TestInterface.self, params)
         }
@@ -699,7 +699,7 @@ struct APIClientTests {
         let mock = BlockingTransport(data: makeResponseData(), statusCode: 200)
         let client = makeClient(mock: mock, token: { "tok" })
 
-        let params = TestInterface.Parameters(authentication: .bearer)
+        let params = TestInterface.Request(authentication: .bearer)
         let sendTask = Task {
             try await client.send(TestInterface.self, params)
         }
@@ -737,7 +737,7 @@ struct APIClientTests {
             }
         )
 
-        let params = TestInterface.Parameters(authentication: .bearer)
+        let params = TestInterface.Request(authentication: .bearer)
         let sendTask = Task {
             try await client.send(TestInterface.self, params)
         }
@@ -764,7 +764,7 @@ struct APIClientTests {
         await client.invalidate()
         await client.invalidate()
 
-        let params = TestInterface.Parameters(authentication: .bearer)
+        let params = TestInterface.Request(authentication: .bearer)
         await #expect(throws: APIClientError.self) {
             try await client.send(TestInterface.self, params)
         }
@@ -783,7 +783,7 @@ struct APIClientTests {
         await mockB.enqueue(data: makeResponseData(value: "b"), statusCode: 200)
         let clientB = makeClient(mock: mockB, token: { "b" })
 
-        let params = TestInterface.Parameters(authentication: .bearer)
+        let params = TestInterface.Request(authentication: .bearer)
         let result = try await clientB.send(TestInterface.self, params)
 
         #expect(result.value == "b")
@@ -797,7 +797,7 @@ struct APIClientTests {
         let mock = BlockingTransport(data: makeResponseData(), statusCode: 200)
         let client = makeClient(mock: mock, token: { "token" })
 
-        let params = TestInterface.Parameters(authentication: .none)
+        let params = TestInterface.Request(authentication: .none)
         let task = Task { try await client.send(TestInterface.self, params) }
 
         await mock.waitUntilStarted()
@@ -830,7 +830,7 @@ struct APIClientTests {
             }
         )
 
-        let params = TestInterface.Parameters(authentication: .bearer)
+        let params = TestInterface.Request(authentication: .bearer)
         let task = Task { try await client.send(TestInterface.self, params) }
 
         await refreshStarted.wait()
@@ -863,7 +863,7 @@ struct APIClientTests {
             transport: mock
         )
 
-        let params = BodyTestInterface.Parameters(body: .init(BodyTestInterface.Payload(userId: 42)))
+        let params = BodyTestInterface.Request(body: .init(BodyTestInterface.Payload(userId: 42)))
         _ = try await client.send(BodyTestInterface.self, params)
 
         let requests = await mock.capturedRequests
@@ -880,12 +880,12 @@ struct APIClientTests {
         struct TaggingBuilder: RequestBuilder {
             let tag: String
 
-            func buildRequest<Parameters: RequestParameters>(
-                _ requestParameters: Parameters,
+            func buildRequest<Request: InterfaceRequest>(
+                _ interfaceRequest: Request,
                 context: RequestContext
             ) throws(RequestError) -> URLRequest {
                 var request = try URLRequestBuilder().buildRequest(
-                    requestParameters,
+                    interfaceRequest,
                     context: context
                 )
                 var current = request.allHTTPHeaderFields ?? [:]
@@ -906,7 +906,7 @@ struct APIClientTests {
             transport: mock
         )
 
-        let params = TestInterface.Parameters(authentication: .none)
+        let params = TestInterface.Request(authentication: .none)
         _ = try await client.send(TestInterface.self, params)
 
         let requests = await mock.capturedRequests
@@ -929,10 +929,10 @@ struct APIClientTests {
             transport: mock
         )
 
-        let params = TestInterface.Parameters(authentication: .none)
+        let params = TestInterface.Request(authentication: .none)
         _ = try await client.send(TestInterface.self, params)
 
-        let overriding = TestInterface.Parameters(
+        let overriding = TestInterface.Request(
             headers: ["Accept-Language": "fr-FR"],
             authentication: .none
         )
@@ -960,7 +960,7 @@ struct APIClientTests {
             transport: mock
         )
 
-        let params = SnakeCaseResponseInterface.Parameters()
+        let params = SnakeCaseResponseInterface.Request()
         let result = try await client.send(SnakeCaseResponseInterface.self, params)
 
         #expect(result.userId == 55)
