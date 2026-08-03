@@ -41,8 +41,6 @@ public enum SocketIOError: Error, Sendable, Equatable {
     case invalidArgumentCount(eventName: String, expected: Int, actual: Int)
     /// An event argument could not be decoded as its schema.
     case eventDecodingFailed(eventName: String, snapshot: SocketIODecodingErrorSnapshot)
-    /// An event contains a binary argument, which is outside the supported protocol scope.
-    case unsupportedBinaryArgument(eventName: String)
     /// A terminating stream policy dropped an event because its buffer was full.
     case bufferOverflow(eventName: String)
     /// An emission was attempted before the default namespace connected.
@@ -65,9 +63,6 @@ extension SocketIOError: LocalizedError {
 
         case .eventDecodingFailed(let eventName, let snapshot):
             "Socket event \(eventName) failed decoding with \(snapshot.category)."
-
-        case .unsupportedBinaryArgument(let eventName):
-            "Socket event \(eventName) contains an unsupported binary argument."
 
         case .bufferOverflow(let eventName):
             "Socket event \(eventName) exceeded its stream buffer."

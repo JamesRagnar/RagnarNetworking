@@ -97,16 +97,18 @@ struct EngineIOCodecTests {
 
     @Test("Message size validation uses UTF-8 byte count")
     func maximumPayload() throws {
-        try EngineIOPacket.message("é").validateMessageSize(maximum: 2)
-        #expect(throws: SocketIOProtocolError.messageExceedsMaximumPayload(limit: 1, actual: 2)) {
-            try EngineIOPacket.message("é").validateMessageSize(maximum: 1)
+        try EngineIOPacket.message("é").validateMessageSize(maximum: 3)
+        #expect(throws: SocketIOProtocolError.messageExceedsMaximumPayload(limit: 2, actual: 3)) {
+            try EngineIOPacket.message("é").validateMessageSize(maximum: 2)
+        }
+        #expect(throws: SocketIOProtocolError.messageExceedsMaximumPayload(limit: 5, actual: 6)) {
+            try EngineIOPacket.pong("probe").validateMessageSize(maximum: 5)
         }
     }
 
     @Test("Upgrade and noop remain distinguishable valid grammar")
-    func unsupportedFeatures() throws {
+    func transportControlPackets() throws {
         #expect(try EngineIOCodec.decode("5") == .upgrade)
         #expect(try EngineIOCodec.decode("6") == .noop)
-        #expect(!SocketIOProtocolError.unsupportedTransportFeature("upgrade").localizedDescription.isEmpty)
     }
 }

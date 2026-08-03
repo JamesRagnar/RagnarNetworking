@@ -10,8 +10,7 @@ enum EngineIOPacket: Sendable, Equatable {
     case noop
 
     func validateMessageSize(maximum: Int) throws {
-        guard case .message(let payload) = self else { return }
-        let actual = payload.utf8.count
+        let actual = try EngineIOCodec.encode(self).utf8.count
         guard actual <= maximum else {
             throw SocketIOProtocolError.messageExceedsMaximumPayload(limit: maximum, actual: actual)
         }

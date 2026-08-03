@@ -116,7 +116,7 @@ connection.
 
 ## Observe Status and Connect
 
-Subscribe to status before connecting when every transition is required.
+Subscribe before connecting to observe the client's initial connection state.
 
 ```swift
 let statuses = await client.statusUpdates()
@@ -132,6 +132,9 @@ try await client.connect(to: endpoint)
 `connect(to:)` validates the endpoint, changes the status to `.connecting`, and starts the connection task. It returns
 without waiting for the handshake. `.connected` is emitted only after the server sends the Socket.IO `CONNECT` packet
 for the default namespace.
+
+Each status stream retains only its newest pending value. A consumer that does not request values as quickly as status
+changes occur may skip intermediate states. Read the latest status as lifecycle state, not as an event log.
 
 Calling `connect(to:)` with the active endpoint while the client is connecting, connected, or reconnecting has no
 effect. A different valid endpoint starts a new connection generation.

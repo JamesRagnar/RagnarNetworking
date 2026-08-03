@@ -178,7 +178,9 @@ public actor SocketIOClient: SocketClient {
         return subscription.stream
     }
 
-    /// Creates a stream that emits the current status immediately, then every subsequent status change.
+    /// Creates a newest-value stream that emits the current status immediately.
+    ///
+    /// The stream retains one pending status. A slow consumer may skip intermediate states.
     public func statusUpdates() -> AsyncStream<SocketConnectionStatus> {
         let subscriptionID = UUID()
         let (stream, continuation) = AsyncStream<SocketConnectionStatus>.makeStream(

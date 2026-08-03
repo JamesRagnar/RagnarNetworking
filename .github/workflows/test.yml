@@ -43,17 +43,18 @@ jobs:
         run: swift test -Xswiftc -warnings-as-errors --explicit-target-dependency-import-check error
 
   platform-build:
-    name: Build (${{ matrix.platform }})
+    name: Build (${{ matrix.product }}, ${{ matrix.platform }})
     runs-on: macos-latest
     strategy:
       fail-fast: false
       matrix:
-        platform: [ios, watchos, visionos]
+        product: [RagnarNetworking, RagnarWebSocket, RagnarSocketIO]
+        platform: [iOS, tvOS, watchOS, visionOS]
     steps:
       - uses: actions/checkout@v4
       - name: Build
         run: |
-          xcodebuild -scheme RagnarNetworking \
+          xcodebuild -scheme "${{ matrix.product }}" \
             -destination "generic/platform=${{ matrix.platform }}" \
             build
 

@@ -18,8 +18,6 @@ public enum SocketIOProtocolError: Error, Sendable, Equatable {
     case invalidMaximumPayload
     /// An outgoing Engine.IO message exceeds the server's maximum payload.
     case messageExceedsMaximumPayload(limit: Int, actual: Int)
-    /// An Engine.IO packet requests a recognized but unsupported transport feature.
-    case unsupportedTransportFeature(String)
     /// A Socket.IO packet has no packet type.
     case missingSocketIOPacketType
     /// A Socket.IO packet begins with an unknown packet type.
@@ -75,9 +73,6 @@ extension SocketIOProtocolError: LocalizedError {
 
         case .messageExceedsMaximumPayload(let limit, let actual):
             "The Engine.IO message contains \(actual) bytes, exceeding the \(limit)-byte limit."
-
-        case .unsupportedTransportFeature(let feature):
-            "The Engine.IO transport feature \(feature) is unsupported."
 
         case .missingSocketIOPacketType:
             "The Socket.IO packet type is missing."

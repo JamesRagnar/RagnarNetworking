@@ -57,7 +57,7 @@ struct SocketIOClientLifecycleTests {
         try await completeHandshake(
             client: client,
             webSocket: webSocket,
-            openPayload: #"0{"sid":"session","upgrades":[],"pingInterval":25000,"pingTimeout":20000,"maxPayload":1}"#
+            openPayload: #"0{"sid":"session","upgrades":[],"pingInterval":25000,"pingTimeout":20000,"maxPayload":2}"#
         )
         await #expect(throws: SocketIOError.self) {
             try await client.emit(OutgoingNumberEvent.self, 1)

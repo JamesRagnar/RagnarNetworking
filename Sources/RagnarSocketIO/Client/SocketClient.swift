@@ -28,7 +28,7 @@ public protocol SocketClient: Actor {
         policy: SocketStreamPolicy?
     ) -> SocketEventStream<Event>
 
-    /// Creates an independent stream that immediately emits the current status, then later status changes.
+    /// Creates an independent newest-value stream that immediately emits the current status.
     func statusUpdates() -> AsyncStream<SocketConnectionStatus>
 }
 
