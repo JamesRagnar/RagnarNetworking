@@ -74,6 +74,43 @@ public struct SocketEventStream<Event: SocketEvent>: AsyncSequence, Sendable {
     }
 }
 
+/// A producer handle for a typed Socket.IO event stream.
+///
+/// Custom `SocketClient` implementations use a source to feed received arguments into the same decoding, buffering, and
+/// overflow behavior as `SocketIOClient`.
+public struct SocketEventStreamSource<Event: SocketEvent>: Sendable {
+    /// The typed stream returned to the event consumer.
+    public let stream: SocketEventStream<Event>
+
+    let continuation: SocketEventContinuation
+
+    init(
+        stream: SocketEventStream<Event>,
+        continuation: SocketEventContinuation
+    ) {
+        self.stream = stream
+        self.continuation = continuation
+    }
+
+    /// Feeds one ordered argument list into the stream.
+    ///
+    /// Returns `false` when the stream has terminated, including termination caused by lossless buffer overflow.
+    @discardableResult
+    public func yield(arguments: [SocketIOArgument]) -> Bool {
+        continuation.yield(arguments)
+    }
+
+    /// Finishes the stream normally.
+    public func finish() {
+        continuation.finish()
+    }
+
+    /// Finishes the stream with `error`.
+    public func finish(throwing error: any Error) {
+        continuation.finish(throwing: error)
+    }
+}
+
 struct SocketEventContinuation: Sendable {
     private let eventName: String
     private let overflow: SocketStreamPolicy.Overflow
@@ -113,6 +150,26 @@ struct SocketEventContinuation: Sendable {
 }
 
 extension SocketEventStream {
+    /// Creates a typed stream and its producer source.
+    ///
+    /// Use this factory when implementing `SocketClient`. Values fed through the source retain the selected buffering,
+    /// overflow, event decoding, and termination behavior.
+    public static func makeStream(
+        policy: SocketStreamPolicy = Event.defaultStreamPolicy,
+        decoder: SocketEventDecoder = .default,
+        onTermination: @escaping @Sendable () -> Void = {}
+    ) -> SocketEventStreamSource<Event> {
+        let subscription = make(
+            policy: policy,
+            decoder: decoder,
+            onTermination: onTermination
+        )
+        return SocketEventStreamSource(
+            stream: subscription.stream,
+            continuation: subscription.continuation
+        )
+    }
+
     static func make(
         policy: SocketStreamPolicy,
         decoder: SocketEventDecoder,

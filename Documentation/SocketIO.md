@@ -174,6 +174,13 @@ Available policies are:
 
 Bounded capacities must be greater than zero.
 
+## Implement a Custom Client
+
+External `SocketClient` implementations create subscriptions with `SocketEventStream.makeStream(...)`. Return the
+source's `stream` from `events(for:policy:)`, then use the source to yield ordered Socket.IO arguments or finish the
+subscription. The source applies the selected buffering, overflow, decoding, and termination behavior without exposing
+an `AsyncThrowingStream` continuation.
+
 ## Emit Events
 
 Emission requires `.connected` status and an `EmittableSocketEvent` contract.
