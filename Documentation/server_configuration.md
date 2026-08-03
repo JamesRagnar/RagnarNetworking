@@ -95,7 +95,7 @@ let config = ServerConfiguration(
 )
 ```
 
-The configured decoder reaches every body the client reads: success bodies, typed error bodies declared with `ResponseOutcome.decodeError`, and `ResponseError.decodeError(as:)` at a catch site. See [Response Handling](Interfaces/response_handling.md#response-decoder).
+The configured decoder reaches every body the client reads: success bodies, typed error bodies declared with `FailureOutcome.decodeError`, and `ResponseError.decodeError(as:)` at a catch site. See [Response Handling](Interfaces/response_handling.md#response-decoder).
 
 ## Default Headers
 

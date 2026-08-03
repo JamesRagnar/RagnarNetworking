@@ -196,7 +196,7 @@ The credential is still applied, because that follows `authentication`.
 
 ```swift
 public struct AuthenticationChallengePolicy: Sendable {
-    public let isChallenge: @Sendable (ResponseError, ResponseMap) -> Bool
+    public let isChallenge: @Sendable (ResponseError, ResponseStatusContract) -> Bool
 
     public static let unmodelled401: AuthenticationChallengePolicy  // the default
     public static let any401: AuthenticationChallengePolicy
@@ -214,7 +214,7 @@ let configuration = ServerConfiguration(
 )
 ```
 
-The policy receives the Interface's `responseCases` so it can ask what the endpoint declared. Inferring that from the thrown `ResponseError` case instead would tie the policy to `DefaultResponseHandler`'s error mapping, which a custom `ResponseHandler` may change.
+The policy receives the Interface's output-erased response statuses so it can ask what the endpoint declared. Inferring that from the thrown `ResponseError` case instead would tie the policy to `DefaultResponseHandler`'s error mapping, which a custom `ResponseHandler` may change.
 
 ### `.unmodelled401`
 
@@ -225,15 +225,15 @@ An endpoint that models 401 surfaces its own error rather than refreshing, which
 A range match does not count as modelling 401:
 
 ```swift
-static let responseCases: ResponseMap = [
-    .code(200, .decode),
-    .clientError(.decodeError(APIErrorBody.self))   // still refreshes on 401
-]
+static let responses = ResponseContract<Response>(
+    success: .exact(200),
+    failures: [.clientError(.decodeError(APIErrorBody.self))] // still refreshes on 401
+)
 
-static let responseCases: ResponseMap = [
-    .code(200, .decode),
-    .code(401, .decodeError(LoginError.self))       // does not refresh
-]
+static let responses = ResponseContract<Response>(
+    success: .exact(200),
+    failures: [.code(401, .decodeError(LoginError.self))] // does not refresh
+)
 ```
 
 `.clientError` is a catch-all for status codes the endpoint did not consider, 401 included.

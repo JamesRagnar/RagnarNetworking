@@ -982,7 +982,7 @@ struct URLRequestInterfaceTests {
                 let authentication: AuthenticationScheme? = nil
             }
             struct Response: Decodable, Sendable, InterfaceResponse {}
-            static var responseCases: ResponseMap { [.code(200, .decode)] }
+            static let responses = ResponseContract<Response>(success: .exact(200))
         }
 
         let url = URL(string: "https://api.example.com")!

@@ -21,7 +21,7 @@ public protocol ResponseHandler: Sendable {
     ///   - context: The decoder to use for every body, including typed error bodies, and the
     ///     query item names to strip from any `HTTPResponseSnapshot` the handler captures.
     ///
-    /// - Important: Surface a status code the Interface's `responseCases` does not match as
+    /// - Important: Surface a status code the Interface's `responses` does not match as
     ///   `ResponseError.unknownResponseCase`. Consumers, including
     ///   `AuthenticationChallengePolicy`, distinguish it from a mapped failure.
     func handle<T: Interface>(

@@ -133,7 +133,7 @@ struct CodingConfigurationTests {
 
         typealias Response = LegacyOrder
 
-        static let responseCases: ResponseMap = [.code(200, .decode)]
+        static let responses = ResponseContract<Response>(success: .exact(200))
     }
 
     @Test("An InterfaceResponse overriding one strategy still receives the client's other rules")

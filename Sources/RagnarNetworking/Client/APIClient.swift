@@ -82,7 +82,7 @@ public actor APIClient {
     /// A request whose `InterfaceRequest.refreshesOnChallenge` is `true` is retried once after
     /// a challenge: `refresh` fires, then `token` is re-evaluated for the retry.
     /// `ServerConfiguration.challengePolicy` decides what counts as a challenge and receives the
-    /// Interface's `responseCases`, so an endpoint that models the challenge status code
+    /// Interface's response statuses, so an endpoint that models the challenge status code
     /// surfaces its own error instead.
     ///
     /// - Throws: `APIClientError.invalidated` if the client has been invalidated. The
@@ -104,7 +104,7 @@ public actor APIClient {
             return try await execute(type, params, credential: currentCredential)
         } catch let err as ResponseError where configuration.challengePolicy.isChallenge(
             err,
-            T.responseCases
+            T.responses.statuses
         ) {
             try checkValid()
             // If a refresh has already completed since this request read its token,

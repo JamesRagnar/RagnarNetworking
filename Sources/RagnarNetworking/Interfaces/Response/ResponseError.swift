@@ -17,7 +17,7 @@ public enum ResponseError: LocalizedError, Sendable, CustomStringConvertible, Cu
     /// The response could not be cast to HTTPURLResponse
     case unknownResponse(ResponseBody, HTTPResponseSnapshot)
 
-    /// The HTTP status code is not defined in the Interface's response cases
+    /// The HTTP status code is not defined in the Interface's response contract
     case unknownResponseCase(ResponseBody, HTTPResponseSnapshot)
 
     /// The response body could not be decoded to the expected type
@@ -160,7 +160,7 @@ public extension ResponseError {
 
     /// Attempts to decode the error response body as a structured error type.
     ///
-    /// If the error was created with `ResponseOutcome.decodeError`, this method will
+    /// If the error was created with `FailureOutcome.decodeError`, this method will
     /// return the already-decoded error when it matches the requested type.
     ///
     /// Many APIs return structured error responses (e.g., `{"error": "message", "code": 123}`).

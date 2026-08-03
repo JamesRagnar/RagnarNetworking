@@ -34,9 +34,7 @@ private struct TestInterface: Interface {
         let value: String
     }
 
-    static var responseCases: ResponseMap {
-        [.code(200, .decode)]
-    }
+    static let responses = ResponseContract<Response>(success: .exact(200))
 }
 
 // MARK: - Body Test Interface
@@ -59,9 +57,7 @@ private struct BodyTestInterface: Interface {
         let value: String
     }
 
-    static var responseCases: ResponseMap {
-        [.code(200, .decode)]
-    }
+    static let responses = ResponseContract<Response>(success: .exact(200))
 }
 
 // MARK: - Snake Case Response Interface
@@ -80,9 +76,7 @@ private struct SnakeCaseResponseInterface: Interface {
         let userId: Int
     }
 
-    static var responseCases: ResponseMap {
-        [.code(200, .decode)]
-    }
+    static let responses = ResponseContract<Response>(success: .exact(200))
 }
 
 // MARK: - Token Store
