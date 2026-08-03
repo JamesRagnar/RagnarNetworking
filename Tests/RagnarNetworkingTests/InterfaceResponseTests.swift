@@ -20,7 +20,7 @@ struct InterfaceResponseTests {
     }
 
     struct TestInterface: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path = "/test"
             let queryItems: [URLQueryItem]? = nil
@@ -43,7 +43,7 @@ struct InterfaceResponseTests {
     }
 
     struct StringInterface: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path = "/string"
             let queryItems: [URLQueryItem]? = nil
@@ -60,7 +60,7 @@ struct InterfaceResponseTests {
     }
 
     struct DataInterface: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path = "/data"
             let queryItems: [URLQueryItem]? = nil
@@ -77,7 +77,7 @@ struct InterfaceResponseTests {
     }
 
     struct NoContentInterface: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path = "/no-content"
             let queryItems: [URLQueryItem]? = nil
@@ -94,7 +94,7 @@ struct InterfaceResponseTests {
     }
 
     struct NoContentStringInterface: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path = "/no-content-string"
             let queryItems: [URLQueryItem]? = nil
@@ -111,7 +111,7 @@ struct InterfaceResponseTests {
     }
 
     struct NoContentJSONInterface: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path = "/no-content-json"
             let queryItems: [URLQueryItem]? = nil
@@ -128,7 +128,7 @@ struct InterfaceResponseTests {
     }
 
     struct EmptyDecodeInterface: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path = "/empty-decode"
             let queryItems: [URLQueryItem]? = nil
@@ -149,7 +149,7 @@ struct InterfaceResponseTests {
     }
 
     struct SnakeCaseInterface: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path = "/snake-case"
             let queryItems: [URLQueryItem]? = nil
@@ -170,7 +170,7 @@ struct InterfaceResponseTests {
     }
 
     struct DatedInterface: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path = "/dated"
             let queryItems: [URLQueryItem]? = nil
@@ -187,7 +187,7 @@ struct InterfaceResponseTests {
     }
 
     struct CustomHandlerInterface: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path = "/custom-handler"
             let queryItems: [URLQueryItem]? = nil
@@ -240,7 +240,7 @@ struct InterfaceResponseTests {
     }
 
     struct RangeInterface: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path = "/range"
             let queryItems: [URLQueryItem]? = nil
@@ -257,7 +257,7 @@ struct InterfaceResponseTests {
     }
 
     struct OverlapInterface: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path = "/overlap"
             let queryItems: [URLQueryItem]? = nil
@@ -277,7 +277,7 @@ struct InterfaceResponseTests {
     }
 
     struct DecodeErrorInterface: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path = "/decode-error"
             let queryItems: [URLQueryItem]? = nil
@@ -311,7 +311,7 @@ struct InterfaceResponseTests {
     }
 
     struct SnakeCaseDecodeErrorInterface: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path = "/snake-case-decode-error"
             let queryItems: [URLQueryItem]? = nil
@@ -335,7 +335,7 @@ struct InterfaceResponseTests {
     }
 
     struct ThrowingDecodeErrorInterface: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path = "/decode-error-throws"
             let queryItems: [URLQueryItem]? = nil
@@ -370,7 +370,7 @@ struct InterfaceResponseTests {
     }
 
     struct NoContentCustomDecodableInterface: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path = "/no-content-custom-decoding"
             let queryItems: [URLQueryItem]? = nil
@@ -387,7 +387,7 @@ struct InterfaceResponseTests {
     }
 
     struct RangeOrderInterface: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path = "/range-order"
             let queryItems: [URLQueryItem]? = nil
@@ -656,7 +656,7 @@ struct InterfaceResponseTests {
     @Test("Matches HTTP category shortcuts")
     func testCategoryShortcutMatching() {
         struct CategoryInterface: Interface {
-            struct Parameters: RequestParameters {
+            struct Request: InterfaceRequest {
                 let method: RequestMethod = .get
                 let path = "/category"
                 let queryItems: [URLQueryItem]? = nil
@@ -1099,7 +1099,7 @@ struct InterfaceResponseTests {
         }
 
         struct NestedInterface: Interface {
-            struct Parameters: RequestParameters {
+            struct Request: InterfaceRequest {
                 let method: RequestMethod = .get
                 let path = "/nested"
                 let queryItems: [URLQueryItem]? = nil
@@ -1142,7 +1142,7 @@ struct InterfaceResponseTests {
     @Test("Handles array responses")
     func testArrayResponse() throws {
         struct ArrayInterface: Interface {
-            struct Parameters: RequestParameters {
+            struct Request: InterfaceRequest {
                 let method: RequestMethod = .get
                 let path = "/array"
                 let queryItems: [URLQueryItem]? = nil
@@ -1182,7 +1182,7 @@ struct InterfaceResponseTests {
     @Test("Handles empty JSON object")
     func testEmptyJSONObject() throws {
         struct EmptyInterface: Interface {
-            struct Parameters: RequestParameters {
+            struct Request: InterfaceRequest {
                 let method: RequestMethod = .get
                 let path = "/empty"
                 let queryItems: [URLQueryItem]? = nil
@@ -1229,7 +1229,7 @@ struct InterfaceResponseTests {
     @Test("Handles no-content success with EmptyResponse")
     func testNoContentEmptyResponse() throws {
         struct EmptyInterface: Interface {
-            struct Parameters: RequestParameters {
+            struct Request: InterfaceRequest {
                 let method: RequestMethod = .get
                 let path = "/no-content"
                 let queryItems: [URLQueryItem]? = nil
@@ -1357,7 +1357,7 @@ struct InterfaceResponseTests {
     @Test("Composed ResponseHandler produces the same result as the default handler for a no-body success")
     func testComposedHandlerMatchesDefaultForNoBodySuccess() throws {
         struct NoContentEmptyInterface: Interface {
-            struct Parameters: RequestParameters {
+            struct Request: InterfaceRequest {
                 let method: RequestMethod = .get
                 let path = "/no-content-empty"
                 let queryItems: [URLQueryItem]? = nil
@@ -1581,7 +1581,7 @@ struct InterfaceResponseTests {
     }
 
     struct CSVInterface: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path = "/report.csv"
             let queryItems: [URLQueryItem]? = nil
@@ -1635,7 +1635,7 @@ struct InterfaceResponseTests {
     }
 
     struct CountInterface: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path = "/count"
             let queryItems: [URLQueryItem]? = nil
@@ -1757,7 +1757,7 @@ struct InterfaceResponseTests {
     // MARK: - Built-in InterfaceResponse Conformances
 
     struct CollectionInterface<T: InterfaceResponse & Sendable>: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path = "/collection"
             let queryItems: [URLQueryItem]? = nil
@@ -1857,7 +1857,7 @@ struct InterfaceResponseTests {
     }
 
     struct PagedInterface: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path = "/names"
             let queryItems: [URLQueryItem]? = nil
@@ -1906,7 +1906,7 @@ struct InterfaceResponseTests {
         }
 
         struct EchoInterface: Interface {
-            struct Parameters: RequestParameters {
+            struct Request: InterfaceRequest {
                 let method: RequestMethod = .delete
                 let path = "/thing"
                 let queryItems: [URLQueryItem]? = nil

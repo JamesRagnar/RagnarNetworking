@@ -13,7 +13,7 @@ struct User: Codable, InterfaceResponse {
 }
 
 struct GetUserInterface: Interface {
-    struct Parameters: RequestParameters {
+    struct Request: InterfaceRequest {
         let method: RequestMethod = .get
         let path: String
         let queryItems: [URLQueryItem]? = nil
@@ -67,7 +67,7 @@ let user = try await client.send(
 - [RequestPipeline and Transport](Documentation/request_pipeline.md)
 - [Server Configuration](Documentation/server_configuration.md)
 - [Interfaces Overview](Documentation/Interfaces/README.md)
-- [Request Parameters](Documentation/Interfaces/request_parameters.md)
+- [Interface Request](Documentation/Interfaces/interface_request.md)
 - [Response Handling](Documentation/Interfaces/response_handling.md)
 - [Request Builder](Documentation/Interfaces/request_builder.md)
 - [Error Handling](Documentation/error_handling.md)

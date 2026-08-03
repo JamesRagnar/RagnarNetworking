@@ -7,8 +7,8 @@ This guide explains how `RequestBuilder` acts as the request-construction extens
 `RequestBuilder` has one requirement:
 
 ```swift
-func buildRequest<Parameters: RequestParameters>(
-    _ requestParameters: Parameters,
+func buildRequest<Request: InterfaceRequest>(
+    _ interfaceRequest: Request,
     context: RequestContext
 ) throws(RequestError) -> URLRequest
 ```
@@ -22,7 +22,7 @@ Builders are values, not metatypes, so a builder can carry its own state - a req
 - **How a credential reaches the request** is an `Authenticator` on `ServerConfiguration.authenticators`. See [Authentication](authentication.md).
 - **Behavior around the whole request/response exchange** - logging, retries, metrics, offline queuing, request signing - is a `Transport` decorator, this package's middleware seam. See [Transport Decoration](../request_pipeline.md#transport-decoration).
 - **Cross-cutting headers** are `ServerConfiguration.defaultHeaders`.
-- **Per-request behavior** is a plain `RequestParameters` value.
+- **Per-request behavior** is a plain `InterfaceRequest` value.
 
 Write a builder to change how a `URLRequest` is constructed from its parameters: path joining, query assembly, body and header interplay.
 
@@ -41,7 +41,7 @@ makeComponents → applyPath → applyQueryItems → makeURL
 
 ## Authentication
 
-No builder step applies a credential. `URLRequest.init(requestParameters:context:)` runs two things in order: the configuration's builder, then `URLRequest.applyAuthentication(_:context:)` on the request it returned. A builder that never mentions `AuthenticationScheme` still produces authenticated requests.
+No builder step applies a credential. `URLRequest.init(interfaceRequest:context:)` runs two things in order: the configuration's builder, then `URLRequest.applyAuthentication(_:context:)` on the request it returned. A builder that never mentions `AuthenticationScheme` still produces authenticated requests.
 
 The authenticator therefore reads the final URL, method, headers, and body. Query items land before header fields, so a signing `headers(for:on:)` sees the URL its own `queryItems(for:on:)` produced.
 
@@ -64,11 +64,11 @@ Run the default pipeline, then adjust the result:
 struct ClientTaggingBuilder: RequestBuilder {
     let clientID: String
 
-    func buildRequest<Parameters: RequestParameters>(
-        _ requestParameters: Parameters,
+    func buildRequest<Request: InterfaceRequest>(
+        _ interfaceRequest: Request,
         context: RequestContext
     ) throws(RequestError) -> URLRequest {
-        var request = try URLRequestBuilder().buildRequest(requestParameters, context: context)
+        var request = try URLRequestBuilder().buildRequest(interfaceRequest, context: context)
 
         var current = request.allHTTPHeaderFields ?? [:]
         current["X-Client"] = clientID
@@ -87,21 +87,21 @@ Run the steps before it, then hand off. `finishRequest` runs everything from URL
 struct TenantPrefixBuilder: RequestBuilder {
     let tenant: String
 
-    func buildRequest<Parameters: RequestParameters>(
-        _ requestParameters: Parameters,
+    func buildRequest<Request: InterfaceRequest>(
+        _ interfaceRequest: Request,
         context: RequestContext
     ) throws(RequestError) -> URLRequest {
         let base = URLRequestBuilder()
 
         var components = try base.makeComponents(context: context)
-        base.applyPath("/\(tenant)\(requestParameters.path)", to: &components)
-        base.applyQueryItems(requestParameters.queryItems, to: &components)
+        base.applyPath("/\(tenant)\(interfaceRequest.path)", to: &components)
+        base.applyQueryItems(interfaceRequest.queryItems, to: &components)
         components.queryItems = (components.queryItems ?? []) + [
             URLQueryItem(name: "client", value: "ios")
         ]
 
         return try base.finishRequest(
-            requestParameters,
+            interfaceRequest,
             components: components,
             context: context
         )

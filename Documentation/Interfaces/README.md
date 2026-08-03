@@ -4,8 +4,8 @@ This directory documents the Interface modeling layer: how requests are defined,
 
 ## Overview
 
-An `Interface` pairs request parameters with response handling. Most usage follows this flow:
-1. Define `Interface` and nested `Parameters`.
+An `Interface` pairs a request with response handling. Most usage follows this flow:
+1. Define `Interface` and nested `Request`.
 2. Execute via `APIClient` or directly via `RequestPipeline`.
 
 ## Example
@@ -17,7 +17,7 @@ struct User: Codable, InterfaceResponse {
 }
 
 struct GetUserInterface: Interface {
-    struct Parameters: RequestParameters {
+    struct Request: InterfaceRequest {
         let method: RequestMethod = .get
         let path: String
         let queryItems: [URLQueryItem]? = nil
@@ -125,7 +125,7 @@ Conform directly for a response that is not JSON, or one whose value depends on 
 
 ## Interface Genericity
 
-`Interface` has two associated types (`Parameters` and `Response`), and `APIClient.send`/`RequestPipeline.send` return `T.Response`. `any Interface` cannot be used as a dispatch type - a heterogeneous collection of Interfaces (for example `[any Interface]`, for a request queue) does not type-check, because the associated types make the protocol non-existential for that purpose.
+`Interface` has two associated types (`Request` and `Response`), and `APIClient.send`/`RequestPipeline.send` return `T.Response`. `any Interface` cannot be used as a dispatch type - a heterogeneous collection of Interfaces (for example `[any Interface]`, for a request queue) does not type-check, because the associated types make the protocol non-existential for that purpose.
 
 To hold heterogeneous Interfaces, erase the call site behind a closure instead of the Interface type itself:
 
@@ -141,7 +141,7 @@ let queued = QueuedRequest { client in
 
 ## Guides
 
-- [Request Parameters](request_parameters.md)
+- [Interface Request](interface_request.md)
 - [Response Handling](response_handling.md)
 - [Request Builder](request_builder.md)
 - [Authentication](authentication.md)

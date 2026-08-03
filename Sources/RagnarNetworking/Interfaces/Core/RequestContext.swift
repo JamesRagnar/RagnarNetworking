@@ -64,7 +64,7 @@ public struct RequestContext: Sendable {
     }
 
     /// The configuration's `defaultHeaders` overlaid with the request's own headers.
-    public func resolvedHeaders(for parameters: some RequestParameters) -> [String: String] {
+    public func resolvedHeaders(for parameters: some InterfaceRequest) -> [String: String] {
         configuration.resolvedHeaders(for: parameters)
     }
 

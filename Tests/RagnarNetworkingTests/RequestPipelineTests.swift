@@ -20,7 +20,7 @@ struct RequestPipelineTests {
     }
 
     struct TestInterface: Interface {
-        struct Parameters: RequestParameters {
+        struct Request: InterfaceRequest {
             let method: RequestMethod = .get
             let path: String
             let queryItems: [URLQueryItem]? = nil
@@ -91,7 +91,7 @@ struct RequestPipelineTests {
     func testPipelineSuccess() async throws {
         let url = URL(string: "https://api.example.com")!
         let context = RequestContext(configuration: ServerConfiguration(url: url))
-        let params = TestInterface.Parameters(path: "/users/1")
+        let params = TestInterface.Request(path: "/users/1")
 
         let responseData = """
         {"id": 1, "name": "John Doe"}
@@ -120,7 +120,7 @@ struct RequestPipelineTests {
     func testPipelineErrorResponse() async throws {
         let url = URL(string: "https://api.example.com")!
         let context = RequestContext(configuration: ServerConfiguration(url: url))
-        let params = TestInterface.Parameters(path: "/users/999")
+        let params = TestInterface.Request(path: "/users/999")
 
         let transport = MockTransport()
         await transport.setMockResponse(data: Data(), statusCode: 404, url: url)
@@ -139,7 +139,7 @@ struct RequestPipelineTests {
     func testPipelineNetworkError() async throws {
         let url = URL(string: "https://api.example.com")!
         let context = RequestContext(configuration: ServerConfiguration(url: url))
-        let params = TestInterface.Parameters(path: "/test")
+        let params = TestInterface.Request(path: "/test")
 
         let transport = MockTransport()
         await transport.setError(TestError.networkError)
@@ -169,7 +169,7 @@ struct RequestPipelineTests {
         )
 
         struct AuthInterface: Interface {
-            struct Parameters: RequestParameters {
+            struct Request: InterfaceRequest {
                 let method: RequestMethod = .get
                 let path = "/secure"
                 let queryItems: [URLQueryItem]? = nil
@@ -185,7 +185,7 @@ struct RequestPipelineTests {
             }
         }
 
-        let params = AuthInterface.Parameters()
+        let params = AuthInterface.Request()
         let responseData = """
         {"id": 1, "name": "Secure Data"}
         """.data(using: .utf8)!
@@ -210,12 +210,12 @@ struct RequestPipelineTests {
     @Test("Uses a custom RequestBuilder when provided")
     func testCustomBuilderIsUsed() async throws {
         struct CustomBuilder: RequestBuilder {
-            func buildRequest<Parameters: RequestParameters>(
-                _ requestParameters: Parameters,
+            func buildRequest<Request: InterfaceRequest>(
+                _ interfaceRequest: Request,
                 context: RequestContext
             ) throws(RequestError) -> URLRequest {
                 var request = try URLRequestBuilder().buildRequest(
-                    requestParameters,
+                    interfaceRequest,
                     context: context
                 )
 
@@ -233,7 +233,7 @@ struct RequestPipelineTests {
                 builder: CustomBuilder()
             )
         )
-        let params = TestInterface.Parameters(path: "/users/1")
+        let params = TestInterface.Request(path: "/users/1")
 
         let responseData = """
         {"id": 1, "name": "John Doe"}
@@ -283,7 +283,7 @@ struct RequestPipelineTests {
     func testTransportDecoratorAddsHeader() async throws {
         let url = URL(string: "https://api.example.com")!
         let context = RequestContext(configuration: ServerConfiguration(url: url))
-        let params = TestInterface.Parameters(path: "/users/1")
+        let params = TestInterface.Request(path: "/users/1")
 
         let responseData = #"{"id": 1, "name": "John Doe"}"#.data(using: .utf8)!
 
@@ -304,7 +304,7 @@ struct RequestPipelineTests {
     func testTransportDecoratorsCompose() async throws {
         let url = URL(string: "https://api.example.com")!
         let context = RequestContext(configuration: ServerConfiguration(url: url))
-        let params = TestInterface.Parameters(path: "/users/1")
+        let params = TestInterface.Request(path: "/users/1")
 
         let responseData = #"{"id": 1, "name": "John Doe"}"#.data(using: .utf8)!
 
@@ -328,7 +328,7 @@ struct RequestPipelineTests {
     @Test("A Transport decorator sees the credential the pipeline applied")
     func testTransportDecoratorSeesAuthenticatedRequest() async throws {
         struct SecureInterface: Interface {
-            struct Parameters: RequestParameters {
+            struct Request: InterfaceRequest {
                 let method: RequestMethod = .get
                 let path = "/secure"
                 let queryItems: [URLQueryItem]? = nil
@@ -347,7 +347,7 @@ struct RequestPipelineTests {
             configuration: ServerConfiguration(url: url),
             credential: "test-token"
         )
-        let params = SecureInterface.Parameters()
+        let params = SecureInterface.Request()
 
         let responseData = #"{"id": 1, "name": "Secure Data"}"#.data(using: .utf8)!
 
@@ -370,17 +370,17 @@ struct RequestPipelineTests {
         // Headers are resolved by ServerConfiguration, not by the default pipeline, so even a
         // builder that replaces buildRequest wholesale cannot silently drop defaultHeaders.
         struct ReimplementingBuilder: RequestBuilder {
-            func buildRequest<Parameters: RequestParameters>(
-                _ requestParameters: Parameters,
+            func buildRequest<Request: InterfaceRequest>(
+                _ interfaceRequest: Request,
                 context: RequestContext
             ) throws(RequestError) -> URLRequest {
                 let base = URLRequestBuilder()
                 var components = try base.makeComponents(context: context)
-                base.applyPath(requestParameters.path, to: &components)
+                base.applyPath(interfaceRequest.path, to: &components)
                 var request = base.makeRequest(url: try base.makeURL(from: components))
-                base.applyMethod(requestParameters.method, to: &request)
+                base.applyMethod(interfaceRequest.method, to: &request)
                 base.applyHeaders(
-                    context.resolvedHeaders(for: requestParameters),
+                    context.resolvedHeaders(for: interfaceRequest),
                     to: &request
                 )
                 return request
@@ -395,7 +395,7 @@ struct RequestPipelineTests {
                 builder: ReimplementingBuilder()
             )
         )
-        let params = TestInterface.Parameters(path: "/users/1")
+        let params = TestInterface.Request(path: "/users/1")
 
         let responseData = #"{"id": 1, "name": "John Doe"}"#.data(using: .utf8)!
 
@@ -416,7 +416,7 @@ struct RequestPipelineTests {
         }
 
         struct SnakeCaseInterface: Interface {
-            struct Parameters: RequestParameters {
+            struct Request: InterfaceRequest {
                 let method: RequestMethod = .get
                 let path = "/snake-case"
                 let queryItems: [URLQueryItem]? = nil
@@ -439,7 +439,7 @@ struct RequestPipelineTests {
                 responseDecoder: ResponseDecoder(keyDecodingStrategy: .convertFromSnakeCase)
             )
         )
-        let params = SnakeCaseInterface.Parameters()
+        let params = SnakeCaseInterface.Request()
 
         let responseData = #"{"user_id": 55}"#.data(using: .utf8)!
 
@@ -469,7 +469,7 @@ struct RequestPipelineTests {
                 responseDecoder: ResponseDecoder(keyDecodingStrategy: .convertFromSnakeCase)
             )
         )
-        let params = TestInterface.Parameters(path: "/users/999")
+        let params = TestInterface.Request(path: "/users/999")
 
         let transport = MockTransport()
         await transport.setMockResponse(
@@ -504,7 +504,7 @@ struct RequestPipelineTests {
     @Test("Works with String response type")
     func testStringResponseType() async throws {
         struct StringInterface: Interface {
-            struct Parameters: RequestParameters {
+            struct Request: InterfaceRequest {
                 let method: RequestMethod = .get
                 let path = "/message"
                 let queryItems: [URLQueryItem]? = nil
@@ -522,7 +522,7 @@ struct RequestPipelineTests {
 
         let url = URL(string: "https://api.example.com")!
         let context = RequestContext(configuration: ServerConfiguration(url: url))
-        let params = StringInterface.Parameters()
+        let params = StringInterface.Request()
 
         let responseData = "Hello, World!".data(using: .utf8)!
 
@@ -542,7 +542,7 @@ struct RequestPipelineTests {
     @Test("Works with Data response type")
     func testDataResponseType() async throws {
         struct DataInterface: Interface {
-            struct Parameters: RequestParameters {
+            struct Request: InterfaceRequest {
                 let method: RequestMethod = .get
                 let path = "/binary"
                 let queryItems: [URLQueryItem]? = nil
@@ -560,7 +560,7 @@ struct RequestPipelineTests {
 
         let url = URL(string: "https://api.example.com")!
         let context = RequestContext(configuration: ServerConfiguration(url: url))
-        let params = DataInterface.Parameters()
+        let params = DataInterface.Request()
 
         let responseData = Data([0x00, 0x01, 0x02, 0x03])
 
@@ -589,7 +589,7 @@ struct RequestPipelineTests {
         }
 
         struct ComplexInterface: Interface {
-            struct Parameters: RequestParameters {
+            struct Request: InterfaceRequest {
                 let method: RequestMethod = .post
                 let path = "/login"
                 let queryItems: [URLQueryItem]? = nil
@@ -607,7 +607,7 @@ struct RequestPipelineTests {
 
         let url = URL(string: "https://api.example.com")!
         let context = RequestContext(configuration: ServerConfiguration(url: url))
-        let params = ComplexInterface.Parameters()
+        let params = ComplexInterface.Request()
 
         let responseData = """
         {
@@ -642,7 +642,7 @@ struct RequestPipelineTests {
         }
 
         struct ArrayInterface: Interface {
-            struct Parameters: RequestParameters {
+            struct Request: InterfaceRequest {
                 let method: RequestMethod = .get
                 let path = "/items"
                 let queryItems: [URLQueryItem]? = nil
@@ -660,7 +660,7 @@ struct RequestPipelineTests {
 
         let url = URL(string: "https://api.example.com")!
         let context = RequestContext(configuration: ServerConfiguration(url: url))
-        let params = ArrayInterface.Parameters()
+        let params = ArrayInterface.Request()
 
         let responseData = """
         [
@@ -690,7 +690,7 @@ struct RequestPipelineTests {
 
     @Test("Passes all request parameters correctly")
     func testRequestParametersPassed() async throws {
-        struct CompleteParameters: RequestParameters {
+        struct CompleteRequest: InterfaceRequest {
             typealias Body = BinaryBody
             let method: RequestMethod = .post
             let path = "/api/resource"
@@ -701,7 +701,7 @@ struct RequestPipelineTests {
         }
 
         struct CompleteInterface: Interface {
-            typealias Parameters = CompleteParameters
+            typealias Request = CompleteRequest
             typealias Response = TestResponse
 
             static var responseCases: ResponseMap {
@@ -715,7 +715,7 @@ struct RequestPipelineTests {
             credential: "auth-token"
         )
         let bodyData = "{\"test\":\"data\"}".data(using: .utf8)!
-        let params = CompleteParameters(body: BinaryBody(data: bodyData, contentType: "application/octet-stream"))
+        let params = CompleteRequest(body: BinaryBody(data: bodyData, contentType: "application/octet-stream"))
 
         let responseData = """
         {"id": 1, "name": "Test"}
@@ -747,7 +747,7 @@ struct RequestPipelineTests {
         let context = RequestContext(configuration: ServerConfiguration(url: url)) // No auth token
 
         struct AuthRequiredInterface: Interface {
-            struct Parameters: RequestParameters {
+            struct Request: InterfaceRequest {
                 let method: RequestMethod = .get
                 let path = "/secure"
                 let queryItems: [URLQueryItem]? = nil
@@ -763,7 +763,7 @@ struct RequestPipelineTests {
             }
         }
 
-        let params = AuthRequiredInterface.Parameters()
+        let params = AuthRequiredInterface.Request()
         let pipeline = RequestPipeline(transport: MockTransport())
 
         await #expect(throws: RequestError.self) {
@@ -781,7 +781,7 @@ struct RequestPipelineTests {
     func testSendableConformance() async throws {
         let url = URL(string: "https://api.example.com")!
         let context = RequestContext(configuration: ServerConfiguration(url: url))
-        let params = TestInterface.Parameters(path: "/test")
+        let params = TestInterface.Request(path: "/test")
 
         let responseData = """
         {"id": 1, "name": "Test"}
@@ -829,7 +829,7 @@ struct RequestPipelineTests {
                 responseHandler: RewritingResponseHandler()
             )
         )
-        let params = TestInterface.Parameters(path: "/users/1")
+        let params = TestInterface.Request(path: "/users/1")
 
         let responseData = #"{"id": 1, "name": "John Doe"}"#.data(using: .utf8)!
 

@@ -81,11 +81,11 @@ Set a custom `RequestBuilder` on the configuration to override how requests are 
 struct ClientTaggingBuilder: RequestBuilder {
     let clientID: String
 
-    func buildRequest<Parameters: RequestParameters>(
-        _ requestParameters: Parameters,
+    func buildRequest<Request: InterfaceRequest>(
+        _ interfaceRequest: Request,
         context: RequestContext
     ) throws(RequestError) -> URLRequest {
-        var request = try URLRequestBuilder().buildRequest(requestParameters, context: context)
+        var request = try URLRequestBuilder().buildRequest(interfaceRequest, context: context)
 
         var current = request.allHTTPHeaderFields ?? [:]
         current["X-Client"] = clientID
@@ -108,7 +108,7 @@ let pipeline = RequestPipeline(transport: URLSession.shared)
 
 Delegating to `URLRequestBuilder()`'s public steps for everything a builder does not change limits the change to that step. See [Request Builder](Interfaces/request_builder.md) for invariants and composition.
 
-A builder does not apply credentials. `URLRequest.init(requestParameters:context:)` runs the builder and then the registered `Authenticator`.
+A builder does not apply credentials. `URLRequest.init(interfaceRequest:context:)` runs the builder and then the registered `Authenticator`.
 
 ## Testing
 

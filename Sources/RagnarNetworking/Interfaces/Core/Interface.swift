@@ -15,8 +15,8 @@ import Foundation
 /// codes should be interpreted.
 public protocol Interface: Sendable {
 
-    /// The parameters defining how to construct the network request
-    associatedtype Parameters: RequestParameters
+    /// The request shape defining how to construct the network request
+    associatedtype Request: InterfaceRequest
 
     /// The expected response type when the request succeeds.
     ///
@@ -50,14 +50,14 @@ public protocol Interface: Sendable {
 
 }
 
-// MARK: - Request Parameters
+// MARK: - Interface Request
 
 /// Defines the components needed to construct an HTTP request.
 ///
 /// Implement this protocol to specify all the details of your network request, including
 /// the HTTP method, path, query parameters, headers, body, and authentication requirements.
 /// This protocol is typically implemented as a nested type within an `Interface` conformance.
-public protocol RequestParameters: Sendable {
+public protocol InterfaceRequest: Sendable {
 
     /// The HTTP method for this request (GET, POST, etc.)
     var method: RequestMethod { get }
@@ -99,7 +99,7 @@ public protocol RequestParameters: Sendable {
 
 }
 
-public extension RequestParameters {
+public extension InterfaceRequest {
 
     var refreshesOnChallenge: Bool {
         authentication != nil

@@ -132,7 +132,7 @@ public struct ServerConfiguration: Sendable {
     /// Resolution lives here rather than inside the request-building pipeline so no
     /// `RequestBuilder` can drop `defaultHeaders`, including one that replaces `buildRequest`
     /// wholesale.
-    public func resolvedHeaders(for parameters: some RequestParameters) -> [String: String] {
+    public func resolvedHeaders(for parameters: some InterfaceRequest) -> [String: String] {
         resolvedHeaders(overriddenBy: parameters.headers)
     }
 

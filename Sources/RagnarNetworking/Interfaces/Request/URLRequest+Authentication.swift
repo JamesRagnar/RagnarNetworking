@@ -11,7 +11,7 @@ public extension URLRequest {
 
     /// Applies the credential for `scheme` to a request the `RequestBuilder` has finished.
     ///
-    /// `URLRequest.init(requestParameters:context:)` calls this after the builder returns, so a
+    /// `URLRequest.init(interfaceRequest:context:)` calls this after the builder returns, so a
     /// builder is never asked to authenticate.
     ///
     /// Query items land first, then header fields, so an authenticator signing in
