@@ -74,6 +74,7 @@ Only reachable inside `ResponseError.decoding`:
 ## APIClientError Cases
 
 - `.invalidated` - the client has been permanently invalidated via `invalidate()`.
+- `.noCredentialSource` - a schemeless request explicitly allowed challenge refresh, a challenge was recognized, and the client has no source to refresh.
 
 ## Distinguishability
 

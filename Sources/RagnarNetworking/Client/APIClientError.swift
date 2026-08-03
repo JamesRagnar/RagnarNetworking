@@ -20,11 +20,11 @@ public enum APIClientError: LocalizedError, Sendable {
     /// valid again - create a new client for a new connection generation.
     case invalidated
 
-    /// An authenticated request was challenged on a client created without credential closures.
+    /// A request opted into challenge refresh on a client created without a credential source.
     ///
     /// Reached only by a request that declares no scheme but overrides
-    /// `InterfaceRequest.refreshesOnChallenge` to `true`; any declared scheme fails at
-    /// construction with `RequestError.missingCredential` first.
+    /// `InterfaceRequest.allowsRefreshOnChallenge` to `true`; a registered declared scheme fails
+    /// at construction with `RequestError.missingCredential` first.
     case noCredentialSource
 
     public var errorDescription: String? {
@@ -34,8 +34,8 @@ public enum APIClientError: LocalizedError, Sendable {
 
         case .noCredentialSource:
             return """
-            An authenticated request was challenged, but this client was created without \
-            token and refresh closures.
+            A request allowed refresh after an authentication challenge, but this client was \
+            created without a credential source.
             """
         }
     }

@@ -68,7 +68,7 @@ public protocol InterfaceRequest: Sendable {
     /// this server.
     var authentication: AuthenticationScheme? { get }
 
-    /// Whether a challenge on this request triggers a refresh and one retry.
+    /// Whether this request allows the client's credential source to refresh after a challenge.
     ///
     /// Independent of whether a credential is applied, which follows `authentication` alone.
     /// Defaults to `authentication != nil`.
@@ -77,13 +77,14 @@ public protocol InterfaceRequest: Sendable {
     /// cookie jar or added by a signing `Transport`; the request otherwise gets no retry and no
     /// refresh. Override to `false` for an endpoint that must not refresh, such as the
     /// token-refresh endpoint itself, where a challenge has to surface to the caller.
-    var refreshesOnChallenge: Bool { get }
+    /// A read-only `CredentialSource` always surfaces the challenge without retrying.
+    var allowsRefreshOnChallenge: Bool { get }
 
 }
 
 public extension InterfaceRequest {
 
-    var refreshesOnChallenge: Bool {
+    var allowsRefreshOnChallenge: Bool {
         authentication != nil
     }
 

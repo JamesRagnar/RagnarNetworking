@@ -212,13 +212,13 @@ Built-in schemes, and what the default registry does with them:
 - `.bearer` - writes `Authorization: Bearer <credential>`.
 - `.url` - writes `?token=<credential>`. Use this for a URL handed to something that cannot carry a header, such as an image loader or `AVPlayer`.
 
-The second member decides whether a challenge triggers a refresh and one retry, independent of whether a credential is applied:
+The second member decides whether the endpoint allows a refreshing source to recover from a challenge, independent of whether a credential is applied:
 
 ```swift
-var refreshesOnChallenge: Bool { get }  // defaults to authentication != nil
+var allowsRefreshOnChallenge: Bool { get }  // defaults to authentication != nil
 ```
 
-The only member of `InterfaceRequest` with a default implementation, because it is the only derived one. Both overrides are meaningful: `true` with no scheme, for a credential this package does not apply; `false` with a scheme, for a token-refresh endpoint that must not recurse into another refresh.
+The only member of `InterfaceRequest` with a default implementation, because it is the only derived one. Both overrides are meaningful: `true` with no scheme, for externally applied authentication such as a cookie; `false` with a scheme, for a token-refresh endpoint that must not recurse into another refresh. A read-only source never refreshes or retries even when this value is `true`.
 
 A credential that would overwrite a header or query item the request already carries fails request construction. See [Authentication](authentication.md).
 

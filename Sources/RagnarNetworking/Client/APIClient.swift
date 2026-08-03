@@ -1,15 +1,15 @@
 import Foundation
 
-/// App-agnostic actor that owns credential state and handles challenge retry.
+/// App-agnostic actor that coordinates one credential lifecycle and handles challenge retry.
 ///
-/// A request declaring no `AuthenticationScheme` never invokes the token closure, and one whose
-/// `InterfaceRequest.refreshesOnChallenge` is `false` is never retried.
+/// A request declaring no `AuthenticationScheme` never reads the credential source, and one whose
+/// `InterfaceRequest.allowsRefreshOnChallenge` is `false` is never retried.
 /// `ServerConfiguration.challengePolicy` decides which failures are challenges, so no status
 /// code is hardcoded here.
 ///
-/// Challenges coalesce into a single refresh per token generation: one `refresh` call fires for
-/// all requests that failed using the same token, whether those failures arrive simultaneously
-/// or are staggered over time.
+/// Challenges coalesce into a single refresh per credential generation: one refresh call fires
+/// for all requests that failed in the same generation, whether those failures arrive
+/// simultaneously or are staggered over time.
 ///
 /// A client can be permanently invalidated via `invalidate()`. Invalidation is a
 /// terminal, one-way boundary: it rejects new `send` calls, cancels any coalesced
@@ -19,12 +19,11 @@ public actor APIClient {
 
     private let configuration: ServerConfiguration
     private let pipeline: RequestPipeline
-    private let token: @Sendable () async throws -> String?
-    private let refresh: @Sendable () async throws -> Void
+    private let credentialSource: CredentialSource?
     private var ongoingRefresh: Task<Void, Error>?
 
     /// Bumped each time a refresh completes successfully. Lets a request that read its
-    /// token before an unrelated refresh completed skip a redundant second refresh.
+    /// credential before an unrelated refresh completed skip a redundant second refresh.
     private var refreshGeneration: UInt64 = 0
 
     /// Whether `invalidate()` has been called. Once `true`, it never returns to `false`.
@@ -43,25 +42,23 @@ public actor APIClient {
     ///     builder, default response handler. Held for the client's lifetime; recreate the
     ///     client if it changes.
     ///   - transport: The underlying transport. Defaults to `URLSession.shared`.
-    ///   - token: Called before each authenticated request. Evaluated lazily to always return the post-refresh value.
-    ///   - refresh: Called when the configuration's `challengePolicy` recognizes a challenge.
-    ///     Must update whatever state `token` reads from.
+    ///   - credentialSource: The one read-only or refreshing credential lifecycle coordinated by
+    ///     this client. Evaluated lazily for each authenticated request.
     public init(
         configuration: ServerConfiguration,
         transport: any Transport = URLSession.shared,
-        token: @escaping @Sendable () async throws -> String?,
-        refresh: @escaping @Sendable () async throws -> Void
+        credentialSource: CredentialSource
     ) {
         self.configuration = configuration
         self.pipeline = RequestPipeline(transport: transport)
-        self.token = token
-        self.refresh = refresh
+        self.credentialSource = credentialSource
     }
 
     /// Creates an `APIClient` for requests that declare no `AuthenticationScheme`.
     ///
-    /// The token closure always returns `nil`, so a request declaring any scheme fails with
-    /// `RequestError.missingCredential`.
+    /// No credential is available, so a request declaring a registered scheme fails with
+    /// `RequestError.missingCredential`. An unregistered scheme still fails with
+    /// `RequestError.unregisteredScheme`.
     ///
     /// - Parameters:
     ///   - configuration: The server contract: URL, body coding, default headers, request
@@ -73,20 +70,21 @@ public actor APIClient {
     ) {
         self.configuration = configuration
         self.pipeline = RequestPipeline(transport: transport)
-        self.token = { nil }
-        self.refresh = { throw APIClientError.noCredentialSource }
+        self.credentialSource = nil
     }
 
     /// Sends a typed request.
     ///
-    /// A request whose `InterfaceRequest.refreshesOnChallenge` is `true` is retried once after
-    /// a challenge: `refresh` fires, then `token` is re-evaluated for the retry.
+    /// A request whose `InterfaceRequest.allowsRefreshOnChallenge` is `true` is retried once after
+    /// a challenge when the client has a refreshing source. The source refreshes, then its
+    /// credential is re-read for the retry. A read-only source instead surfaces the challenge's
+    /// original `ResponseError` without another read or request.
     /// `ServerConfiguration.challengePolicy` decides what counts as a challenge and receives the
     /// Interface's response statuses, so an endpoint that models the challenge status code
     /// surfaces its own error instead.
     ///
     /// - Throws: `APIClientError.invalidated` if the client has been invalidated. The
-    ///   check is applied before token resolution, before and after transport, before
+    ///   check is applied before credential resolution, before and after transport, before
     ///   refresh, and before retry.
     public func send<T: Interface>(
         _ type: T.Type,
@@ -94,7 +92,7 @@ public actor APIClient {
     ) async throws -> T.Response {
         try checkValid()
 
-        guard params.refreshesOnChallenge else {
+        guard params.allowsRefreshOnChallenge else {
             return try await execute(type, params, credential: try await credential(for: params))
         }
 
@@ -107,9 +105,15 @@ public actor APIClient {
             T.responses.statuses
         ) {
             try checkValid()
+            guard let credentialSource else {
+                throw APIClientError.noCredentialSource
+            }
+            guard credentialSource.refresh != nil else {
+                throw err
+            }
             // If a refresh has already completed since this request read its token,
             // another request's challenge already refreshed for us - retry directly with
-            // the now-current token rather than triggering a second refresh.
+            // the now-current credential rather than triggering a second refresh.
             if refreshGeneration == generation {
                 // Run the refresh in its own task so this request's own cancellation
                 // can stop *waiting* for it without cancelling the refresh itself -
@@ -159,11 +163,11 @@ public actor APIClient {
 
     /// Resolves the credential for a request, or `nil` when it declares no scheme.
     ///
-    /// Keyed on `authentication` rather than `refreshesOnChallenge`, so an endpoint that opts
+    /// Keyed on `authentication` rather than `allowsRefreshOnChallenge`, so an endpoint that opts
     /// out of refresh still sends its credential.
     private func credential(for params: some InterfaceRequest) async throws -> String? {
         guard params.authentication != nil else { return nil }
-        return try await token()
+        return try await credentialSource?.read()
     }
 
     /// Throws `APIClientError.invalidated` if the client has been invalidated.
@@ -217,7 +221,10 @@ public actor APIClient {
             try await task.value
             return
         }
-        let task = Task<Void, Error> { [self] in try await refresh() }
+        guard let refresh = credentialSource?.refresh else {
+            throw APIClientError.noCredentialSource
+        }
+        let task = Task<Void, Error> { try await refresh() }
         ongoingRefresh = task
         do {
             try await task.value
@@ -233,7 +240,7 @@ public actor APIClient {
 /// Awaits a `Task<Void, Error>`'s value, resolving promptly with `CancellationError`
 /// if the calling task is cancelled first - without cancelling the awaited task itself.
 ///
-/// Used so a request that stops waiting on a token refresh does not cancel that
+/// Used so a request that stops waiting on a credential refresh does not cancel that
 /// refresh for any other requests still relying on it to complete.
 private actor CancellableTaskWait {
 

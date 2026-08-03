@@ -79,6 +79,24 @@ private struct SnakeCaseResponseInterface: Interface {
     static let responses = ResponseContract<Response>(success: .exact(200))
 }
 
+// MARK: - Externally Managed Authentication Interface
+
+private struct ExternallyManagedAuthenticationInterface: Interface {
+    struct Request: InterfaceRequest {
+        let method: RequestMethod = .get
+        let path: String = "/external-auth"
+        let queryItems: [URLQueryItem]? = nil
+        let headers: [String: String]? = nil
+        let body: EmptyBody = .init()
+        let authentication: AuthenticationScheme? = nil
+        let allowsRefreshOnChallenge = true
+    }
+
+    typealias Response = TestInterface.Response
+
+    static let responses = ResponseContract<Response>(success: .exact(200))
+}
+
 // MARK: - Token Store
 
 private actor TokenStore {
@@ -275,6 +293,26 @@ private actor SwitchingTokenStore {
     }
 }
 
+// MARK: - Mutable Credential Store
+
+private actor MutableCredentialStore {
+    private var current: String
+    private(set) var readCount = 0
+
+    init(_ credential: String) {
+        current = credential
+    }
+
+    func read() -> String {
+        readCount += 1
+        return current
+    }
+
+    func replace(with credential: String) {
+        current = credential
+    }
+}
+
 // MARK: - Staggered Transport
 
 /// A provider whose first two calls both fail with 401, but whose second call does not
@@ -326,6 +364,41 @@ private actor StaggeredTransport: Transport {
     }
 }
 
+// MARK: - Held Challenge Transport
+
+private actor HeldChallengeTransport: Transport {
+    private let baseURL = URL(string: "https://api.example.com")!
+    private let firstRequestStarted = Signal()
+    private let releaseChallenge = Signal()
+    private(set) var capturedRequests: [URLRequest] = []
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        capturedRequests.append(request)
+        let isFirstRequest = capturedRequests.count == 1
+
+        if isFirstRequest {
+            await firstRequestStarted.fire()
+            await releaseChallenge.wait()
+        }
+
+        let response = HTTPURLResponse(
+            url: baseURL,
+            statusCode: isFirstRequest ? 401 : 200,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+        return (isFirstRequest ? Data() : makeResponseData(), response)
+    }
+
+    func waitUntilFirstRequestStarted() async {
+        await firstRequestStarted.wait()
+    }
+
+    func releaseFirstChallenge() async {
+        await releaseChallenge.fire()
+    }
+}
+
 // MARK: - Helpers
 
 private func makeResponseData(value: String = "ok") -> Data {
@@ -342,8 +415,10 @@ private func makeClient(
     APIClient(
         configuration: ServerConfiguration(url: testServerURL),
         transport: mock,
-        token: token,
-        refresh: refresh
+        credentialSource: .refreshing(
+            read: token,
+            refresh: refresh
+        )
     )
 }
 
@@ -352,10 +427,10 @@ private func makeClient(
 @Suite("APIClient Tests", .timeLimit(.minutes(1)))
 struct APIClientTests {
 
-    // MARK: 1. .none auth never calls token
+    // MARK: 1. .none auth never reads the credential source
 
-    @Test(".none auth never calls the token closure")
-    func noneAuthDoesNotCallToken() async throws {
+    @Test(".none auth never reads the credential source")
+    func noneAuthDoesNotReadCredentialSource() async throws {
         let mock = MockTransport()
         await mock.enqueue(data: makeResponseData(), statusCode: 200)
 
@@ -385,6 +460,135 @@ struct APIClientTests {
         let result = try await client.send(TestInterface.self, params)
 
         #expect(result.value == "public")
+        #expect(await mock.callCount == 1)
+    }
+
+    @Test("A read-only bearer source applies its credential")
+    func readOnlyBearerSourceAppliesCredential() async throws {
+        let mock = MockTransport()
+        await mock.enqueue(data: makeResponseData(), statusCode: 200)
+
+        let reads = Counter()
+        let client = APIClient(
+            configuration: ServerConfiguration(url: testServerURL),
+            transport: mock,
+            credentialSource: .readOnly {
+                await reads.increment()
+                return "static-bearer"
+            }
+        )
+
+        _ = try await client.send(
+            TestInterface.self,
+            .init(authentication: .bearer)
+        )
+
+        let request = try #require(await mock.capturedRequests.first)
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer static-bearer")
+        #expect(await reads.value == 1)
+    }
+
+    @Test("A read-only API key source uses its configured authenticator")
+    func readOnlyAPIKeySourceUsesConfiguredAuthenticator() async throws {
+        let mock = MockTransport()
+        await mock.enqueue(data: makeResponseData(), statusCode: 200)
+        let apiKey = AuthenticationScheme("apiKey")
+
+        let client = APIClient(
+            configuration: ServerConfiguration(
+                url: testServerURL,
+                authenticators: [apiKey: .header("X-API-Key")]
+            ),
+            transport: mock,
+            credentialSource: .readOnly { "secret-key" }
+        )
+
+        _ = try await client.send(
+            TestInterface.self,
+            .init(authentication: apiKey)
+        )
+
+        let request = try #require(await mock.capturedRequests.first)
+        #expect(request.value(forHTTPHeaderField: "X-API-Key") == "secret-key")
+    }
+
+    @Test("A challenge against a read-only source preserves the response without another read or retry")
+    func readOnlyChallengePreservesResponseWithoutRetry() async throws {
+        let mock = MockTransport()
+        await mock.enqueue(data: Data("expired".utf8), statusCode: 401)
+        let reads = Counter()
+
+        let client = APIClient(
+            configuration: ServerConfiguration(url: testServerURL),
+            transport: mock,
+            credentialSource: .readOnly {
+                await reads.increment()
+                return "one-time-credential"
+            }
+        )
+
+        do {
+            _ = try await client.send(
+                TestInterface.self,
+                .init(authentication: .bearer)
+            )
+            Issue.record("Expected the authentication challenge to surface")
+        } catch let error as ResponseError {
+            #expect(error.statusCode == 401)
+            #expect(error.body.data == Data("expired".utf8))
+        }
+
+        #expect(await reads.value == 1)
+        #expect(await mock.callCount == 1)
+    }
+
+    @Test("A declared scheme without a credential source fails before transport")
+    func declaredSchemeWithoutSourceFailsBeforeTransport() async throws {
+        let mock = MockTransport()
+        let client = APIClient(
+            configuration: ServerConfiguration(url: testServerURL),
+            transport: mock
+        )
+
+        do {
+            _ = try await client.send(
+                TestInterface.self,
+                .init(authentication: .bearer)
+            )
+            Issue.record("Expected a missing credential failure")
+        } catch let error as RequestError {
+            guard case .missingCredential(let scheme) = error else {
+                Issue.record("Expected missingCredential, got \(error)")
+                return
+            }
+            #expect(scheme == .bearer)
+        }
+
+        #expect(await mock.callCount == 0)
+    }
+
+    @Test("A schemeless challenge opt-in without a source reports the missing lifecycle")
+    func schemelessChallengeOptInWithoutSourceReportsMissingLifecycle() async throws {
+        let mock = MockTransport()
+        await mock.enqueue(data: Data(), statusCode: 401)
+        let client = APIClient(
+            configuration: ServerConfiguration(url: testServerURL),
+            transport: mock
+        )
+
+        do {
+            _ = try await client.send(
+                ExternallyManagedAuthenticationInterface.self,
+                .init()
+            )
+            Issue.record("Expected a missing credential source failure")
+        } catch let error as APIClientError {
+            guard case .noCredentialSource = error else {
+                Issue.record("Expected noCredentialSource, got \(error)")
+                return
+            }
+        }
+
         #expect(await mock.callCount == 1)
     }
 
@@ -636,6 +840,76 @@ struct APIClientTests {
         let requests = await mock.capturedRequests
         #expect(requests[2].value(forHTTPHeaderField: "Authorization") == "Bearer fresh")
         #expect(requests[3].value(forHTTPHeaderField: "Authorization") == "Bearer fresh")
+    }
+
+    @Test("A completed refresh advances the lifecycle even when the credential string is unchanged")
+    func unchangedCredentialStillAdvancesRefreshGeneration() async throws {
+        let bothStarted = Barrier2()
+        let refreshCompleted = Signal()
+        let mock = StaggeredTransport(
+            responses: [
+                (Data(), 401),
+                (Data(), 401),
+                (makeResponseData(value: "a"), 200),
+                (makeResponseData(value: "b"), 200)
+            ],
+            bothStarted: bothStarted,
+            refreshCompleted: refreshCompleted
+        )
+        let refreshCounter = Counter()
+
+        let client = makeClient(
+            mock: mock,
+            token: { "unchanged" },
+            refresh: {
+                await refreshCounter.increment()
+                await refreshCompleted.fire()
+            }
+        )
+        let params = TestInterface.Request(authentication: .bearer)
+
+        async let first = client.send(TestInterface.self, params)
+        async let second = client.send(TestInterface.self, params)
+        _ = try await (first, second)
+
+        #expect(await refreshCounter.value == 1)
+        #expect(await mock.callCount == 4)
+    }
+
+    @Test("An external source change does not replay the request under that credential")
+    func externalSourceChangeStillUsesTheClientRefreshPath() async throws {
+        let transport = HeldChallengeTransport()
+        let store = MutableCredentialStore("stale")
+        let refreshCounter = Counter()
+        let client = APIClient(
+            configuration: ServerConfiguration(url: testServerURL),
+            transport: transport,
+            credentialSource: .refreshing(
+                read: { await store.read() },
+                refresh: {
+                    await refreshCounter.increment()
+                    await store.replace(with: "refreshed")
+                }
+            )
+        )
+        let send = Task {
+            try await client.send(
+                TestInterface.self,
+                .init(authentication: .bearer)
+            )
+        }
+
+        await transport.waitUntilFirstRequestStarted()
+        await store.replace(with: "external")
+        await transport.releaseFirstChallenge()
+        _ = try await send.value
+
+        let requests = await transport.capturedRequests
+        #expect(requests.count == 2)
+        #expect(requests[0].value(forHTTPHeaderField: "Authorization") == "Bearer stale")
+        #expect(requests[1].value(forHTTPHeaderField: "Authorization") == "Bearer refreshed")
+        #expect(await store.readCount == 2)
+        #expect(await refreshCounter.value == 1)
     }
 
     // MARK: 11. 401 followed by another 401 does not loop

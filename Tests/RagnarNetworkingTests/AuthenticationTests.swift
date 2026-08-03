@@ -51,7 +51,7 @@ private struct CookieAuthInterface: Interface {
         let body: EmptyBody = .init()
         let authentication: AuthenticationScheme? = nil
 
-        var refreshesOnChallenge: Bool { true }
+        var allowsRefreshOnChallenge: Bool { true }
     }
 
     typealias Response = ValueResponse
@@ -70,7 +70,7 @@ private struct RefreshEndpointInterface: Interface {
         let body: EmptyBody = .init()
         let authentication: AuthenticationScheme? = .bearer
 
-        var refreshesOnChallenge: Bool { false }
+        var allowsRefreshOnChallenge: Bool { false }
     }
 
     typealias Response = ValueResponse
@@ -288,8 +288,10 @@ struct AuthenticationRetryTriggerTests {
         let client = APIClient(
             configuration: ServerConfiguration(url: testServerURL),
             transport: transport,
-            token: { await log.recordToken(); return "cookie-adjacent" },
-            refresh: { await log.recordRefresh() }
+            credentialSource: .refreshing(
+                read: { await log.recordToken(); return "cookie-adjacent" },
+                refresh: { await log.recordRefresh() }
+            )
         )
 
         let result = try await client.send(CookieAuthInterface.self, .init())
@@ -299,8 +301,8 @@ struct AuthenticationRetryTriggerTests {
         #expect(await log.refreshCalls == 1)
     }
 
-    @Test("A genuinely unauthenticated request never invokes the token closure and is not retried")
-    func unauthenticatedRequestSkipsTokenAndRetry() async throws {
+    @Test("A genuinely unauthenticated request never reads the credential source and is not retried")
+    func unauthenticatedRequestSkipsCredentialReadAndRetry() async throws {
         let transport = RecordingTransport()
         await transport.enqueue(Data(), 401)
 
@@ -308,8 +310,10 @@ struct AuthenticationRetryTriggerTests {
         let client = APIClient(
             configuration: ServerConfiguration(url: testServerURL),
             transport: transport,
-            token: { await log.recordToken(); return "unused" },
-            refresh: { await log.recordRefresh() }
+            credentialSource: .refreshing(
+                read: { await log.recordToken(); return "unused" },
+                refresh: { await log.recordRefresh() }
+            )
         )
 
         await #expect(throws: ResponseError.self) {
@@ -330,8 +334,10 @@ struct AuthenticationRetryTriggerTests {
         let client = APIClient(
             configuration: ServerConfiguration(url: testServerURL),
             transport: transport,
-            token: { await log.recordToken(); return "refresh-token" },
-            refresh: { await log.recordRefresh() }
+            credentialSource: .refreshing(
+                read: { await log.recordToken(); return "refresh-token" },
+                refresh: { await log.recordRefresh() }
+            )
         )
 
         await #expect(throws: ResponseError.self) {
@@ -347,26 +353,26 @@ struct AuthenticationRetryTriggerTests {
         #expect(await log.refreshCalls == 0)
     }
 
-    @Test("A refreshesOnChallenge override reaches APIClient through its generic constraint")
-    func refreshesOnChallengeOverrideIsWitnessDispatched() async throws {
+    @Test("An allowsRefreshOnChallenge override reaches APIClient through its generic constraint")
+    func allowsRefreshOnChallengeOverrideIsWitnessDispatched() async throws {
         // `APIClient.send` reads this on a generic `T.Request`. It is a protocol requirement
         // rather than an extension-only member so that these overrides dispatch through the
         // witness table; an extension-only member would resolve to the default here and both
         // overrides would silently do nothing.
         func read<T: Interface>(_ type: T.Type, _ params: T.Request) -> Bool {
-            params.refreshesOnChallenge
+            params.allowsRefreshOnChallenge
         }
 
         #expect(read(CookieAuthInterface.self, .init()))
         #expect(!read(RefreshEndpointInterface.self, .init()))
     }
 
-    @Test("refreshesOnChallenge derives from the scheme when a conformance does not declare it")
-    func refreshesOnChallengeDerivesFromScheme() {
-        #expect(SchemeInterface.Request(authentication: nil).refreshesOnChallenge == false)
-        #expect(SchemeInterface.Request(authentication: .bearer).refreshesOnChallenge == true)
-        #expect(SchemeInterface.Request(authentication: .url).refreshesOnChallenge == true)
-        #expect(SchemeInterface.Request(authentication: .apiKey).refreshesOnChallenge == true)
+    @Test("allowsRefreshOnChallenge derives from the scheme when a conformance does not declare it")
+    func allowsRefreshOnChallengeDerivesFromScheme() {
+        #expect(SchemeInterface.Request(authentication: nil).allowsRefreshOnChallenge == false)
+        #expect(SchemeInterface.Request(authentication: .bearer).allowsRefreshOnChallenge == true)
+        #expect(SchemeInterface.Request(authentication: .url).allowsRefreshOnChallenge == true)
+        #expect(SchemeInterface.Request(authentication: .apiKey).allowsRefreshOnChallenge == true)
     }
 
 }
@@ -751,8 +757,7 @@ struct AuthenticatorTests {
                 authenticators: [.bearer: .header("X-API-Key")]
             ),
             transport: transport,
-            token: { "key-1" },
-            refresh: {}
+            credentialSource: .readOnly { "key-1" }
         )
 
         _ = try await client.send(SchemeInterface.self, .init(authentication: .bearer))
@@ -779,8 +784,10 @@ struct AuthenticationChallengePolicyTests {
                 challengePolicy: policy
             ),
             transport: transport,
-            token: { await log.recordToken(); return "token" },
-            refresh: { await log.recordRefresh() }
+            credentialSource: .refreshing(
+                read: { await log.recordToken(); return "token" },
+                refresh: { await log.recordRefresh() }
+            )
         )
     }
 
@@ -897,8 +904,10 @@ struct AuthenticationChallengePolicyTests {
         let client = APIClient(
             configuration: ServerConfiguration(url: testServerURL),
             transport: transport,
-            token: { "token" },
-            refresh: { throw FlatError.unauthorized }
+            credentialSource: .refreshing(
+                read: { "token" },
+                refresh: { throw FlatError.unauthorized }
+            )
         )
 
         do {
