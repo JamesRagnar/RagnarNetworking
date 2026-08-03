@@ -35,6 +35,8 @@ public enum SocketIOError: Error, Sendable, Equatable {
     case eventDecodingFailed(eventName: String, snapshot: SocketIODecodingErrorSnapshot)
     case unsupportedBinaryArgument(eventName: String)
     case bufferOverflow(eventName: String)
+    case notConnected
+    case messageTooLarge(limit: Int, actual: Int)
     case invalidated
 }
 
@@ -55,6 +57,12 @@ extension SocketIOError: LocalizedError {
 
         case .bufferOverflow(let eventName):
             "Socket event \(eventName) exceeded its stream buffer."
+
+        case .notConnected:
+            "The Socket.IO client is not connected."
+
+        case .messageTooLarge(let limit, let actual):
+            "The Socket.IO message contains \(actual) bytes, exceeding the \(limit)-byte limit."
 
         case .invalidated:
             "The Socket.IO client was invalidated."
