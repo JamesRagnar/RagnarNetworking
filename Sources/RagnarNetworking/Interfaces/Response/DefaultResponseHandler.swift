@@ -10,8 +10,7 @@ import Foundation
 /// The built-in response handler. Matches status codes against `Interface.responses`,
 /// decodes success bodies, and throws typed `ResponseError` values for failures.
 ///
-/// Set `ServerConfiguration.responseHandler` to replace this across a whole API, or override
-/// `Interface.responseHandler` to replace it for one endpoint.
+/// Set `ServerConfiguration.responseHandler` to replace this across a whole API.
 ///
 /// A custom `ResponseHandler` that wants the default behavior plus a targeted addition
 /// (for example, inspecting a header before decoding) can delegate to `handle`, or reuse

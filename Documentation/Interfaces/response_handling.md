@@ -1,8 +1,7 @@
 # Response Handling
 
 Interfaces declare which HTTP status codes produce their associated `Response` and which produce
-failures. The default `handle(_:context:defaultHandler:)` path interprets that contract and builds
-the response.
+failures. The configured `ResponseHandler` interprets that contract and builds the response.
 
 ## Response Contract
 
@@ -62,65 +61,11 @@ failure-only initializer.
 
 ## Response Handlers
 
-Response handling is set in two places, and the rule between them is simple:
-
-- **`ServerConfiguration.responseHandler`** handles every response for that server. Use it for a
-  concern that spans the API: unwrapping a `{ "data": ... }` envelope, reading a deprecation
-  header, feeding a metrics sink. Defaults to `DefaultResponseHandler()`.
-- **`Interface.responseHandler`** overrides it for one endpoint. Defaults to `nil`, meaning "use
-  the configured one". Use it for the one-off endpoint whose response does not follow the rest of
-  the API.
-
-An Interface-level handler **replaces** the configured one rather than layering on top of it. An
-endpoint that overrides in an API whose configuration unwraps an envelope has to unwrap that
-envelope itself.
+`ServerConfiguration.responseHandler` handles every response for that server. Use it for a
+concern that spans the API: unwrapping a `{ "data": ... }` envelope, reading a deprecation
+header, or feeding a metrics sink. It defaults to `DefaultResponseHandler()`.
 
 Handlers are values, so a handler can carry its own state.
-
-> **Upgrading:** this requirement is `Optional`. An override written against an earlier version as
-> `static var responseHandler: any ResponseHandler { MyHandler() }` still **compiles**, because it
-> is a valid static property, but it no longer satisfies the requirement: property witness types
-> are invariant, so the non-optional form does not match. The declaration becomes dead and the
-> endpoint silently uses the configured handler. Swift emits no diagnostic. Check that every
-> override returns `(any ResponseHandler)?`.
-
-```swift
-public struct GetLibraryItemCover: Interface {
-    public static var responseHandler: (any ResponseHandler)? {
-        CoverResponseHandler()
-    }
-}
-
-public struct CoverResponseHandler: ResponseHandler {
-    public func handle<T: Interface>(
-        _ response: (data: Data, response: URLResponse),
-        for interface: T.Type,
-        context: ResponseContext
-    ) throws(ResponseError) -> T.Response {
-        let body = ResponseBody(response.data, decoder: context.responseDecoder)
-        let snapshot = HTTPResponseSnapshot(
-            response: response.response,
-            redactedQueryItemNames: context.redactedQueryItemNames
-        )
-        guard let statusCode = snapshot.statusCode else {
-            throw ResponseError.unknownResponse(body, snapshot)
-        }
-
-        if statusCode == 204 {
-            guard let empty = Data() as? T.Response else {
-                throw ResponseError.decoding(
-                    body,
-                    snapshot,
-                    .custom(message: "Expected Data response type for 204")
-                )
-            }
-            return empty
-        }
-
-        return try DefaultResponseHandler().handle(response, for: interface, context: context)
-    }
-}
-```
 
 ### Composing with DefaultResponseHandler
 
@@ -244,10 +189,10 @@ are encoded via `RequestEncoder`. The decoder is a required argument rather than
 so a caller cannot silently fall back to a plain `JSONDecoder` and lose the client's rules. Going
 through `APIClient` or `RequestPipeline`, it is always `ServerConfiguration.responseDecoder`.
 
-There is no per-Interface decoder override. When one endpoint's field names or date format differ
-from the rest of the API, express that on the `Response` type itself with `CodingKeys` or a custom
-`init(from:)`; reach for `responseHandler` when the *interpretation* of the response differs, not
-just its field names. See [Server Configuration](../server_configuration.md#response-decoder).
+There is no per-Interface decoder or handler override. When one endpoint's field names, date
+format, or successful wire shape differs from the rest of the API, express that on the `Response`
+type itself with `CodingKeys`, a custom `init(from:)`, or `InterfaceResponse.decode`.
+See [Server Configuration](../server_configuration.md#response-decoder).
 
 ## Decoding Rules
 
@@ -296,15 +241,14 @@ A key type that is neither `String`, nor `Int`, nor `CodingKeyRepresentable` dec
 
 ### Where a Coding Difference Belongs
 
-"One endpoint decodes differently" is three separate problems with three different homes. Route
-them before reaching for a `ResponseHandler`.
+"One endpoint decodes differently" can describe several separate problems with different homes.
 
 | Difference | Home |
 |---|---|
 | One field's format | `CodingKeys`, a custom `init(from:)`, or a property wrapper on the `Response` type |
 | A type's coding strategy | `InterfaceResponse.decode` plus `ResponseDecoder.modified` |
 | A type's whole wire format (CSV, protobuf) | `InterfaceResponse.decode`, ignoring the decoder |
-| The response's *interpretation* | `Interface.responseHandler` |
+| API-wide response interpretation | `ServerConfiguration.responseHandler` |
 
 Format is a property of the type, not the endpoint. A type returned by four endpoints declares
 its quirk once and no endpoint can forget it.
