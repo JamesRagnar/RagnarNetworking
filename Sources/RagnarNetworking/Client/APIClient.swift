@@ -113,7 +113,7 @@ public actor APIClient {
             }
             // If a refresh has already completed since this request read its token,
             // another request's challenge already refreshed for us - retry directly with
-                // the now-current credential rather than triggering a second refresh.
+            // the now-current credential rather than triggering a second refresh.
             if refreshGeneration == generation {
                 // Run the refresh in its own task so this request's own cancellation
                 // can stop *waiting* for it without cancelling the refresh itself -

@@ -19,10 +19,12 @@ let client = APIClient(
 A static API key or long-lived token uses a read-only source:
 
 ```swift
+let apiKey = AuthenticationScheme("apiKey")
+
 let client = APIClient(
     configuration: ServerConfiguration(
         url: URL(string: "https://api.example.com")!,
-        authenticators: [.apiKey: .header("X-API-Key")]
+        authenticators: [apiKey: .header("X-API-Key")]
     ),
     credentialSource: .readOnly { configuration.apiKey }
 )

@@ -427,10 +427,10 @@ private func makeClient(
 @Suite("APIClient Tests", .timeLimit(.minutes(1)))
 struct APIClientTests {
 
-    // MARK: 1. .none auth never calls token
+    // MARK: 1. .none auth never reads the credential source
 
     @Test(".none auth never reads the credential source")
-    func noneAuthDoesNotCallToken() async throws {
+    func noneAuthDoesNotReadCredentialSource() async throws {
         let mock = MockTransport()
         await mock.enqueue(data: makeResponseData(), statusCode: 200)
 
