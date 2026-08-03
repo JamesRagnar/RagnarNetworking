@@ -89,7 +89,7 @@ struct InterfaceResponseTests {
         typealias Response = Data
 
         static var responseCases: ResponseMap {
-            [.code(204, .noContent)]
+            [.code(204, .decode)]
         }
     }
 
@@ -106,7 +106,7 @@ struct InterfaceResponseTests {
         typealias Response = String
 
         static var responseCases: ResponseMap {
-            [.code(204, .noContent)]
+            [.code(204, .decode)]
         }
     }
 
@@ -123,7 +123,7 @@ struct InterfaceResponseTests {
         typealias Response = SuccessResponse
 
         static var responseCases: ResponseMap {
-            [.code(204, .noContent)]
+            [.code(204, .decode)]
         }
     }
 
@@ -382,7 +382,7 @@ struct InterfaceResponseTests {
         typealias Response = EmptyTolerantResponse
 
         static var responseCases: ResponseMap {
-            [.code(204, .noContent)]
+            [.code(204, .decode)]
         }
     }
 
@@ -501,32 +501,6 @@ struct InterfaceResponseTests {
             } else {
                 #expect(Bool(false), "Expected .generic error case")
             }
-        }
-    }
-
-    @Test("Handles no-content outcome")
-    func testNoContentOutcome() throws {
-        let responseData = Data()
-
-        let httpResponse = HTTPURLResponse(
-            url: URL(string: "https://api.example.com")!,
-            statusCode: 204,
-            httpVersion: nil,
-            headerFields: nil
-        )!
-
-        let result = try DefaultResponseHandler().handleOutcome(
-            (data: responseData, response: httpResponse),
-            for: NoContentInterface.self,
-            context: ResponseContext(responseDecoder: ResponseDecoder())
-        )
-
-        switch result {
-        case .noContent:
-            break
-
-        default:
-            #expect(Bool(false), "Expected noContent outcome")
         }
     }
 
@@ -1267,7 +1241,7 @@ struct InterfaceResponseTests {
             typealias Response = EmptyResponse
 
             static var responseCases: ResponseMap {
-                [.code(204, .noContent)]
+                [.code(204, .decode)]
             }
         }
 
@@ -1347,9 +1321,9 @@ struct InterfaceResponseTests {
 
     // MARK: - Composing a Custom ResponseHandler on DefaultResponseHandler
 
-    /// Delegates to `DefaultResponseHandler.handleOutcome` and `.decode` instead of
-    /// reimplementing status-code matching, demonstrating the composition pattern that
-    /// `handleOutcome` and `decode` being public (rather than internal) enables.
+    /// Delegates to `DefaultResponseHandler.handle` instead of reimplementing status-code
+    /// matching, demonstrating the composition pattern that `handle` and `decode` being
+    /// public (rather than internal) enables.
     struct ComposingResponseHandler: ResponseHandler {
         private let base = DefaultResponseHandler()
 
@@ -1358,30 +1332,8 @@ struct InterfaceResponseTests {
             for interface: T.Type,
             context: ResponseContext
         ) throws(ResponseError) -> T.Response {
-            switch try base.handleOutcome(response, for: interface, context: context) {
-            case .decoded(let value):
-                return value
-
-            case .noContent:
-                let snapshot = HTTPResponseSnapshot(
-                    response: response.response,
-                    redactedQueryItemNames: context.redactedQueryItemNames
-                )
-                do {
-                    return try base.decode(
-                        Data(),
-                        as: interface,
-                        metadata: snapshot,
-                        responseDecoder: context.responseDecoder
-                    )
-                } catch {
-                    throw .decoding(
-                        ResponseBody(response.data, decoder: context.responseDecoder),
-                        snapshot,
-                        error
-                    )
-                }
-            }
+            // A real handler would inspect the raw response here before delegating.
+            try base.handle(response, for: interface, context: context)
         }
     }
 
@@ -1402,8 +1354,8 @@ struct InterfaceResponseTests {
         #expect(actual.code == expected.code)
     }
 
-    @Test("Composed ResponseHandler produces the same result as the default handler for the noContent path")
-    func testComposedHandlerMatchesDefaultForNoContent() throws {
+    @Test("Composed ResponseHandler produces the same result as the default handler for a no-body success")
+    func testComposedHandlerMatchesDefaultForNoBodySuccess() throws {
         struct NoContentEmptyInterface: Interface {
             struct Parameters: RequestParameters {
                 let method: RequestMethod = .get
@@ -1417,7 +1369,7 @@ struct InterfaceResponseTests {
             typealias Response = EmptyResponse
 
             static var responseCases: ResponseMap {
-                [.code(204, .noContent)]
+                [.code(204, .decode)]
             }
         }
 
@@ -1939,7 +1891,7 @@ struct InterfaceResponseTests {
         #expect(result == PagedNames(names: ["a", "b"], totalCount: 137))
     }
 
-    @Test("Response metadata is available on the noContent path")
+    @Test("Response metadata is available for a no-body success")
     func testResponseMetadataOnNoContentPath() throws {
         struct StatusEcho: InterfaceResponse, Sendable, Equatable {
             let statusCode: Int?
@@ -1966,7 +1918,7 @@ struct InterfaceResponseTests {
             typealias Response = StatusEcho
 
             static var responseCases: ResponseMap {
-                [.code(204, .noContent)]
+                [.code(204, .decode)]
             }
         }
 

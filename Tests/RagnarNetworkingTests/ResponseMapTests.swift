@@ -218,10 +218,10 @@ struct ResponseMapTests {
         #expect((decoded as? SnakeCaseError)?.errorMessage == "fail")
     }
 
-    @Test("noContent outcome is preserved")
-    func testNoContentOutcome() {
+    @Test("A no-body success is a decode outcome")
+    func testNoBodySuccessOutcome() {
         let map: ResponseMap = [
-            .code(204, .noContent)
+            .code(204, .decode)
         ]
 
         guard let outcome = map.match(204) else {
@@ -230,11 +230,11 @@ struct ResponseMapTests {
         }
 
         switch outcome {
-        case .noContent:
+        case .decode:
             break
 
         default:
-            #expect(Bool(false), "Expected noContent outcome")
+            #expect(Bool(false), "Expected decode outcome")
         }
     }
 
@@ -245,6 +245,40 @@ struct ResponseMapTests {
         ]
 
         #expect(map.match(404) == nil)
+    }
+
+    // MARK: - Maps That Can Never Produce a Response
+
+    /// These emit a `Logger.diagnostics` warning at construction, once per type when
+    /// `responseCases` is the `static let` the documentation calls for. The log itself is not
+    /// asserted; what is asserted is the behavior the warning is about.
+    @Test("A map with only failure cases can never produce a Response")
+    func testFailureOnlyMapNeverDecodes() {
+        let map: ResponseMap = [
+            .code(404, .error(TestError.first)),
+            .clientError(.error(TestError.second))
+        ]
+
+        #expect(map.match(200) == nil)
+        #expect(matchesError(map.match(404), expected: .first))
+    }
+
+    @Test("An empty map matches nothing")
+    func testEmptyMapMatchesNothing() {
+        let map = ResponseMap([])
+
+        #expect(map.match(200) == nil)
+        #expect(map.match(404) == nil)
+    }
+
+    @Test("A map decoding through a range counts as producing a Response")
+    func testRangeDecodeCounts() {
+        let map: ResponseMap = [
+            .success(.decode),
+            .clientError(.error(TestError.first))
+        ]
+
+        #expect(isDecode(map.match(204)))
     }
 
 }

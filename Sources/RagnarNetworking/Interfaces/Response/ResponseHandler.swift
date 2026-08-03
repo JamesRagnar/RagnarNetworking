@@ -31,19 +31,3 @@ public protocol ResponseHandler: Sendable {
     ) throws(ResponseError) -> T.Response
 
 }
-
-// MARK: - Response Outcome Result
-
-/// The result of a handled response, allowing non-decoding success cases.
-///
-/// Returned by `DefaultResponseHandler.handleOutcome`, for custom `ResponseHandler`
-/// implementations that compose with it rather than reimplementing status-code matching.
-public enum ResponseOutcomeResult<Response: Sendable>: Sendable {
-
-    /// The response was decoded as the Interface's Response type.
-    case decoded(Response)
-
-    /// The response was a success with no body (e.g., 204/205/304).
-    case noContent
-
-}

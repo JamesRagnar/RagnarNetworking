@@ -111,4 +111,21 @@ struct LocalizedErrorConformanceTests {
         #expect(error.errorDescription == "The API client has been invalidated and can no longer send requests.")
     }
 
+    @Test("TransportError describes offline and timeout without URLError's generic wording")
+    func testTransportErrorDescriptions() {
+        #expect(
+            TransportError.offline(URLError(.notConnectedToInternet)).errorDescription
+                == "The Internet connection appears to be offline."
+        )
+        #expect(TransportError.timedOut(URLError(.timedOut)).errorDescription == "The request timed out.")
+    }
+
+    @Test("TransportError forwards the underlying error's description for the pass-through cases")
+    func testTransportErrorForwardsUnderlyingDescription() {
+        let urlError = URLError(.cannotFindHost)
+
+        #expect(TransportError.url(urlError).errorDescription == urlError.localizedDescription)
+        #expect(TransportError.other(urlError).errorDescription == urlError.localizedDescription)
+    }
+
 }

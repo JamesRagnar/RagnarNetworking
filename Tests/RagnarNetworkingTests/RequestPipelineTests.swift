@@ -135,7 +135,7 @@ struct RequestPipelineTests {
         }
     }
 
-    @Test("Propagates network errors")
+    @Test("Classifies network errors as TransportError, preserving a custom transport's own error")
     func testPipelineNetworkError() async throws {
         let url = URL(string: "https://api.example.com")!
         let context = RequestContext(configuration: ServerConfiguration(url: url))
@@ -145,13 +145,19 @@ struct RequestPipelineTests {
         await transport.setError(TestError.networkError)
         let pipeline = RequestPipeline(transport: transport)
 
-        await #expect(throws: TestError.self) {
+        let failure = await thrownError(TransportError.self) {
             try await pipeline.send(
                 TestInterface.self,
                 params,
                 context: context
             )
         }
+
+        guard case .other(let underlying)? = failure else {
+            Issue.record("Expected .other, got \(String(describing: failure))")
+            return
+        }
+        #expect(underlying as? TestError == .networkError)
     }
 
     @Test("Passes the context's token to the request builder")

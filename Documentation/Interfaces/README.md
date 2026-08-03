@@ -74,8 +74,9 @@ let user = try await pipeline.send(GetUserInterface.self, .init(userId: 123), co
   - Then ranges are checked in declaration order.
   - Duplicate exact codes keep the first declaration.
   - Duplicate exact codes emit a developer diagnostic through `Logger`, in every build configuration.
+- A map with no `.decode` case can never produce the Interface's `Response`, so every response through it fails. That also emits a developer diagnostic through `Logger`.
 - `.decodeError(MyError.self)` decodes structured error bodies and throws `ResponseError.decoded`.
-- Use `.noContent` for no-body success (204/205/304). `EmptyResponse` is the `Response` type for that case.
+- A no-body success (204/205/304) is `.decode` against zero bytes. `EmptyResponse` is the `Response` type for that case; `Data` and `String` also build themselves from an empty body.
 - Set `ServerConfiguration.responseHandler` for a concern that spans the whole API, and override `Interface.responseHandler` when one endpoint needs its own handling.
 
 Example:
@@ -108,8 +109,7 @@ Built-in conformances:
 - `Optional`: a top-level `null` decodes as `nil`.
 - `Array`: top-level JSON array.
 - `Dictionary`: behavior depends on the key type, see [Dictionary Key Types](response_handling.md#dictionary-key-types).
-- `EmptyResponse`: represents a successful response with no body.
-- `.noContent`: use when the server returns no body (204/205/304).
+- `EmptyResponse`: represents a successful response with no body, and succeeds for any bytes.
 
 Conform directly for a response that is not JSON, or one whose value depends on a header. See [Response Handling](response_handling.md#non-json-responses) and [Responses That Depend on Headers](response_handling.md#responses-that-depend-on-headers).
 
@@ -117,11 +117,11 @@ Conform directly for a response that is not JSON, or one whose value depends on 
 
 - `200 OK`: `.code(200, .decode)` decodes the response body as `Response`.
 - `201 Created`: `.code(201, .decode)` decodes the response body when the server returns the created resource.
-- `202 Accepted`: `.code(202, .noContent)` treats the response as success with no body; a custom `Response` type maps status info if the server returns it instead.
-- `204 No Content`: `.code(204, .noContent)` treats the response as success with no body.
-- `205 Reset Content`: `.code(205, .noContent)` treats the response as success with no body.
+- `202 Accepted`: `.code(202, .decode)` with `Response = EmptyResponse` treats the response as success with no body; a custom `Response` type maps status info if the server returns it instead.
+- `204 No Content`: `.code(204, .decode)` with `Response = EmptyResponse` treats the response as success with no body.
+- `205 Reset Content`: `.code(205, .decode)` with `Response = EmptyResponse` treats the response as success with no body.
 - `206 Partial Content`: `.code(206, .decode)` with `Response = Data` decodes the raw response bytes.
-- `304 Not Modified`: `.code(304, .noContent)` treats the response as success with no body, for Interfaces that send conditional requests.
+- `304 Not Modified`: `.code(304, .decode)` with `Response = EmptyResponse` treats the response as success with no body, for Interfaces that send conditional requests.
 
 ## Interface Genericity
 

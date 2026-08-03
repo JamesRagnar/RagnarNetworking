@@ -33,7 +33,7 @@ public protocol InterfaceResponse {
     /// Builds the response value.
     ///
     /// - Parameters:
-    ///   - data: The raw response bytes. Empty for `.noContent` outcomes.
+    ///   - data: The raw response bytes. Empty for a no-body success such as a 204.
     ///   - metadata: Status code, headers, and URL, already redacted. Use for responses whose
     ///     value depends on a header, such as `ETag` or `Link` pagination.
     ///   - decoder: The decoder configured for this response.

@@ -40,8 +40,9 @@ public struct RequestPipeline: Sendable {
     ///   - parameters: The parameters for constructing the request
     ///   - context: Server configuration plus the credential for this request
     /// - Returns: The decoded response matching the interface's Response type
-    /// - Throws: `RequestError` for request construction issues, `ResponseError` for response
-    ///   handling issues, or the transport's own error for connection failures
+    /// - Throws: `RequestError` for request construction and credential application,
+    ///   `TransportError` for connection failures, `ResponseError` for response handling, and
+    ///   `CancellationError` if the call was cancelled.
     public func send<T: Interface>(
         _ interface: T.Type,
         _ parameters: T.Parameters,
@@ -49,7 +50,23 @@ public struct RequestPipeline: Sendable {
     ) async throws -> T.Response {
         let request = try URLRequest(requestParameters: parameters, context: context)
 
-        let response = try await transport.data(for: request)
+        // `Transport.data(for:)` is untyped `throws` by design, so whatever it throws is
+        // classified here rather than escaping as a raw `URLError` a caller has to know to
+        // catch and switch on.
+        let response: (Data, URLResponse)
+        do {
+            response = try await transport.data(for: request)
+        } catch {
+            // Cancellation stays `CancellationError` whichever side raised it: the package, or
+            // `URLSession` reporting `URLError.cancelled`. One check covers both.
+            if error is CancellationError {
+                throw error
+            }
+            if let urlError = error as? URLError, urlError.code == .cancelled {
+                throw CancellationError()
+            }
+            throw TransportError.classifying(error)
+        }
 
         return try T.handle(
             response,

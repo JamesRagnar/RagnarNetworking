@@ -14,13 +14,11 @@ static let responseCases: ResponseMap = [
 
 ## Success Outcomes
 
-Response cases can either decode a body or indicate a successful response with no body.
+`.decode` is the only outcome that produces the Interface's `Response`. It asks `Response` to
+build itself from whatever bytes arrived, which for a 204/205/304 is none.
 
-- `.decode` expects a response body that can be decoded as the Interface `Response`.
-- `.noContent` marks a success with no body (e.g., 204/205/304).
-
-When `handle(_:context:defaultHandler:)` encounters `.noContent`, the default handler treats it as a success
-with an empty body. This succeeds for `Data`, `String`, or `EmptyResponse` responses.
+A no-body success needs no separate outcome. `EmptyResponse`, `Data`, and `String` all build
+themselves from an empty body, so `.code(204, .decode)` is the mapping:
 
 ```swift
 struct DeleteUser: Interface {
@@ -30,15 +28,22 @@ struct DeleteUser: Interface {
         let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EmptyBody = .init()
-        let authentication: AuthenticationScheme = .bearer
+        let authentication: AuthenticationScheme? = .bearer
     }
 
     typealias Response = EmptyResponse
 
-    static let responseCases: ResponseMap = [.code(204, .noContent)]
+    static let responseCases: ResponseMap = [.code(204, .decode)]
 }
 ```
-For custom no-content behavior, override the Interface `responseHandler`.
+
+A `Response` that cannot be built from zero bytes, such as a JSON struct, fails with
+`ResponseError.decoding` against the empty body. That is the same failure as any other body
+mismatch, and the fix is the same: declare the `Response` the endpoint actually returns.
+
+A map with no `.decode` case can never produce a `Response`, so every response through it fails.
+`ResponseMap.init` emits a `Logger.diagnostics` warning when it sees one - once per type, when
+`responseCases` is declared as the `static let` it should be.
 
 ## Response Handlers
 
@@ -106,11 +111,11 @@ public struct CoverResponseHandler: ResponseHandler {
 
 A custom `ResponseHandler` that only needs a targeted addition to the default behavior
 (for example, inspecting a header before decoding) does not need to reimplement status-code
-matching. `DefaultResponseHandler.handleOutcome(_:for:context:)` performs the same matching `handle`
-does, returning a `ResponseOutcomeResult` instead of deciding what to do with a `.noContent`
-result. `DefaultResponseHandler.decode(_:as:metadata:responseDecoder:)` performs the same decoding
-`handle` uses to finish a `.noContent` result: it asks `Response` to build itself via
-`InterfaceResponse` and normalizes whatever it throws into an `InterfaceDecodingError`.
+matching. `DefaultResponseHandler.handle(_:for:context:)` is public, so a custom handler can do
+its own work and then delegate. `DefaultResponseHandler.decode(_:as:metadata:responseDecoder:)`
+is public too, for a handler that drives its own status matching but still wants the default
+type-driven decoding: it asks `Response` to build itself via `InterfaceResponse` and normalizes
+whatever it throws into an `InterfaceDecodingError`.
 
 ```swift
 public struct LoggingResponseHandler: ResponseHandler {
@@ -121,30 +126,8 @@ public struct LoggingResponseHandler: ResponseHandler {
         for interface: T.Type,
         context: ResponseContext
     ) throws(ResponseError) -> T.Response {
-        switch try base.handleOutcome(response, for: interface, context: context) {
-        case .decoded(let value):
-            return value
-
-        case .noContent:
-            let snapshot = HTTPResponseSnapshot(
-                response: response.response,
-                redactedQueryItemNames: context.redactedQueryItemNames
-            )
-            do {
-                return try base.decode(
-                    Data(),
-                    as: interface,
-                    metadata: snapshot,
-                    responseDecoder: context.responseDecoder
-                )
-            } catch {
-                throw ResponseError.decoding(
-                    ResponseBody(response.data, decoder: context.responseDecoder),
-                    snapshot,
-                    error
-                )
-            }
-        }
+        log(response.response)
+        return try base.handle(response, for: interface, context: context)
     }
 }
 ```
@@ -388,7 +371,7 @@ struct PagedNames: InterfaceResponse, Sendable {
 ```
 
 This covers `ETag`, `Link` pagination, `X-Total-Count`, and `Content-Range`. The snapshot is the
-same redacted value `ResponseError` carries, and it is available on the `.noContent` path too.
+same redacted value `ResponseError` carries, and it is available for a no-body success too.
 
 ### Why InterfaceResponse Does Not Refine Sendable
 
