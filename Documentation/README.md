@@ -7,7 +7,7 @@ This directory documents the public surface of `RagnarNetworking`.
 - `APIClient` - authenticated request execution with challenge refresh, retry, and terminal invalidation
 - `SocketClient` - actor-based socket transport abstraction for higher-level consumers
 - `SocketIOClient` - typed Socket.IO transport built on `URLSessionWebSocketTask`
-- `SocketIOURL` - Socket.IO WebSocket URL builder from HTTP(S) server URLs
+- `SocketEndpoint` - explicit server or pre-derived WebSocket connection target
 - `Transport` - single-requirement abstraction for executing a `URLRequest`; decorate it for middleware
 - `RequestPipeline` - composes `RequestBuilder`, `Transport`, and `ResponseHandler` into one request
 - `ServerConfiguration` - base URL, body coding, and default headers; `RequestContext` pairs one with a per-request token

@@ -88,6 +88,25 @@ struct LocalizedErrorConformanceTests {
         #expect(description?.contains("error 1") == false)
     }
 
+    // MARK: - SocketEndpointError
+
+    static let socketEndpointErrorCases: [SocketEndpointError] = [
+        .unsupportedServerScheme("ws"),
+        .unsupportedWebSocketScheme("https"),
+        .missingHost,
+        .invalidURL
+    ]
+
+    @Test("SocketEndpointError produces a non-empty, non-default errorDescription", arguments: socketEndpointErrorCases)
+    func testSocketEndpointErrorDescription(_ error: SocketEndpointError) {
+        let description = error.errorDescription
+
+        #expect(description != nil)
+        #expect(description?.isEmpty == false)
+        #expect(description?.contains("SocketEndpointError") == false)
+        #expect(description?.contains("error 1") == false)
+    }
+
     // MARK: - Existing conformances unchanged
 
     @Test("ResponseError.errorDescription is unchanged")

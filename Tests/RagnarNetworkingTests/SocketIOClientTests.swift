@@ -106,8 +106,8 @@ private func awaitNextEvent<T: Sendable>(
 /// Makes a SocketIOClient that cycles through the given tasks in order.
 private func makeSocket(tasks: [MockWebSocketTask]) -> SocketIOClient {
     nonisolated(unsafe) var index = 0
-    return SocketIOClient(
-        url: testURL,
+    return try! SocketIOClient(
+        endpoint: .webSocket(testURL),
         reconnect: .disabled,
         taskFactory: { _, _ in
             let task = tasks[index]
@@ -185,9 +185,9 @@ struct SocketIOClientTests {
 
     // MARK: - URL Construction
 
-    @Test("webSocketURL converts http:// to ws:// with correct path and query")
+    @Test("Server endpoint converts http:// to ws:// with correct path and query")
     func urlConstructionHttpToWs() {
-        let url = SocketIOClient.webSocketURL(for: URL(string: "http://example.com")!)
+        let url = try? SocketEndpoint.server(URL(string: "http://example.com")!).resolvedWebSocketURL()
         let components = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
         #expect(components?.scheme == "ws")
         #expect(components?.path == "/socket.io/")
@@ -197,37 +197,37 @@ struct SocketIOClientTests {
         #expect(components?.queryItems?.first(where: { $0.name == "transport" })?.value == "websocket")
     }
 
-    @Test("webSocketURL converts https:// to wss://")
+    @Test("Server endpoint converts https:// to wss://")
     func urlConstructionHttpsToWss() {
-        let url = SocketIOClient.webSocketURL(for: URL(string: "https://secure.example.com")!)
+        let url = try? SocketEndpoint.server(URL(string: "https://secure.example.com")!).resolvedWebSocketURL()
         let components = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
         #expect(components?.scheme == "wss")
     }
 
-    @Test("webSocketURL with no base path produces /socket.io/")
+    @Test("Server endpoint with no base path produces /socket.io/")
     func urlConstructionWithNoBasePath() {
-        let url = SocketIOClient.webSocketURL(for: URL(string: "http://example.com")!)
+        let url = try? SocketEndpoint.server(URL(string: "http://example.com")!).resolvedWebSocketURL()
         let components = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
         #expect(components?.path == "/socket.io/")
     }
 
-    @Test("webSocketURL joins a server URL path prefix rather than discarding it")
+    @Test("Server endpoint joins a URL path prefix rather than discarding it")
     func urlConstructionJoinsExistingPathPrefix() {
-        let url = SocketIOClient.webSocketURL(for: URL(string: "http://example.com/api/v2")!)
+        let url = try? SocketEndpoint.server(URL(string: "http://example.com/api/v2")!).resolvedWebSocketURL()
         let components = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
         #expect(components?.path == "/api/v2/socket.io/")
     }
 
-    @Test("webSocketURL does not produce a doubled separator when the base path has a trailing slash")
+    @Test("Server endpoint does not double a separator after a trailing slash")
     func urlConstructionAvoidsDoubledSeparator() {
-        let url = SocketIOClient.webSocketURL(for: URL(string: "http://example.com/api/v2/")!)
+        let url = try? SocketEndpoint.server(URL(string: "http://example.com/api/v2/")!).resolvedWebSocketURL()
         let components = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
         #expect(components?.path == "/api/v2/socket.io/")
     }
 
-    @Test("webSocketURL preserves existing query items alongside EIO and transport")
+    @Test("Server endpoint preserves existing query items alongside EIO and transport")
     func urlConstructionPreservesExistingQueryItems() {
-        let url = SocketIOClient.webSocketURL(for: URL(string: "http://example.com?tenant=acme")!)
+        let url = try? SocketEndpoint.server(URL(string: "http://example.com?tenant=acme")!).resolvedWebSocketURL()
         let components = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
         let queryNames = components?.queryItems?.map(\.name) ?? []
         #expect(queryNames.contains("tenant"))
@@ -236,14 +236,112 @@ struct SocketIOClientTests {
         #expect(components?.queryItems?.first(where: { $0.name == "tenant" })?.value == "acme")
     }
 
-    @Test("webSocketURL honours a custom path argument")
+    @Test("Server endpoint replaces reserved Engine.IO query items")
+    func urlConstructionReplacesReservedQueryItems() {
+        let serverURL = URL(string: "http://example.com?EIO=3&transport=polling&tenant=acme")!
+        let url = try? SocketEndpoint.server(serverURL).resolvedWebSocketURL()
+        let queryItems = URLComponents(
+            url: try! #require(url),
+            resolvingAgainstBaseURL: false
+        )?.queryItems
+
+        #expect(queryItems?.filter { $0.name == "EIO" }.map(\.value) == ["4"])
+        #expect(queryItems?.filter { $0.name == "transport" }.map(\.value) == ["websocket"])
+        #expect(queryItems?.first(where: { $0.name == "tenant" })?.value == "acme")
+    }
+
+    @Test("Server endpoint honours a custom path")
     func urlConstructionHonoursCustomPath() {
-        let url = SocketIOClient.webSocketURL(for: URL(string: "http://example.com")!, path: "custom-path")
+        let url = try? SocketEndpoint.server(
+            URL(string: "http://example.com")!,
+            path: "custom-path"
+        ).resolvedWebSocketURL()
         let components = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
         #expect(components?.path == "/custom-path/")
     }
 
+    @Test("Server endpoint rejects non-HTTP schemes", arguments: ["ws", "wss", "file"])
+    func serverEndpointRejectsNonHTTPSchemes(_ scheme: String) {
+        let endpoint = SocketEndpoint.server(URL(string: "\(scheme)://example.com")!)
+
+        #expect(throws: SocketEndpointError.unsupportedServerScheme(scheme)) {
+            try endpoint.resolvedWebSocketURL()
+        }
+    }
+
+    @Test("Server endpoint rejects a missing scheme")
+    func serverEndpointRejectsMissingScheme() {
+        let endpoint = SocketEndpoint.server(URL(string: "example.com")!)
+
+        #expect(throws: SocketEndpointError.unsupportedServerScheme(nil)) {
+            try endpoint.resolvedWebSocketURL()
+        }
+    }
+
+    @Test("WebSocket endpoint accepts ws:// and wss:// verbatim", arguments: ["ws", "wss"])
+    func webSocketEndpointUsesURLVerbatim(_ scheme: String) throws {
+        let url = URL(string: "\(scheme)://example.com/custom?EIO=3")!
+
+        #expect(try SocketEndpoint.webSocket(url).resolvedWebSocketURL() == url)
+    }
+
+    @Test("WebSocket endpoint rejects non-WebSocket schemes")
+    func webSocketEndpointRejectsNonWebSocketScheme() {
+        let endpoint = SocketEndpoint.webSocket(URL(string: "https://example.com")!)
+
+        #expect(throws: SocketEndpointError.unsupportedWebSocketScheme("https")) {
+            try endpoint.resolvedWebSocketURL()
+        }
+    }
+
+    @Test("Endpoints reject URLs without a host")
+    func endpointsRejectMissingHost() {
+        let endpoints: [SocketEndpoint] = [
+            .server(URL(string: "http:/socket.io")!),
+            .webSocket(URL(string: "ws:/socket.io")!)
+        ]
+
+        for endpoint in endpoints {
+            #expect(throws: SocketEndpointError.missingHost) {
+                try endpoint.resolvedWebSocketURL()
+            }
+        }
+    }
+
+    @Test("Client initialization rejects an invalid endpoint")
+    func clientInitializationRejectsInvalidEndpoint() {
+        let endpoint = SocketEndpoint.server(URL(string: "wss://example.com")!)
+
+        #expect(throws: SocketEndpointError.unsupportedServerScheme("wss")) {
+            try SocketIOClient(endpoint: endpoint)
+        }
+    }
+
     // MARK: - Connection Lifecycle
+
+    @Test("Client resolves a server endpoint before opening the WebSocket")
+    func clientResolvesServerEndpointBeforeConnecting() async throws {
+        let task = MockWebSocketTask()
+        nonisolated(unsafe) var usedURL: URL?
+        let socket = try SocketIOClient(
+            endpoint: .server(URL(string: "https://example.com/api?tenant=acme")!),
+            reconnect: .disabled,
+            taskFactory: { url, _ in
+                usedURL = url
+                return task
+            }
+        )
+
+        await socket.connect()
+        await Task.yield()
+
+        let components = usedURL.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        #expect(components?.scheme == "wss")
+        #expect(components?.path == "/api/socket.io/")
+        #expect(components?.queryItems?.first(where: { $0.name == "tenant" })?.value == "acme")
+        #expect(components?.queryItems?.first(where: { $0.name == "EIO" })?.value == "4")
+        #expect(components?.queryItems?.first(where: { $0.name == "transport" })?.value == "websocket")
+    }
 
     @Test("connect() calls resume() on the WebSocket task")
     func connectCallsResume() async {
@@ -548,8 +646,8 @@ struct SocketIOClientTests {
     }
 
     @Test("emit throws SocketIOError.notConnected when not connected")
-    func emitThrowsWhenNotConnected() async {
-        let socket = SocketIOClient(url: testURL, reconnect: .disabled)
+    func emitThrowsWhenNotConnected() async throws {
+        let socket = try SocketIOClient(endpoint: .webSocket(testURL), reconnect: .disabled)
 
         await #expect(throws: SocketIOError.notConnected) {
             try await socket.emit(EmptyEvent.self)
@@ -603,8 +701,8 @@ struct SocketIOClientTests {
         nonisolated(unsafe) var usedURLs: [URL] = []
         nonisolated(unsafe) var taskIndex = 0
         let tasks = [task1, task2]
-        let socket = SocketIOClient(
-            url: URL(string: "ws://old.example.com/")!,
+        let socket = try! SocketIOClient(
+            endpoint: .webSocket(URL(string: "ws://old.example.com/")!),
             reconnect: .disabled,
             taskFactory: { url, _ in
                 usedURLs.append(url)
@@ -625,7 +723,7 @@ struct SocketIOClientTests {
         _ = await statusIterator.next() // .connected
 
         let newURL = URL(string: "ws://new.example.com/")!
-        await socket.reconnect(to: newURL)
+        try! await socket.reconnect(to: .webSocket(newURL))
 
         _ = await statusIterator.next() // .disconnected
 
@@ -649,11 +747,34 @@ struct SocketIOClientTests {
         await socket.disconnect()
 
         let newURL = URL(string: "ws://new.example.com/")!
-        await socket.reconnect(to: newURL)
+        try! await socket.reconnect(to: .webSocket(newURL))
         await Task.yield()
 
         #expect(task1.resumeCount == 1)
         #expect(task2.resumeCount == 1)
+    }
+
+    @Test("Invalid reconnect endpoint leaves the current connection unchanged")
+    func invalidReconnectEndpointPreservesCurrentConnection() async {
+        let task = MockWebSocketTask()
+        nonisolated(unsafe) var usedURLs: [URL] = []
+        let socket = try! SocketIOClient(
+            endpoint: .webSocket(testURL),
+            reconnect: .disabled,
+            taskFactory: { url, _ in
+                usedURLs.append(url)
+                return task
+            }
+        )
+
+        await socket.connect()
+        await Task.yield()
+
+        await #expect(throws: SocketEndpointError.unsupportedServerScheme("wss")) {
+            try await socket.reconnect(to: .server(URL(string: "wss://new.example.com")!))
+        }
+        #expect(task.cancelCount == 0)
+        #expect(usedURLs == [testURL])
     }
 
     // MARK: - Malformed Payloads
@@ -719,8 +840,8 @@ struct SocketIOClientTests {
         let task2 = MockWebSocketTask()
         nonisolated(unsafe) var taskIndex = 0
         let tasks = [task1, task2]
-        let socket = SocketIOClient(
-            url: testURL,
+        let socket = try! SocketIOClient(
+            endpoint: .webSocket(testURL),
             reconnect: .init(enabled: true, initialDelay: .milliseconds(1), maxDelay: .seconds(1), multiplier: 2.0),
             taskFactory: { _, _ in
                 let t = tasks[taskIndex]
@@ -760,8 +881,8 @@ struct SocketIOClientTests {
     func heartbeatUsesParsedPingIntervalAndTimeout() async {
         let task = MockWebSocketTask()
         let clock = ManualSleepClock()
-        let socket = SocketIOClient(
-            url: testURL,
+        let socket = try! SocketIOClient(
+            endpoint: .webSocket(testURL),
             reconnect: .disabled,
             taskFactory: { _, _ in task },
             clock: clock
@@ -788,8 +909,8 @@ struct SocketIOClientTests {
     func openPayloadFallsBackToDefaultsWhenUnparseable() async {
         let task = MockWebSocketTask()
         let clock = ManualSleepClock()
-        let socket = SocketIOClient(
-            url: testURL,
+        let socket = try! SocketIOClient(
+            endpoint: .webSocket(testURL),
             reconnect: .disabled,
             taskFactory: { _, _ in task },
             clock: clock
@@ -813,8 +934,8 @@ struct SocketIOClientTests {
     func framesWithinHeartbeatWindowPreventTimeout() async {
         let task = MockWebSocketTask()
         let clock = ManualSleepClock()
-        let socket = SocketIOClient(
-            url: testURL,
+        let socket = try! SocketIOClient(
+            endpoint: .webSocket(testURL),
             reconnect: .disabled,
             taskFactory: { _, _ in task },
             clock: clock
@@ -855,8 +976,8 @@ struct SocketIOClientTests {
         nonisolated(unsafe) var taskIndex = 0
         let tasks = [task1, task2]
         let clock = ManualSleepClock()
-        let socket = SocketIOClient(
-            url: testURL,
+        let socket = try! SocketIOClient(
+            endpoint: .webSocket(testURL),
             reconnect: .init(enabled: true, initialDelay: .milliseconds(1), maxDelay: .seconds(1), multiplier: 2.0),
             taskFactory: { _, _ in
                 let t = tasks[taskIndex]
@@ -988,8 +1109,8 @@ struct SocketIOClientTests {
         let task2 = MockWebSocketTask()
         nonisolated(unsafe) var taskIndex = 0
         let tasks = [task1, task2]
-        let socket = SocketIOClient(
-            url: testURL,
+        let socket = try! SocketIOClient(
+            endpoint: .webSocket(testURL),
             reconnect: .init(enabled: true, initialDelay: .milliseconds(1), maxDelay: .seconds(1), multiplier: 2.0),
             taskFactory: { _, _ in
                 let t = tasks[taskIndex]

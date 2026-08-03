@@ -96,15 +96,15 @@ public actor SocketIOClient {
     /// Creates a `SocketIOClient`.
     ///
     /// - Parameters:
-    ///   - url: The Socket.IO WebSocket URL. Use `webSocketURL(for:)` to derive it from an HTTP/HTTPS server URL.
+    ///   - endpoint: A server URL to derive or a complete WebSocket URL to use verbatim.
     ///   - session: The underlying `URLSession`. Defaults to `URLSession.shared`.
     ///   - reconnect: Reconnection policy. Defaults to exponential backoff with a 1–15s range.
     public init(
-        url: URL,
+        endpoint: SocketEndpoint,
         session: URLSession = .shared,
         reconnect: ReconnectPolicy = .init()
-    ) {
-        self.url = url
+    ) throws {
+        self.url = try endpoint.resolvedWebSocketURL()
         self.urlSession = session
         self.reconnectPolicy = reconnect
         self.taskFactory = nil
@@ -115,13 +115,13 @@ public actor SocketIOClient {
     /// optionally, a replacement clock so reconnect and heartbeat timing are deterministic
     /// rather than tied to the wall clock.
     init(
-        url: URL,
+        endpoint: SocketEndpoint,
         session: URLSession = .shared,
         reconnect: ReconnectPolicy = .init(),
         taskFactory: @escaping @Sendable (URL, URLSession) -> any WebSocketTask,
         clock: any SleepClock = SystemSleepClock()
-    ) {
-        self.url = url
+    ) throws {
+        self.url = try endpoint.resolvedWebSocketURL()
         self.urlSession = session
         self.reconnectPolicy = reconnect
         self.taskFactory = taskFactory
@@ -152,9 +152,9 @@ public actor SocketIOClient {
         setStatus(.disconnected)
     }
 
-    /// Switch to a new URL and reconnect, preserving all registered event streams.
-    public func reconnect(to newURL: URL) async {
-        url = newURL
+    /// Resolve a new endpoint and reconnect, preserving all registered event streams.
+    public func reconnect(to endpoint: SocketEndpoint) async throws {
+        url = try endpoint.resolvedWebSocketURL()
         isDisconnecting = false
         connectionLoopTask?.cancel()
         connectionLoopTask = nil
@@ -234,23 +234,6 @@ public actor SocketIOClient {
             Task { [weak self] in await self?.removeStatusContinuation(id) }
         }
         return stream
-    }
-
-    // MARK: - Socket.IO URL Construction
-
-    /// Builds the Socket.IO 4.x WebSocket URL from an HTTP/HTTPS server base URL.
-    ///
-    /// Joins `path` onto the server URL's existing path rather than discarding it, so a
-    /// server hosted under a prefix (for example behind a reverse proxy at
-    /// `https://example.com/api/v2`) resolves to `wss://example.com/api/v2/socket.io/...`.
-    /// Any existing query items on `serverURL` are preserved alongside `EIO` and `transport`.
-    ///
-    /// - Parameters:
-    ///   - serverURL: The HTTP/HTTPS base URL of the Socket.IO server.
-    ///   - path: The Socket.IO endpoint path, joined onto `serverURL`'s path. Defaults to
-    ///     `"socket.io"`, matching Socket.IO's own default `path` client option.
-    public static func webSocketURL(for serverURL: URL, path: String = "socket.io") -> URL? {
-        SocketIOURL.webSocketURL(for: serverURL, path: path)
     }
 
     // MARK: - Private: Connection Loop
