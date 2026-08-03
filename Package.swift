@@ -18,6 +18,10 @@ let package = Package(
         .library(
             name: "RagnarWebSocket",
             targets: ["RagnarWebSocket"]
+        ),
+        .library(
+            name: "RagnarSocketIO",
+            targets: ["RagnarSocketIO"]
         )
     ],
     dependencies: [],
@@ -30,6 +34,10 @@ let package = Package(
             name: "RagnarWebSocket",
             dependencies: []
         ),
+        .target(
+            name: "RagnarSocketIO",
+            dependencies: ["RagnarWebSocket"]
+        ),
         .testTarget(
             name: "RagnarNetworkingTests",
             dependencies: ["RagnarNetworking"]
@@ -37,6 +45,10 @@ let package = Package(
         .testTarget(
             name: "RagnarWebSocketTests",
             dependencies: ["RagnarWebSocket"]
+        ),
+        .testTarget(
+            name: "RagnarSocketIOTests",
+            dependencies: ["RagnarSocketIO", "RagnarWebSocket"]
         )
     ]
 )
