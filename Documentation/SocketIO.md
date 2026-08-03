@@ -125,3 +125,61 @@ Scripts/run-socketio-integration-tests.sh
 
 The script requires Node 20 or 22 and npm. It installs the fixture with `npm ci` and runs only
 `RagnarSocketIOIntegrationTests`. The Node fixture is test infrastructure and is not a production package dependency.
+
+## Migration from RagnarNetworking
+
+The legacy combined client was removed from the `RagnarNetworking` module. Add the `RagnarSocketIO` library product to
+the consuming target and import it directly. No compatibility aliases or umbrella re-exports are provided.
+
+Before:
+
+```swift
+import RagnarNetworking
+
+let client: any SocketClient = try SocketIOClient(endpoint: .server(serverURL))
+let updates = await client.events(for: LibraryItemUpdated.self)
+await client.connect()
+```
+
+After:
+
+```swift
+import Foundation
+import RagnarSocketIO
+
+let client: any SocketClient = SocketIOClient(
+    decoder: .init { JSONDecoder() },
+    encoder: .init { JSONEncoder() },
+    reconnectPolicy: .default
+)
+
+let updates = await client.events(for: LibraryItemUpdated.self)
+try await client.connect(to: .server(serverURL))
+```
+
+Migration changes include:
+
+- Endpoint configuration moves to `SocketIOEndpoint` and is supplied to `connect(to:)`.
+- Incoming contracts conform to `SocketEvent`; client-emitted contracts also conform to `EmittableSocketEvent`.
+- Each subscription is a throwing `SocketEventStream<Event>` with an explicit bounded or unbounded policy.
+- `.connected` means the server's Socket.IO `CONNECT` packet was received for the default namespace.
+- Reconnect restores transport and namespace state, but does not restore application authentication or missed events.
+- Lossless stream overflow terminates that subscription, so the application must resynchronize through another API.
+
+The new client intentionally excludes polling, transport upgrades, non-default namespaces, acknowledgements, binary
+events, and connection-state recovery. Consumers requiring any excluded behavior must extend the bounded implementation
+or select a complete Socket.IO client rather than depending on unspecified fallback behavior.
+
+### Legacy Test Disposition
+
+The removed combined-client tests are covered by the replacement suites according to responsibility:
+
+- URL resolution and request validation move to `SocketIOEndpointTests`.
+- Engine.IO and Socket.IO frame parsing move to `EngineIOCodecTests` and `SocketIOCodecTests`.
+- Typed event decoding, emission, fanout, cancellation, and overflow move to the contract and stream suites.
+- Connection state, heartbeat, reconnect, endpoint replacement, and invalidation move to the lifecycle suite.
+- Real handshake, event, heartbeat, and reconnect behavior move to the pinned reference-server suite.
+
+Tests coupled to the combined module, permissive malformed-frame handling, non-throwing event streams, and its exact
+logging output are intentionally obsolete. Those behaviors conflict with the independent targets and explicit failure
+semantics of the replacement.

@@ -68,7 +68,7 @@ let user = try await client.send(
 - Strict request bodies via `RequestBody` and response types via `InterfaceResponse`, both open to
   non-JSON formats without changing the package
 - `APIClient` actor with automatic challenge retry, coalesced credential refresh, and terminal invalidation
-- Typed `SocketIOClient` event streams with bounded buffering and automatic transport reconnection
+- Independent `RagnarSocketIO` product with typed event streams, bounded buffering, and automatic transport reconnection
 - Testable request execution via `Transport` and WebSocket execution via `WebSocketClient`
 - Advanced request-construction extension API via `RequestBuilder`
 
