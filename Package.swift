@@ -14,6 +14,10 @@ let package = Package(
         .library(
             name: "RagnarNetworking",
             targets: ["RagnarNetworking"]
+        ),
+        .library(
+            name: "RagnarWebSocket",
+            targets: ["RagnarWebSocket"]
         )
     ],
     dependencies: [],
@@ -22,9 +26,17 @@ let package = Package(
             name: "RagnarNetworking",
             dependencies: []
         ),
+        .target(
+            name: "RagnarWebSocket",
+            dependencies: []
+        ),
         .testTarget(
             name: "RagnarNetworkingTests",
             dependencies: ["RagnarNetworking"]
+        ),
+        .testTarget(
+            name: "RagnarWebSocketTests",
+            dependencies: ["RagnarWebSocket"]
         )
     ]
 )
