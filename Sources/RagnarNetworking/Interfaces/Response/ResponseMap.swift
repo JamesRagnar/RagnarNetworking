@@ -19,9 +19,13 @@ import OSLog
 /// - Later duplicates are ignored.
 /// - Duplicates emit a developer diagnostic through `Logger`, in every build configuration.
 ///
+/// A map containing no `.decode` case can never produce the Interface's `Response`, so every
+/// response through it fails with `ResponseError.unknownResponseCase` or a mapped error. That
+/// also emits a diagnostic through `Logger`.
+///
 /// - Important: Declare `Interface.responseCases` as a `static let`. A computed `static var`
-///   satisfies the requirement but rebuilds the map, and re-emits any duplicate diagnostic, on
-///   every response.
+///   satisfies the requirement but rebuilds the map, and re-emits any diagnostic, on every
+///   response.
 public struct ResponseMap: ExpressibleByArrayLiteral, Sendable {
 
     private let exactCases: [Int: ResponseOutcome]
@@ -53,6 +57,25 @@ public struct ResponseMap: ExpressibleByArrayLiteral, Sendable {
 
         self.exactCases = exact
         self.rangeCases = ranges
+
+        let decodes = exact.values.contains { $0.isDecode }
+            || ranges.contains { $0.outcome.isDecode }
+        if !decodes {
+            // `ResponseMap` does not know which Interface declared it, so the declared
+            // matchers stand in as the identifier at the log site.
+            let declared = (
+                exact.keys.sorted().map(String.init)
+                    + ranges.map { "\($0.range.lowerBound)..<\($0.range.upperBound)" }
+            ).joined(separator: ", ")
+
+            Logger.diagnostics.warning(
+                """
+                RagnarNetworking: response map declares no .decode case, so it can never \
+                produce this Interface's Response. Every response through it will fail. \
+                Declared: [\(declared, privacy: .public)].
+                """
+            )
+        }
     }
 
     /// The outcome declared for exactly this status code, ignoring ranges.
@@ -85,11 +108,11 @@ public struct ResponseMap: ExpressibleByArrayLiteral, Sendable {
 public enum ResponseOutcome: Sendable {
 
     /// Decode the response body as the Interface's Response type.
+    ///
+    /// This is also the outcome for a no-body success. A `Response` of `EmptyResponse`, `Data`,
+    /// or `String` builds itself from an empty body, so `.code(204, .decode)` succeeds without
+    /// a separate no-content outcome.
     case decode
-
-    /// Mark the response as a success with no body.
-    /// Use for 204/205/304-style responses where no decoding is expected.
-    case noContent
 
     /// Throw the given error (body available as raw data in ResponseError).
     case error(any Error & Sendable)
@@ -109,6 +132,15 @@ public enum ResponseOutcome: Sendable {
         .decodeError(body: { data, decoder in
             try decoder.decode(T.self, from: data)
         })
+    }
+
+    /// Whether this outcome produces the Interface's `Response`. Used by `ResponseMap.init` to
+    /// diagnose a map that can never succeed.
+    var isDecode: Bool {
+        if case .decode = self {
+            return true
+        }
+        return false
     }
 
 }

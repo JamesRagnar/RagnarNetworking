@@ -104,11 +104,27 @@ struct LocalizedErrorConformanceTests {
         #expect(error.errorDescription == "Received an unhandled HTTP status code (418).")
     }
 
-    @Test("APIClientError.errorDescription is unchanged")
-    func testAPIClientErrorDescriptionUnchanged() {
-        let error = APIClientError.invalidated
+    @Test("APIFailure.invalidated carries the client lifecycle description")
+    func testAPIFailureInvalidatedDescription() {
+        let error = APIFailure.invalidated
 
         #expect(error.errorDescription == "The API client has been invalidated and can no longer send requests.")
+    }
+
+    @Test("APIFailure forwards the wrapped error's description")
+    func testAPIFailureForwardsWrappedDescription() {
+        let wrapped = RequestError.componentsURL
+
+        #expect(APIFailure.request(wrapped).errorDescription == wrapped.errorDescription)
+    }
+
+    @Test("TransportError describes offline and timeout without leaning on URLError's wording")
+    func testTransportErrorDescriptions() {
+        #expect(
+            TransportError.offline(URLError(.notConnectedToInternet)).errorDescription
+                == "The Internet connection appears to be offline."
+        )
+        #expect(TransportError.timedOut(URLError(.timedOut)).errorDescription == "The request timed out.")
     }
 
 }

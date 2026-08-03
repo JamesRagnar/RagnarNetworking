@@ -312,9 +312,10 @@ struct AuthenticationRetryTriggerTests {
             refresh: { await log.recordRefresh() }
         )
 
-        await #expect(throws: ResponseError.self) {
+        let failure = await #expect(throws: APIFailure.self) {
             _ = try await client.send(UnauthenticatedInterface.self, .init())
         }
+        #expect(failure?.responseError != nil)
 
         #expect(await transport.callCount == 1)
         #expect(await log.tokenCalls == 0)
@@ -334,9 +335,10 @@ struct AuthenticationRetryTriggerTests {
             refresh: { await log.recordRefresh() }
         )
 
-        await #expect(throws: ResponseError.self) {
+        let failure = await #expect(throws: APIFailure.self) {
             _ = try await client.send(RefreshEndpointInterface.self, .init())
         }
+        #expect(failure?.responseError != nil)
 
         // The credential is still applied, because that follows `authentication`.
         let sent = try #require(await transport.requests.first)
@@ -805,9 +807,10 @@ struct AuthenticationChallengePolicyTests {
         await transport.enqueue(try JSONEncoder().encode(AuthFailure(reason: "bad password")), 401)
         let log = CallLog()
 
-        await #expect(throws: ResponseError.self) {
+        let failure = await #expect(throws: APIFailure.self) {
             _ = try await self.client(transport, log).send(Models401DecodedInterface.self, .init())
         }
+        #expect(failure?.responseError != nil)
 
         #expect(await log.refreshCalls == 0)
         #expect(await transport.callCount == 1)
@@ -819,9 +822,10 @@ struct AuthenticationChallengePolicyTests {
         await transport.enqueue(Data(), 401)
         let log = CallLog()
 
-        await #expect(throws: ResponseError.self) {
+        let failure = await #expect(throws: APIFailure.self) {
             _ = try await self.client(transport, log).send(Models401FlatInterface.self, .init())
         }
+        #expect(failure?.responseError != nil)
 
         #expect(await log.refreshCalls == 0)
         #expect(await transport.callCount == 1)
@@ -880,10 +884,11 @@ struct AuthenticationChallengePolicyTests {
 
         let policy = AuthenticationChallengePolicy { _, _ in false }
 
-        await #expect(throws: ResponseError.self) {
+        let failure = await #expect(throws: APIFailure.self) {
             _ = try await self.client(transport, log, policy: policy)
                 .send(SchemeInterface.self, .init(authentication: .bearer))
         }
+        #expect(failure?.responseError != nil)
 
         #expect(await log.refreshCalls == 0)
         #expect(await transport.callCount == 1)
@@ -904,8 +909,10 @@ struct AuthenticationChallengePolicyTests {
         do {
             _ = try await client.send(Models401DecodedInterface.self, .init())
             Issue.record("Expected the modelled 401 to surface")
-        } catch let error as ResponseError {
+        } catch .response(let error) {
             #expect(error.decodeError(as: AuthFailure.self) == AuthFailure(reason: "bad password"))
+        } catch {
+            Issue.record("Expected .response, got \(error)")
         }
     }
 

@@ -497,9 +497,10 @@ struct APIClientTests {
         )
 
         let params = TestInterface.Parameters(authentication: .bearer)
-        await #expect(throws: ResponseError.self) {
+        let failure = await #expect(throws: APIFailure.self) {
             try await client.send(TestInterface.self, params)
         }
+        #expect(failure?.responseError != nil)
 
         #expect(await refreshCounter.value == 0)
         #expect(await mock.callCount == 1)
@@ -521,9 +522,10 @@ struct APIClientTests {
         )
 
         let params = TestInterface.Parameters(authentication: .bearer)
-        await #expect(throws: RefreshError.self) {
+        let failure = await #expect(throws: APIFailure.self) {
             try await client.send(TestInterface.self, params)
         }
+        #expect(failure?.credentialError as? RefreshError == RefreshError())
     }
 
     // MARK: 8. After refresh, retry uses the new token value
@@ -660,9 +662,10 @@ struct APIClientTests {
         )
 
         let params = TestInterface.Parameters(authentication: .bearer)
-        await #expect(throws: ResponseError.self) {
+        let failure = await #expect(throws: APIFailure.self) {
             try await client.send(TestInterface.self, params)
         }
+        #expect(failure?.responseError != nil)
 
         #expect(await refreshCounter.value == 1)
         #expect(await mock.callCount == 2)
@@ -684,9 +687,10 @@ struct APIClientTests {
         await client.invalidate()
 
         let params = TestInterface.Parameters(authentication: .bearer)
-        await #expect(throws: APIClientError.self) {
+        let failure = await #expect(throws: APIFailure.self) {
             try await client.send(TestInterface.self, params)
         }
+        #expect(failure?.isInvalidated == true)
 
         #expect(await tokenCounter.value == 0)
         #expect(await mock.callCount == 0)
@@ -707,9 +711,10 @@ struct APIClientTests {
         await mock.waitUntilStarted()
         await client.invalidate()
 
-        await #expect(throws: APIClientError.self) {
+        let failure = await #expect(throws: APIFailure.self) {
             try await sendTask.value
         }
+        #expect(failure?.isInvalidated == true)
         #expect(await mock.completed == false)
     }
 
@@ -745,9 +750,10 @@ struct APIClientTests {
         await refreshStarted.wait()
         await client.invalidate()
 
-        await #expect(throws: APIClientError.self) {
+        let failure = await #expect(throws: APIFailure.self) {
             try await sendTask.value
         }
+        #expect(failure?.isInvalidated == true)
         #expect(await refreshCounter.value == 1)
         // Only the initial 401 request was sent - no retry.
         #expect(await mock.callCount == 1)
@@ -765,9 +771,10 @@ struct APIClientTests {
         await client.invalidate()
 
         let params = TestInterface.Parameters(authentication: .bearer)
-        await #expect(throws: APIClientError.self) {
+        let failure = await #expect(throws: APIFailure.self) {
             try await client.send(TestInterface.self, params)
         }
+        #expect(failure?.isInvalidated == true)
         #expect(await mock.callCount == 0)
     }
 
@@ -803,9 +810,10 @@ struct APIClientTests {
         await mock.waitUntilStarted()
         task.cancel()
 
-        await #expect(throws: CancellationError.self) {
+        let failure = await #expect(throws: APIFailure.self) {
             try await task.value
         }
+        #expect(failure?.isCancelled == true)
         #expect(await mock.completed == false)
     }
 
@@ -836,9 +844,10 @@ struct APIClientTests {
         await refreshStarted.wait()
         task.cancel()
 
-        await #expect(throws: CancellationError.self) {
+        let failure = await #expect(throws: APIFailure.self) {
             try await task.value
         }
+        #expect(failure?.isCancelled == true)
 
         // No retry was issued while the refresh was still in flight.
         #expect(await mock.callCount == 1)

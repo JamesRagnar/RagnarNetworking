@@ -40,22 +40,40 @@ public struct RequestPipeline: Sendable {
     ///   - parameters: The parameters for constructing the request
     ///   - context: Server configuration plus the credential for this request
     /// - Returns: The decoded response matching the interface's Response type
-    /// - Throws: `RequestError` for request construction issues, `ResponseError` for response
-    ///   handling issues, or the transport's own error for connection failures
+    /// - Throws: `APIFailure.request` when the request could not be built or the credential
+    ///   could not be applied, `.transport` when the transport failed, `.response` when the
+    ///   response could not be interpreted, and `.cancelled` when the call was cancelled. The
+    ///   remaining cases belong to `APIClient` and are never thrown here.
     public func send<T: Interface>(
         _ interface: T.Type,
         _ parameters: T.Parameters,
         context: RequestContext
-    ) async throws -> T.Response {
-        let request = try URLRequest(requestParameters: parameters, context: context)
+    ) async throws(APIFailure) -> T.Response {
+        let request: URLRequest
+        do {
+            request = try URLRequest(requestParameters: parameters, context: context)
+        } catch {
+            throw .request(error)
+        }
 
-        let response = try await transport.data(for: request)
+        // `Transport.data(for:)` is untyped `throws` by design, so whatever a custom transport
+        // throws is classified here rather than escaping unwrapped.
+        let response: (Data, URLResponse)
+        do {
+            response = try await transport.data(for: request)
+        } catch {
+            throw .classifying(error)
+        }
 
-        return try T.handle(
-            response,
-            context: context.responseContext,
-            defaultHandler: context.responseHandler
-        )
+        do {
+            return try T.handle(
+                response,
+                context: context.responseContext,
+                defaultHandler: context.responseHandler
+            )
+        } catch {
+            throw .response(error)
+        }
     }
 
 }

@@ -14,8 +14,8 @@ import Foundation
 /// `Interface.responseHandler` to replace it for one endpoint.
 ///
 /// A custom `ResponseHandler` that wants the default behavior plus a targeted addition
-/// (for example, inspecting a header before decoding) can compose with `handleOutcome`
-/// and `decode` instead of reimplementing `handle` from scratch:
+/// (for example, inspecting a header before decoding) can delegate to `handle`, or reuse
+/// `decode` alone when it drives its own status matching:
 ///
 /// ```swift
 /// struct LoggingResponseHandler: ResponseHandler {
@@ -27,29 +27,8 @@ import Foundation
 ///         context: ResponseContext
 ///     ) throws(ResponseError) -> T.Response {
 ///         // Inspect the raw response before the default handling runs.
-///         switch try base.handleOutcome(response, for: interface, context: context) {
-///         case .decoded(let value):
-///             return value
-///         case .noContent:
-///             let snapshot = HTTPResponseSnapshot(
-///                 response: response.response,
-///                 redactedQueryItemNames: context.redactedQueryItemNames
-///             )
-///             do {
-///                 return try base.decode(
-///                     Data(),
-///                     as: interface,
-///                     metadata: snapshot,
-///                     responseDecoder: context.responseDecoder
-///                 )
-///             } catch {
-///                 throw .decoding(
-///                     ResponseBody(response.data, decoder: context.responseDecoder),
-///                     snapshot,
-///                     error
-///                 )
-///             }
-///         }
+///         log(response.response)
+///         return try base.handle(response, for: interface, context: context)
 ///     }
 /// }
 /// ```
@@ -59,47 +38,15 @@ public struct DefaultResponseHandler: ResponseHandler {
     public init() {}
 
     /// Matches the response's status code against `Interface.responseCases`, then decodes the
-    /// success body, resolves a no-content success, or throws the mapped error.
+    /// body as the Interface's `Response` or throws the mapped error.
+    ///
+    /// A no-body success is a `.decode` against zero bytes: `EmptyResponse`, `Data`, and
+    /// `String` all build themselves from an empty body.
     public func handle<T: Interface>(
         _ response: (data: Data, response: URLResponse),
         for interface: T.Type,
         context: ResponseContext
     ) throws(ResponseError) -> T.Response {
-        switch try handleOutcome(response, for: interface, context: context) {
-        case .decoded(let value):
-            return value
-
-        case .noContent:
-            let snapshot = HTTPResponseSnapshot(
-                response: response.response,
-                redactedQueryItemNames: context.redactedQueryItemNames
-            )
-            do {
-                return try decode(
-                    Data(),
-                    as: interface,
-                    metadata: snapshot,
-                    responseDecoder: context.responseDecoder
-                )
-            } catch {
-                throw .decoding(
-                    ResponseBody(response.data, decoder: context.responseDecoder),
-                    snapshot,
-                    error
-                )
-            }
-        }
-    }
-
-    /// Matches the response's status code against `Interface.responseCases` and either
-    /// decodes the success body, reports a no-content success, or throws the mapped error -
-    /// without deciding what to do for the no-content case, unlike `handle`. Call this first
-    /// when composing a custom `ResponseHandler` on top of the default status-code matching.
-    public func handleOutcome<T: Interface>(
-        _ response: (data: Data, response: URLResponse),
-        for interface: T.Type,
-        context: ResponseContext
-    ) throws(ResponseError) -> ResponseOutcomeResult<T.Response> {
         let responseDecoder = context.responseDecoder
         let responseSnapshot = HTTPResponseSnapshot(
             response: response.response,
@@ -124,13 +71,11 @@ public struct DefaultResponseHandler: ResponseHandler {
         switch responseCase {
         case .decode:
             do {
-                return .decoded(
-                    try decode(
-                        response.data,
-                        as: interface,
-                        metadata: responseSnapshot,
-                        responseDecoder: responseDecoder
-                    )
+                return try decode(
+                    response.data,
+                    as: interface,
+                    metadata: responseSnapshot,
+                    responseDecoder: responseDecoder
                 )
             } catch {
                 throw .decoding(
@@ -139,9 +84,6 @@ public struct DefaultResponseHandler: ResponseHandler {
                     error
                 )
             }
-
-        case .noContent:
-            return .noContent
 
         case .error(let error):
             throw .generic(
@@ -180,9 +122,9 @@ public struct DefaultResponseHandler: ResponseHandler {
     }
 
     /// Decodes `data` as `T.Response` by asking the response type itself, and normalizes
-    /// whatever it throws into an `InterfaceDecodingError`. Call this to finish handling once
-    /// `handleOutcome` reports `.noContent` (with an empty `Data`) or when composing custom
-    /// decoding logic that still needs the default type-driven behavior.
+    /// whatever it throws into an `InterfaceDecodingError`. Call this when composing custom
+    /// decoding logic that drives its own status matching but still wants the default
+    /// type-driven decoding.
     ///
     /// - Parameter metadata: Passed through to `InterfaceResponse.decode`, for response types
     ///   whose value depends on a header or the status code.

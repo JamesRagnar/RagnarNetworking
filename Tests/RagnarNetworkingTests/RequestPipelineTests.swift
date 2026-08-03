@@ -126,13 +126,14 @@ struct RequestPipelineTests {
         await transport.setMockResponse(data: Data(), statusCode: 404, url: url)
         let pipeline = RequestPipeline(transport: transport)
 
-        await #expect(throws: ResponseError.self) {
+        let failure = await #expect(throws: APIFailure.self) {
             try await pipeline.send(
                 TestInterface.self,
                 params,
                 context: context
             )
         }
+        #expect(failure?.responseError != nil)
     }
 
     @Test("Propagates network errors")
@@ -145,13 +146,18 @@ struct RequestPipelineTests {
         await transport.setError(TestError.networkError)
         let pipeline = RequestPipeline(transport: transport)
 
-        await #expect(throws: TestError.self) {
+        let failure = await #expect(throws: APIFailure.self) {
             try await pipeline.send(
                 TestInterface.self,
                 params,
                 context: context
             )
         }
+        guard case .other(let underlying)? = failure?.transportError else {
+            Issue.record("Expected .transport(.other), got \(String(describing: failure))")
+            return
+        }
+        #expect(underlying as? TestError == .networkError)
     }
 
     @Test("Passes the context's token to the request builder")
@@ -476,10 +482,12 @@ struct RequestPipelineTests {
         do {
             _ = try await pipeline.send(TestInterface.self, params, context: context)
             #expect(Bool(false), "Expected a ResponseError")
-        } catch let error as ResponseError {
+        } catch .response(let error) {
             // No decoder passed at the catch site; the error carries the client's own.
             let body = error.decodeError(as: SnakeCaseErrorBody.self)
             #expect(body?.errorMessage == "not found")
+        } catch {
+            Issue.record("Expected .response, got \(error)")
         }
     }
 
@@ -760,13 +768,14 @@ struct RequestPipelineTests {
         let params = AuthRequiredInterface.Parameters()
         let pipeline = RequestPipeline(transport: MockTransport())
 
-        await #expect(throws: RequestError.self) {
+        let failure = await #expect(throws: APIFailure.self) {
             try await pipeline.send(
                 AuthRequiredInterface.self,
                 params,
                 context: context
             )
         }
+        #expect(failure?.requestError != nil)
     }
 
     // MARK: - Sendable Conformance Tests
