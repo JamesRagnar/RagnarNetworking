@@ -25,12 +25,13 @@ public enum SocketConnectionStatus: Sendable, Equatable {
 ///
 /// Conforming types own connection lifecycle, typed event streams, and event emission.
 /// The abstraction intentionally stays at the typed Socket.IO transport layer rather than
-/// exposing lower-level frame parsing details.
+/// exposing lower-level frame parsing details. Connection targets distinguish server URLs
+/// that require Socket.IO derivation from complete WebSocket URLs.
 public protocol SocketClient: Actor {
 
     func connect() async
     func disconnect()
-    func reconnect(to newURL: URL) async
+    func reconnect(to endpoint: SocketEndpoint) async throws
     func invalidate()
 
     func emit<E: SocketEvent>(_ type: E.Type, _ payload: E.Schema) async throws
@@ -42,4 +43,3 @@ public protocol SocketClient: Actor {
     func statusUpdates() -> AsyncStream<SocketConnectionStatus>
 
 }
-
