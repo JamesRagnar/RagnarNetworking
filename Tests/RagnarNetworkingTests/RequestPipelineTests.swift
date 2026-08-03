@@ -802,7 +802,7 @@ struct RequestPipelineTests {
         }
     }
 
-    @Test("The pipeline uses the configuration's responseHandler for an Interface that declares none")
+    @Test("The pipeline uses the configuration's responseHandler")
     func testPipelineUsesConfigurationResponseHandler() async throws {
         let url = URL(string: "https://api.example.com")!
         let context = RequestContext(

@@ -36,7 +36,7 @@ public struct ServerConfiguration: Sendable {
     /// Builds `URLRequest` values from Interface parameters for this server.
     public let builder: any RequestBuilder
 
-    /// Handles responses for Interfaces that do not override `Interface.responseHandler`.
+    /// Handles responses for this server.
     ///
     /// Use for concerns that apply across the whole API, such as unwrapping a
     /// `{ "data": ... }` envelope or reading a deprecation header.
@@ -68,8 +68,8 @@ public struct ServerConfiguration: Sendable {
     ///   - responseDecoder: Decoder configuration for response bodies
     ///   - defaultHeaders: Headers applied to every request; per-request `headers` take precedence
     ///   - builder: Builds requests from Interface parameters. Defaults to `URLRequestBuilder()`.
-    ///   - responseHandler: Handles responses for Interfaces that do not override their own.
-    ///     Defaults to `DefaultResponseHandler()`.
+    ///   - responseHandler: Handles responses for this server. Defaults to
+    ///     `DefaultResponseHandler()`.
     ///   - authenticators: Gives each `AuthenticationScheme` its meaning. Defaults to
     ///     `.bearer` writing `Authorization: Bearer <credential>` and `.url` writing
     ///     `?token=<credential>`.
