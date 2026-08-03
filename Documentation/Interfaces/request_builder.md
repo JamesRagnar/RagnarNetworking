@@ -123,8 +123,10 @@ let config = ServerConfiguration(
 ```swift
 let client = APIClient(
     configuration: config,
-    token: { try await keychain.accessToken() },
-    refresh: { try await authService.refresh() }
+    credentialSource: .refreshing(
+        read: { try await keychain.accessToken() },
+        refresh: { try await authService.refresh() }
+    )
 )
 ```
 

@@ -39,8 +39,10 @@ struct GetUserInterface: Interface {
 
 let client = APIClient(
     configuration: ServerConfiguration(url: URL(string: "https://api.example.com")!),
-    token: { try await keychain.accessToken() },
-    refresh: { try await authService.refresh() }
+    credentialSource: .refreshing(
+        read: { try await keychain.accessToken() },
+        refresh: { try await authService.refresh() }
+    )
 )
 
 let user = try await client.send(

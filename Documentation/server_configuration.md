@@ -20,7 +20,7 @@ let config = ServerConfiguration(url: URL(string: "https://api.example.com")!)
 let context = RequestContext(configuration: config, credential: "token")
 ```
 
-`APIClient` takes a `ServerConfiguration` and holds it for its lifetime, building a `RequestContext` with the current token on every request. Construct a `RequestContext` yourself only when calling `RequestPipeline` or `URLRequest`'s initializers without `APIClient`.
+`APIClient` takes a `ServerConfiguration` and holds it for its lifetime, building a `RequestContext` with the current credential on every request. Construct a `RequestContext` yourself only when calling `RequestPipeline` or `URLRequest`'s initializers without `APIClient`.
 
 ## Request Encoder
 

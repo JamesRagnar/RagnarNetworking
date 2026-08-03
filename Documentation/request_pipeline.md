@@ -56,7 +56,7 @@ The request carries no operation identity, so per-endpoint metrics cannot name t
 
 ## Default Usage
 
-Most consumers should use `APIClient`. Use `RequestPipeline` directly when you manage the token yourself:
+Most consumers should use `APIClient`. Use `RequestPipeline` directly when you manage the credential yourself:
 
 ```swift
 let pipeline = RequestPipeline(transport: URLSession.shared)
