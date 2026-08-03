@@ -40,40 +40,39 @@ public struct RequestPipeline: Sendable {
     ///   - parameters: The parameters for constructing the request
     ///   - context: Server configuration plus the credential for this request
     /// - Returns: The decoded response matching the interface's Response type
-    /// - Throws: `APIFailure.request` when the request could not be built or the credential
-    ///   could not be applied, `.transport` when the transport failed, `.response` when the
-    ///   response could not be interpreted, and `.cancelled` when the call was cancelled. The
-    ///   remaining cases belong to `APIClient` and are never thrown here.
+    /// - Throws: `RequestError` for request construction and credential application,
+    ///   `TransportError` for connection failures, `ResponseError` for response handling, and
+    ///   `CancellationError` if the call was cancelled.
     public func send<T: Interface>(
         _ interface: T.Type,
         _ parameters: T.Parameters,
         context: RequestContext
-    ) async throws(APIFailure) -> T.Response {
-        let request: URLRequest
-        do {
-            request = try URLRequest(requestParameters: parameters, context: context)
-        } catch {
-            throw .request(error)
-        }
+    ) async throws -> T.Response {
+        let request = try URLRequest(requestParameters: parameters, context: context)
 
-        // `Transport.data(for:)` is untyped `throws` by design, so whatever a custom transport
-        // throws is classified here rather than escaping unwrapped.
+        // `Transport.data(for:)` is untyped `throws` by design, so whatever it throws is
+        // classified here rather than escaping as a raw `URLError` a caller has to know to
+        // catch and switch on.
         let response: (Data, URLResponse)
         do {
             response = try await transport.data(for: request)
         } catch {
-            throw .classifying(error)
+            // Cancellation stays `CancellationError` whichever side raised it: the package, or
+            // `URLSession` reporting `URLError.cancelled`. One check covers both.
+            if error is CancellationError {
+                throw error
+            }
+            if let urlError = error as? URLError, urlError.code == .cancelled {
+                throw CancellationError()
+            }
+            throw TransportError.classifying(error)
         }
 
-        do {
-            return try T.handle(
-                response,
-                context: context.responseContext,
-                defaultHandler: context.responseHandler
-            )
-        } catch {
-            throw .response(error)
-        }
+        return try T.handle(
+            response,
+            context: context.responseContext,
+            defaultHandler: context.responseHandler
+        )
     }
 
 }

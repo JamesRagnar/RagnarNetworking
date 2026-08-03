@@ -123,12 +123,12 @@ await client.invalidate()
 
 Invalidation is terminal and idempotent. After it is called:
 
-- New `send` calls fail with `APIFailure.invalidated`, before token resolution or transport work begins.
+- New `send` calls fail with `APIClientError.invalidated`, before token resolution or transport work begins.
 - In-flight transport tasks are cancelled. If a custom `Transport` does not honor cancellation, its result is still suppressed before it can complete through the client.
 - A coalesced token refresh is cancelled, and no challenge retry is started.
 - The client never becomes valid again. Create a new `APIClient` for a new server URL or connection generation.
 
-`send` throws `APIFailure`, so invalidation is one case among the layers that can fail, matched without a cast:
+Handle invalidation separately from request, transport, and response errors when a caller needs to replace the client:
 
 ```swift
 do {
@@ -137,11 +137,7 @@ do {
         .init(userId: 123)
     )
     print(user)
-} catch .invalidated {
+} catch APIClientError.invalidated {
     // Obtain and use a replacement APIClient.
-} catch {
-    // .request, .transport, .response, .credential, .cancelled, .noCredentialSource
 }
 ```
-
-See [error_handling.md](error_handling.md) for the full case list.

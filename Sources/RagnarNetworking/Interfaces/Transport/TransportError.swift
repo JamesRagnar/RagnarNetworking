@@ -10,8 +10,23 @@ import Foundation
 /// A failure moving bytes, before any response could be interpreted.
 ///
 /// `Transport.data(for:)` is untyped `throws`, so `RequestPipeline` classifies whatever it
-/// throws into one of these cases. Cancellation is not among them: it surfaces as
-/// `APIFailure.cancelled`, whether it arrived as `CancellationError` or `URLError.cancelled`.
+/// throws into one of these cases rather than letting a raw `URLError` escape:
+///
+/// ```swift
+/// do {
+///     let user = try await client.send(GetUser.self, .init(id: 1))
+/// } catch let failure as TransportError {
+///     show(failure.isOffline ? "You are offline." : failure.errorDescription)
+/// } catch let error as ResponseError {
+///     show(error.errorDescription)
+/// } catch {
+///     report(error)
+/// }
+/// ```
+///
+/// Cancellation is not among these cases. It stays `CancellationError` whether the package
+/// raised it or `URLSession` reported `URLError.cancelled`, so `catch is CancellationError`
+/// is the single check for it.
 public enum TransportError: LocalizedError, Sendable {
 
     /// The device has no usable network path to the server.
@@ -59,8 +74,8 @@ public enum TransportError: LocalizedError, Sendable {
 
     /// Classifies an error thrown by `Transport.data(for:)`.
     ///
-    /// - Important: Cancellation is not classified here. Call this only after
-    ///   `APIFailure.classifying(_:)` has lifted cancellation out.
+    /// - Important: Cancellation is not classified here. `RequestPipeline.send` lifts it out
+    ///   first, so a cancelled call throws `CancellationError` rather than a `TransportError`.
     static func classifying(_ error: any Error) -> TransportError {
         guard let urlError = error as? URLError else {
             return .other(error)

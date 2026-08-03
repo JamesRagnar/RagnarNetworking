@@ -20,11 +20,7 @@ public actor APIClient {
     private let configuration: ServerConfiguration
     private let pipeline: RequestPipeline
     private let token: @Sendable () async throws -> String?
-
-    /// `nil` on a client created without credential closures. A challenge on such a client
-    /// fails with `APIFailure.noCredentialSource` rather than calling a sentinel closure.
-    private let refresh: (@Sendable () async throws -> Void)?
-
+    private let refresh: @Sendable () async throws -> Void
     private var ongoingRefresh: Task<Void, Error>?
 
     /// Bumped each time a refresh completes successfully. Lets a request that read its
@@ -78,7 +74,7 @@ public actor APIClient {
         self.configuration = configuration
         self.pipeline = RequestPipeline(transport: transport)
         self.token = { nil }
-        self.refresh = nil
+        self.refresh = { throw APIClientError.noCredentialSource }
     }
 
     /// Sends a typed request.
@@ -89,14 +85,13 @@ public actor APIClient {
     /// Interface's `responseCases`, so an endpoint that models the challenge status code
     /// surfaces its own error instead.
     ///
-    /// - Throws: `APIFailure`. `.invalidated` if the client has been invalidated; the check is
-    ///   applied before token resolution, before and after transport, before refresh, and
-    ///   before retry. `.credential` if `token` or `refresh` threw. Otherwise the failure the
-    ///   pipeline reported.
+    /// - Throws: `APIClientError.invalidated` if the client has been invalidated. The
+    ///   check is applied before token resolution, before and after transport, before
+    ///   refresh, and before retry.
     public func send<T: Interface>(
         _ type: T.Type,
         _ params: T.Parameters
-    ) async throws(APIFailure) -> T.Response {
+    ) async throws -> T.Response {
         try checkValid()
 
         guard params.refreshesOnChallenge else {
@@ -107,13 +102,10 @@ public actor APIClient {
         let currentCredential = try await credential(for: params)
         do {
             return try await execute(type, params, credential: currentCredential)
-        } catch {
-            guard case .response(let responseError) = error,
-                  configuration.challengePolicy.isChallenge(responseError, T.responseCases)
-            else {
-                throw error
-            }
-
+        } catch let err as ResponseError where configuration.challengePolicy.isChallenge(
+            err,
+            T.responseCases
+        ) {
             try checkValid()
             // If a refresh has already completed since this request read its token,
             // another request's challenge already refreshed for us - retry directly with
@@ -128,23 +120,14 @@ public actor APIClient {
                 } catch {
                     // A refresh cancelled by `invalidate()` surfaces as the terminal
                     // invalidation error rather than a raw cancellation. Caller-initiated
-                    // cancellation surfaces as `.cancelled` here without affecting the
-                    // refresh, which keeps running for any other waiters.
-                    //
-                    // `CancellableTaskWait` erases the task's failure type, so this is either
-                    // the `APIFailure` `coalesceRefresh` threw or a `CancellationError` from
-                    // the wait itself. Anything else is a credential problem, not a transport
-                    // one, which is why this is not `classifying(_:)`.
+                    // cancellation surfaces as `CancellationError` here without affecting
+                    // the refresh, which keeps running for any other waiters.
                     try checkValid()
-                    throw APIFailure.credential(from: error)
+                    throw error
                 }
             }
             try checkValid()
-            do {
-                try Task.checkCancellation()
-            } catch {
-                throw APIFailure.cancelled
-            }
+            try Task.checkCancellation()
             return try await execute(type, params, credential: try await credential(for: params))
         }
     }
@@ -152,7 +135,7 @@ public actor APIClient {
     /// Permanently invalidates the client.
     ///
     /// After this call:
-    /// - New `send` calls fail with `APIFailure.invalidated`.
+    /// - New `send` calls fail with `APIClientError.invalidated`.
     /// - Any coalesced refresh owned by the client is cancelled.
     /// - Tracked in-flight transport tasks are cancelled. Cancellation reaches the
     ///   underlying transport when the configured `Transport` honors task
@@ -178,19 +161,15 @@ public actor APIClient {
     ///
     /// Keyed on `authentication` rather than `refreshesOnChallenge`, so an endpoint that opts
     /// out of refresh still sends its credential.
-    private func credential(for params: some RequestParameters) async throws(APIFailure) -> String? {
+    private func credential(for params: some RequestParameters) async throws -> String? {
         guard params.authentication != nil else { return nil }
-        do {
-            return try await token()
-        } catch {
-            throw .credential(from: error)
-        }
+        return try await token()
     }
 
-    /// Throws `APIFailure.invalidated` if the client has been invalidated.
-    private func checkValid() throws(APIFailure) {
+    /// Throws `APIClientError.invalidated` if the client has been invalidated.
+    private func checkValid() throws {
         if isInvalidated {
-            throw .invalidated
+            throw APIClientError.invalidated
         }
     }
 
@@ -198,7 +177,7 @@ public actor APIClient {
         _ type: T.Type,
         _ params: T.Parameters,
         credential: String?
-    ) async throws(APIFailure) -> T.Response {
+    ) async throws -> T.Response {
         try checkValid()
 
         let context = RequestContext(
@@ -209,49 +188,36 @@ public actor APIClient {
         // Run transport inside a tracked child task so `invalidate()` can cancel it
         // from another task. The cancellation handler also forwards cancellation of
         // the caller's own task to the child.
-        //
-        // The task carries a `Result` rather than throwing, because `Task` has no typed
-        // failure form - `Task<Success, APIFailure>` does not exist - and erasing to
-        // `any Error` here would mean casting the failure back on the way out.
-        let task = Task { () -> Result<T.Response, APIFailure> in
-            do {
-                return .success(try await pipeline.send(type, params, context: context))
-            } catch {
-                return .failure(.classifying(error))
-            }
+        let task = Task {
+            try await pipeline.send(type, params, context: context)
         }
         let id = UUID()
         inFlightCancellers[id] = { task.cancel() }
         defer { inFlightCancellers[id] = nil }
 
-        let result = await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
+        do {
+            let response = try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
+            try checkValid()
+            return response
+        } catch {
+            // Transport cancelled by `invalidate()` surfaces as the terminal
+            // invalidation error rather than a raw cancellation. Caller-initiated
+            // cancellation (without invalidation) still propagates unchanged.
+            try checkValid()
+            throw error
         }
-
-        // Transport cancelled by `invalidate()` surfaces as the terminal invalidation
-        // failure rather than a raw cancellation. Caller-initiated cancellation (without
-        // invalidation) still propagates as `.cancelled`.
-        try checkValid()
-        return try result.get()
     }
 
-    private func coalesceRefresh() async throws(APIFailure) {
-        guard let refresh else {
-            throw .noCredentialSource
-        }
-
+    private func coalesceRefresh() async throws {
         if let task = ongoingRefresh {
-            do {
-                try await task.value
-            } catch {
-                throw .credential(from: error)
-            }
+            try await task.value
             return
         }
-
-        let task = Task<Void, Error> { try await refresh() }
+        let task = Task<Void, Error> { [self] in try await refresh() }
         ongoingRefresh = task
         do {
             try await task.value
@@ -259,7 +225,7 @@ public actor APIClient {
             refreshGeneration &+= 1
         } catch {
             ongoingRefresh = nil
-            throw .credential(from: error)
+            throw error
         }
     }
 }

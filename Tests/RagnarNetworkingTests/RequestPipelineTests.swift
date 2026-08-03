@@ -126,17 +126,16 @@ struct RequestPipelineTests {
         await transport.setMockResponse(data: Data(), statusCode: 404, url: url)
         let pipeline = RequestPipeline(transport: transport)
 
-        let failure = await apiFailure {
+        await #expect(throws: ResponseError.self) {
             try await pipeline.send(
                 TestInterface.self,
                 params,
                 context: context
             )
         }
-        #expect(failure?.responseError != nil)
     }
 
-    @Test("Propagates network errors")
+    @Test("Classifies network errors as TransportError, preserving a custom transport's own error")
     func testPipelineNetworkError() async throws {
         let url = URL(string: "https://api.example.com")!
         let context = RequestContext(configuration: ServerConfiguration(url: url))
@@ -146,15 +145,16 @@ struct RequestPipelineTests {
         await transport.setError(TestError.networkError)
         let pipeline = RequestPipeline(transport: transport)
 
-        let failure = await apiFailure {
+        let failure = await thrownError(TransportError.self) {
             try await pipeline.send(
                 TestInterface.self,
                 params,
                 context: context
             )
         }
-        guard case .other(let underlying)? = failure?.transportError else {
-            Issue.record("Expected .transport(.other), got \(String(describing: failure))")
+
+        guard case .other(let underlying)? = failure else {
+            Issue.record("Expected .other, got \(String(describing: failure))")
             return
         }
         #expect(underlying as? TestError == .networkError)
@@ -482,12 +482,10 @@ struct RequestPipelineTests {
         do {
             _ = try await pipeline.send(TestInterface.self, params, context: context)
             #expect(Bool(false), "Expected a ResponseError")
-        } catch .response(let error) {
+        } catch let error as ResponseError {
             // No decoder passed at the catch site; the error carries the client's own.
             let body = error.decodeError(as: SnakeCaseErrorBody.self)
             #expect(body?.errorMessage == "not found")
-        } catch {
-            Issue.record("Expected .response, got \(error)")
         }
     }
 
@@ -768,14 +766,13 @@ struct RequestPipelineTests {
         let params = AuthRequiredInterface.Parameters()
         let pipeline = RequestPipeline(transport: MockTransport())
 
-        let failure = await apiFailure {
+        await #expect(throws: RequestError.self) {
             try await pipeline.send(
                 AuthRequiredInterface.self,
                 params,
                 context: context
             )
         }
-        #expect(failure?.requestError != nil)
     }
 
     // MARK: - Sendable Conformance Tests
