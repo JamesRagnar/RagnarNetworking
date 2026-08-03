@@ -54,7 +54,7 @@ do {
 ## ResponseError Cases
 
 - `.unknownResponse(ResponseBody, HTTPResponseSnapshot)` - the response could not be cast to `HTTPURLResponse`.
-- `.unknownResponseCase(ResponseBody, HTTPResponseSnapshot)` - the HTTP status code has no matching entry in the Interface's `responseCases`.
+- `.unknownResponseCase(ResponseBody, HTTPResponseSnapshot)` - the HTTP status code has no matching entry in the Interface's `responses` contract.
 - `.decoding(ResponseBody, HTTPResponseSnapshot, InterfaceDecodingError)` - the response body could not be decoded as the Interface's `Response` type.
 - `.generic(ResponseBody, HTTPResponseSnapshot, any Error & Sendable)` - the predefined error configured via `.error(_:)` for the matched status code.
 - `.decoded(ResponseBody, HTTPResponseSnapshot, any Error & Sendable)` - a structured error body decoded via `.decodeError(_:)` for the matched status code.

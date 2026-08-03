@@ -1,24 +1,40 @@
 # Response Handling
 
-Interfaces map HTTP status codes to outcomes (decode success, throw a predefined error, or decode an error body). The default `handle(_:context:defaultHandler:)` path applies this mapping and decodes the response.
+Interfaces declare which HTTP status codes produce their associated `Response` and which produce
+failures. The default `handle(_:context:defaultHandler:)` path interprets that contract and builds
+the response.
 
-## Response Cases
+## Response Contract
 
 ```swift
-static let responseCases: ResponseMap = [
-    .code(200, .decode),
-    .code(404, .error(APIError.userNotFound)),
-    .clientError(.decodeError(APIErrorBody.self))
-]
+static let responses = ResponseContract<Response>(
+    success: .exact(200),
+    failures: [
+        .code(404, .error(APIError.userNotFound)),
+        .clientError(.decodeError(APIErrorBody.self))
+    ]
+)
 ```
 
-## Success Outcomes
+`ResponseContract<Response>` is generic over the Interface's successful type. Its initializer
+requires a first success matcher, so an Interface cannot declare a `Response` with no status path
+capable of producing it. Failure cases accept only `FailureOutcome`, so a failure matcher cannot
+be assigned successful decoding.
 
-`.decode` is the only outcome that produces the Interface's `Response`. It asks `Response` to
-build itself from whatever bytes arrived, which for a 204/205/304 is none.
+## Successful Responses
+
+A successful match asks `Response` to build itself from whatever bytes arrived, which for a
+204/205/304 is none. Multiple successful codes all build the same declared `Response` type:
+
+```swift
+static let responses = ResponseContract<Response>(
+    success: .exact(200),
+    additionalSuccesses: [.exact(201), .exact(202)]
+)
+```
 
 A no-body success needs no separate outcome. `EmptyResponse`, `Data`, and `String` all build
-themselves from an empty body, so `.code(204, .decode)` is the mapping:
+themselves from an empty body, so `.exact(204)` is the successful matcher:
 
 ```swift
 struct DeleteUser: Interface {
@@ -33,7 +49,7 @@ struct DeleteUser: Interface {
 
     typealias Response = EmptyResponse
 
-    static let responseCases: ResponseMap = [.code(204, .decode)]
+    static let responses = ResponseContract<Response>(success: .exact(204))
 }
 ```
 
@@ -41,9 +57,8 @@ A `Response` that cannot be built from zero bytes, such as a JSON struct, fails 
 `ResponseError.decoding` against the empty body. That is the same failure as any other body
 mismatch, and the fix is the same: declare the `Response` the endpoint actually returns.
 
-A map with no `.decode` case can never produce a `Response`, so every response through it fails.
-`ResponseMap.init` emits a `Logger.diagnostics` warning when it sees one - once per type, when
-`responseCases` is declared as the `static let` it should be.
+An Interface with no success matcher does not compile because `ResponseContract` has no empty or
+failure-only initializer.
 
 ## Response Handlers
 
@@ -135,51 +150,59 @@ public struct LoggingResponseHandler: ResponseHandler {
 ### Matching Priority
 
 - Exact status codes match first.
-- Range matches are evaluated in the order they are defined.
+- Success ranges are evaluated next, in declaration order.
+- Failure ranges are evaluated last, in declaration order.
 - Duplicate exact codes keep the first declaration. Later duplicates are ignored.
 - Duplicate exact codes emit a developer diagnostic through `Logger`, in every build configuration.
 
-This means you can declare a fallback range and still override specific status codes later:
+This means an exact failure can override a broad success range:
 
 ```swift
-static let responseCases: ResponseMap = [
-    .clientError(.error(APIError.genericClientError)),
-    .code(401, .error(APIError.unauthorized))
-]
+static let responses = ResponseContract<Response>(
+    success: .success,
+    failures: [.code(202, .error(APIError.unexpectedAccepted))]
+)
 ```
 
 ### Resolution Rules (Quick Reference)
 
-Given a status code, `ResponseMap` resolves outcomes in this order:
+Given a status code, `ResponseContract` resolves matches in this order:
 1. Exact code lookup (O(1))
-2. First matching range (in declaration order)
-3. No match -> `ResponseError.unknownResponseCase`
+2. First matching success range
+3. First matching failure range
+4. No match -> `ResponseError.unknownResponseCase`
 
 Examples:
 
 ```swift
-// Exact beats range
-static let responseCases: ResponseMap = [
-    .success(.error(APIError.genericSuccess)),
-    .code(200, .decode) // wins for 200
-]
+// Exact failure beats success range
+static let responses = ResponseContract<Response>(
+    success: .success,
+    failures: [.code(202, .error(APIError.unexpectedAccepted))]
+)
 ```
 
 ```swift
-// Range order matters
-static let responseCases: ResponseMap = [
-    .range(400..<500, .error(APIError.client)),
-    .range(400..<600, .error(APIError.clientOrServer))
-    // 404 resolves to APIError.client (first matching range)
-]
+// Failure range order matters
+static let responses = ResponseContract<Response>(
+    success: .exact(200),
+    failures: [
+        .range(400..<500, .error(APIError.client)),
+        .range(400..<600, .error(APIError.clientOrServer))
+        // 404 resolves to APIError.client
+    ]
+)
 ```
 
 ```swift
 // Duplicate exact codes: first wins
-static let responseCases: ResponseMap = [
-    .code(401, .error(APIError.unauthorized)),
-    .code(401, .error(APIError.sessionExpired)) // ignored, logs a developer diagnostic
-]
+static let responses = ResponseContract<Response>(
+    success: .exact(200),
+    failures: [
+        .code(401, .error(APIError.unauthorized)),
+        .code(401, .error(APIError.sessionExpired)) // ignored, logs a diagnostic
+    ]
+)
 ```
 
 ### decodeError Behavior
@@ -193,18 +216,21 @@ When decoding fails (empty body, non-JSON response, malformed JSON), the error i
 
 The raw response data is always preserved, so you can still inspect `responseBodyString`.
 
-Error bodies decode with the same `ResponseDecoder` as success bodies. `responseCases` is a
-`static var` with no access to a live `ServerConfiguration`, so the decoder is handed to the
+Error bodies decode with the same `ResponseDecoder` as success bodies. `responses` is static and
+has no access to a live `ServerConfiguration`, so the decoder is handed to the
 outcome at handling time rather than captured at declaration time: `.decodeError(body:)` receives
 `(Data, ResponseDecoder)`, and `.decodeError(_:)` uses that decoder for you.
 
 ```swift
-static let responseCases: ResponseMap = [
-    .code(400, .decodeError(APIErrorBody.self)),
-    .code(418, .decodeError(body: { data, decoder in
-        try decoder.makeJSONDecoder().decode(TeapotError.self, from: data)
-    }))
-]
+static let responses = ResponseContract<Response>(
+    success: .exact(200),
+    failures: [
+        .code(400, .decodeError(APIErrorBody.self)),
+        .code(418, .decodeError(body: { data, decoder in
+            try decoder.makeJSONDecoder().decode(TeapotError.self, from: data)
+        }))
+    ]
+)
 ```
 
 `ResponseError` carries its body as a `ResponseBody` - the raw bytes plus the decoder the

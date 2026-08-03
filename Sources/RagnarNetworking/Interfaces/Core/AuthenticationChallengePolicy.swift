@@ -23,14 +23,16 @@ public struct AuthenticationChallengePolicy: Sendable {
 
     /// Whether the error is a credential challenge.
     ///
-    /// Receives the Interface's `responseCases` so a policy can ask what the endpoint declared.
+    /// Receives the Interface's response statuses so a policy can ask what the endpoint declared.
     /// Inferring that from the thrown `ResponseError` case instead would tie the policy to
     /// `DefaultResponseHandler`'s error mapping, which a custom `ResponseHandler` may change.
-    public let isChallenge: @Sendable (ResponseError, ResponseMap) -> Bool
+    public let isChallenge: @Sendable (ResponseError, ResponseStatusContract) -> Bool
 
     /// Creates a challenge policy.
     /// - Parameter isChallenge: Whether the error is the server rejecting a stale credential.
-    public init(isChallenge: @escaping @Sendable (ResponseError, ResponseMap) -> Bool) {
+    public init(
+        isChallenge: @escaping @Sendable (ResponseError, ResponseStatusContract) -> Bool
+    ) {
         self.isChallenge = isChallenge
     }
 
@@ -41,8 +43,8 @@ public struct AuthenticationChallengePolicy: Sendable {
     ///
     /// A range match does not count: `.clientError(...)` is a catch-all for status codes the
     /// endpoint did not consider, 401 included, so it keeps refresh.
-    public static let unmodelled401 = AuthenticationChallengePolicy { error, responseCases in
-        error.statusCode == 401 && responseCases.exactOutcome(401) == nil
+    public static let unmodelled401 = AuthenticationChallengePolicy { error, statuses in
+        error.statusCode == 401 && !statuses.declaresExact(401)
     }
 
     /// Challenges on any 401, whatever the Interface declared.

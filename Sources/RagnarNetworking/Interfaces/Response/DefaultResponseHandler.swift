@@ -7,7 +7,7 @@
 
 import Foundation
 
-/// The built-in response handler. Matches status codes against `Interface.responseCases`,
+/// The built-in response handler. Matches status codes against `Interface.responses`,
 /// decodes success bodies, and throws typed `ResponseError` values for failures.
 ///
 /// Set `ServerConfiguration.responseHandler` to replace this across a whole API, or override
@@ -37,11 +37,11 @@ public struct DefaultResponseHandler: ResponseHandler {
     /// Creates the default handler. Stateless; create one wherever you need it.
     public init() {}
 
-    /// Matches the response's status code against `Interface.responseCases`, then decodes the
+    /// Matches the response's status code against `Interface.responses`, then decodes the
     /// body as the Interface's `Response` or throws the mapped error.
     ///
-    /// A no-body success is a `.decode` against zero bytes: `EmptyResponse`, `Data`, and
-    /// `String` all build themselves from an empty body.
+    /// A no-body success builds the declared `Response` against zero bytes: `EmptyResponse`,
+    /// `Data`, and `String` all build themselves from an empty body.
     public func handle<T: Interface>(
         _ response: (data: Data, response: URLResponse),
         for interface: T.Type,
@@ -61,15 +61,15 @@ public struct DefaultResponseHandler: ResponseHandler {
             )
         }
 
-        guard let responseCase = interface.responseCases.match(statusCode) else {
+        guard let responseMatch = interface.responses.match(statusCode) else {
             throw .unknownResponseCase(
                 responseBody,
                 responseSnapshot
             )
         }
 
-        switch responseCase {
-        case .decode:
+        switch responseMatch {
+        case .success:
             do {
                 return try decode(
                     response.data,
@@ -85,14 +85,14 @@ public struct DefaultResponseHandler: ResponseHandler {
                 )
             }
 
-        case .error(let error):
+        case .failure(.error(let error)):
             throw .generic(
                 responseBody,
                 responseSnapshot,
                 error
             )
 
-        case .decodeError(body: let decodeBody):
+        case .failure(.decodeError(body: let decodeBody)):
             // Decoding failures from custom closures are surfaced as
             // ResponseError.decoding with structured diagnostics when possible.
             let decodedError: any Error & Sendable

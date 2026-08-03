@@ -32,10 +32,10 @@ struct GetUserInterface: Interface {
 
     typealias Response = User
 
-    static let responseCases: ResponseMap = [
-        .code(200, .decode),
-        .code(404, .error(APIError.userNotFound))
-    ]
+    static let responses = ResponseContract<Response>(
+        success: .exact(200),
+        failures: [.code(404, .error(APIError.userNotFound))]
+    )
 }
 
 let user = try await client.send(
@@ -65,28 +65,33 @@ let context = RequestContext(configuration: configuration, credential: token)
 let user = try await pipeline.send(GetUserInterface.self, .init(userId: 123), context: context)
 ```
 
-## Response Cases Notes
+## Response Contract Notes
 
-- Use `.code` for exact status codes.
-- Use `.range` or `.success`/`.clientError`/`.serverError` for ranges.
+- Every `ResponseContract<Response>` requires at least one successful status matcher.
+- Successful matches always build the Interface's declared `Response`.
+- Failure cases cannot select successful decoding.
+- Use `.exact` or `.range` for successful status matchers.
+- Use `.code`, `.range`, or category helpers for failure cases.
 - Matching resolution is deterministic:
   - Exact code matches are checked first.
-  - Then ranges are checked in declaration order.
+  - Then success ranges are checked in declaration order.
+  - Then failure ranges are checked in declaration order.
   - Duplicate exact codes keep the first declaration.
   - Duplicate exact codes emit a developer diagnostic through `Logger`, in every build configuration.
-- A map with no `.decode` case can never produce the Interface's `Response`, so every response through it fails. That also emits a developer diagnostic through `Logger`.
 - `.decodeError(MyError.self)` decodes structured error bodies and throws `ResponseError.decoded`.
-- A no-body success (204/205/304) is `.decode` against zero bytes. `EmptyResponse` is the `Response` type for that case; `Data` and `String` also build themselves from an empty body.
+- A no-body success (204/205/304) builds `Response` against zero bytes. `EmptyResponse` is the usual `Response` type for that case; `Data` and `String` also build themselves from an empty body.
 - Set `ServerConfiguration.responseHandler` for a concern that spans the whole API, and override `Interface.responseHandler` when one endpoint needs its own handling.
 
 Example:
 
 ```swift
-static let responseCases: ResponseMap = [
-    .success(.error(APIError.fallbackSuccess)),
-    .code(200, .decode), // exact overrides success range
-    .code(200, .error(APIError.duplicate)) // ignored, logs a developer diagnostic
-]
+static let responses = ResponseContract<Response>(
+    success: .success,
+    failures: [
+        .code(202, .error(APIError.unexpectedAccepted)), // exact overrides success range
+        .code(202, .error(APIError.duplicate)) // ignored, logs a developer diagnostic
+    ]
+)
 ```
 
 ## Response Type Expectations
@@ -115,13 +120,13 @@ Conform directly for a response that is not JSON, or one whose value depends on 
 
 ## Status Code Mapping Examples
 
-- `200 OK`: `.code(200, .decode)` decodes the response body as `Response`.
-- `201 Created`: `.code(201, .decode)` decodes the response body when the server returns the created resource.
-- `202 Accepted`: `.code(202, .decode)` with `Response = EmptyResponse` treats the response as success with no body; a custom `Response` type maps status info if the server returns it instead.
-- `204 No Content`: `.code(204, .decode)` with `Response = EmptyResponse` treats the response as success with no body.
-- `205 Reset Content`: `.code(205, .decode)` with `Response = EmptyResponse` treats the response as success with no body.
-- `206 Partial Content`: `.code(206, .decode)` with `Response = Data` decodes the raw response bytes.
-- `304 Not Modified`: `.code(304, .decode)` with `Response = EmptyResponse` treats the response as success with no body, for Interfaces that send conditional requests.
+- `200 OK`: `success: .exact(200)` builds the response body as `Response`.
+- `201 Created`: `success: .exact(201)` builds the created resource.
+- `202 Accepted`: `success: .exact(202)` with `Response = EmptyResponse` treats the response as success with no body; a custom `Response` type maps status info if the server returns it instead.
+- `204 No Content`: `success: .exact(204)` with `Response = EmptyResponse` treats the response as success with no body.
+- `205 Reset Content`: `success: .exact(205)` with `Response = EmptyResponse` treats the response as success with no body.
+- `206 Partial Content`: `success: .exact(206)` with `Response = Data` returns the raw response bytes.
+- `304 Not Modified`: `success: .exact(304)` with `Response = EmptyResponse` treats the response as success with no body, for Interfaces that send conditional requests.
 
 ## Interface Genericity
 

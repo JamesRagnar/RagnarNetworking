@@ -14,10 +14,10 @@ public extension Interface {
     /// Interfaces use the configured handler unless they override this.
     static var responseHandler: (any ResponseHandler)? { nil }
 
-    /// Processes a raw HTTP response according to the Interface's response cases.
+    /// Processes a raw HTTP response according to the Interface's response contract.
     ///
     /// This method validates the response type, checks the status code against the Interface's
-    /// defined response cases, and either decodes a success response or throws the appropriate error.
+    /// response contract, and either decodes a success response or throws the appropriate error.
     ///
     /// Both configuration arguments are required rather than defaulted, so a caller cannot
     /// silently fall back to a plain `JSONDecoder` or `DefaultResponseHandler` and lose the

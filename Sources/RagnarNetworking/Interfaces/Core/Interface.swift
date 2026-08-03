@@ -24,11 +24,11 @@ public protocol Interface: Sendable {
     /// decodes as JSON. `String`, `Data`, and `EmptyResponse` carry built-in conformances.
     associatedtype Response: InterfaceResponse & Sendable
 
-    /// Defines how each HTTP status code should be handled for this interface.
+    /// Defines which status codes produce `Response` and which produce declared failures.
     ///
-    /// Declare this as a `static let`. A computed `static var` rebuilds the map on every
-    /// response.
-    static var responseCases: ResponseMap { get }
+    /// The generic binding makes the successful status contract inseparable from the declared
+    /// `Response` type. Every contract requires at least one successful status matcher.
+    static var responses: ResponseContract<Response> { get }
 
     /// Overrides response handling for this endpoint alone.
     ///

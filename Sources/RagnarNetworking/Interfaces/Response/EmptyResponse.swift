@@ -9,8 +9,8 @@ import Foundation
 
 /// A concrete response type for endpoints that succeed with no body.
 ///
-/// Use this as the `Response` for Interfaces whose success carries no body, mapping
-/// 204/205/304 to `.decode`.
+/// Use this as the `Response` for Interfaces whose success carries no body, declaring
+/// 204/205/304 as successful status matchers.
 public struct EmptyResponse: Decodable, Sendable, Equatable {
 
     public init() {}

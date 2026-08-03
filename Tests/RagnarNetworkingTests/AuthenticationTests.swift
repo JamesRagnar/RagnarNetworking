@@ -37,7 +37,7 @@ private struct SchemeInterface: Interface {
 
     typealias Response = ValueResponse
 
-    static let responseCases: ResponseMap = [.code(200, .decode)]
+    static let responses = ResponseContract<Response>(success: .exact(200))
 }
 
 /// Declares no scheme but carries its credential by some route the package does not model, so
@@ -56,7 +56,7 @@ private struct CookieAuthInterface: Interface {
 
     typealias Response = ValueResponse
 
-    static let responseCases: ResponseMap = [.code(200, .decode)]
+    static let responses = ResponseContract<Response>(success: .exact(200))
 }
 
 /// A token-refresh endpoint: sends a credential, but a challenge on it must surface rather
@@ -75,7 +75,7 @@ private struct RefreshEndpointInterface: Interface {
 
     typealias Response = ValueResponse
 
-    static let responseCases: ResponseMap = [.code(200, .decode)]
+    static let responses = ResponseContract<Response>(success: .exact(200))
 }
 
 private struct UnauthenticatedInterface: Interface {
@@ -90,7 +90,7 @@ private struct UnauthenticatedInterface: Interface {
 
     typealias Response = ValueResponse
 
-    static let responseCases: ResponseMap = [.code(200, .decode)]
+    static let responses = ResponseContract<Response>(success: .exact(200))
 }
 
 private struct AuthFailure: Codable, Error, Sendable, Equatable {
@@ -114,10 +114,10 @@ private struct Models401DecodedInterface: Interface {
 
     typealias Response = ValueResponse
 
-    static let responseCases: ResponseMap = [
-        .code(200, .decode),
-        .code(401, .decodeError(AuthFailure.self))
-    ]
+    static let responses = ResponseContract<Response>(
+        success: .exact(200),
+        failures: [.code(401, .decodeError(AuthFailure.self))]
+    )
 }
 
 /// Models 401 exactly, as a flat error.
@@ -133,10 +133,10 @@ private struct Models401FlatInterface: Interface {
 
     typealias Response = ValueResponse
 
-    static let responseCases: ResponseMap = [
-        .code(200, .decode),
-        .code(401, .error(FlatError.unauthorized))
-    ]
+    static let responses = ResponseContract<Response>(
+        success: .exact(200),
+        failures: [.code(401, .error(FlatError.unauthorized))]
+    )
 }
 
 /// Covers 401 only through a 4xx catch-all, which is not a statement about 401.
@@ -152,10 +152,10 @@ private struct Range4xxInterface: Interface {
 
     typealias Response = ValueResponse
 
-    static let responseCases: ResponseMap = [
-        .code(200, .decode),
-        .clientError(.decodeError(AuthFailure.self))
-    ]
+    static let responses = ResponseContract<Response>(
+        success: .exact(200),
+        failures: [.clientError(.decodeError(AuthFailure.self))]
+    )
 }
 
 /// Signals staleness with 419 rather than 401.
@@ -171,7 +171,7 @@ private struct Stale419Interface: Interface {
 
     typealias Response = ValueResponse
 
-    static let responseCases: ResponseMap = [.code(200, .decode)]
+    static let responses = ResponseContract<Response>(success: .exact(200))
 }
 
 private actor RecordingTransport: Transport {
@@ -262,7 +262,7 @@ private struct SignedInterface: Interface {
 
     typealias Response = ValueResponse
 
-    static let responseCases: ResponseMap = [.code(200, .decode)]
+    static let responses = ResponseContract<Response>(success: .exact(200))
 }
 
 private extension AuthenticationScheme {
@@ -909,8 +909,8 @@ struct AuthenticationChallengePolicyTests {
         }
     }
 
-    @Test("unmodelled401 asks the response map rather than the thrown error case")
-    func unmodelled401ConsultsTheMap() {
+    @Test("unmodelled401 asks the response contract rather than the thrown error case")
+    func unmodelled401ConsultsTheContract() {
         let snapshot = HTTPResponseSnapshot(
             response: HTTPURLResponse(
                 url: testServerURL,
@@ -926,14 +926,17 @@ struct AuthenticationChallengePolicyTests {
             FlatError.unauthorized
         )
 
-        #expect(AuthenticationChallengePolicy.unmodelled401.isChallenge(error, [.code(200, .decode)]))
+        #expect(AuthenticationChallengePolicy.unmodelled401.isChallenge(
+            error,
+            UnauthenticatedInterface.responses.statuses
+        ))
         #expect(!AuthenticationChallengePolicy.unmodelled401.isChallenge(
             error,
-            [.code(401, .error(FlatError.unauthorized))]
+            Models401FlatInterface.responses.statuses
         ))
         #expect(AuthenticationChallengePolicy.any401.isChallenge(
             error,
-            [.code(401, .error(FlatError.unauthorized))]
+            Models401FlatInterface.responses.statuses
         ))
     }
 

@@ -29,7 +29,7 @@ private struct PlainInterface: Interface {
 
     typealias Response = ValueResponse
 
-    static let responseCases: ResponseMap = [.code(200, .decode)]
+    static let responses = ResponseContract<Response>(success: .exact(200))
 }
 
 /// Throws whatever it is handed, so a test can drive the classification directly.

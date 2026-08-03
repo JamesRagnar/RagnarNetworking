@@ -31,12 +31,10 @@ struct RequestPipelineTests {
 
         typealias Response = TestResponse
 
-        static var responseCases: ResponseMap {
-            [
-                .code(200, .decode),
-                .code(404, .error(TestError.notFound))
-            ]
-        }
+        static let responses = ResponseContract<Response>(
+            success: .exact(200),
+            failures: [.code(404, .error(TestError.notFound))]
+        )
     }
 
     enum TestError: Error {
@@ -180,9 +178,7 @@ struct RequestPipelineTests {
 
             typealias Response = TestResponse
 
-            static var responseCases: ResponseMap {
-                [.code(200, .decode)]
-            }
+            static let responses = ResponseContract<Response>(success: .exact(200))
         }
 
         let params = AuthInterface.Request()
@@ -339,7 +335,7 @@ struct RequestPipelineTests {
 
             typealias Response = TestResponse
 
-            static var responseCases: ResponseMap { [.code(200, .decode)] }
+            static let responses = ResponseContract<Response>(success: .exact(200))
         }
 
         let url = URL(string: "https://api.example.com")!
@@ -427,9 +423,7 @@ struct RequestPipelineTests {
 
             typealias Response = SnakeCaseResponse
 
-            static var responseCases: ResponseMap {
-                [.code(200, .decode)]
-            }
+            static let responses = ResponseContract<Response>(success: .exact(200))
         }
 
         let url = URL(string: "https://api.example.com")!
@@ -515,9 +509,7 @@ struct RequestPipelineTests {
 
             typealias Response = String
 
-            static var responseCases: ResponseMap {
-                [.code(200, .decode)]
-            }
+            static let responses = ResponseContract<Response>(success: .exact(200))
         }
 
         let url = URL(string: "https://api.example.com")!
@@ -553,9 +545,7 @@ struct RequestPipelineTests {
 
             typealias Response = Data
 
-            static var responseCases: ResponseMap {
-                [.code(200, .decode)]
-            }
+            static let responses = ResponseContract<Response>(success: .exact(200))
         }
 
         let url = URL(string: "https://api.example.com")!
@@ -600,9 +590,7 @@ struct RequestPipelineTests {
 
             typealias Response = ComplexResponse
 
-            static var responseCases: ResponseMap {
-                [.code(200, .decode)]
-            }
+            static let responses = ResponseContract<Response>(success: .exact(200))
         }
 
         let url = URL(string: "https://api.example.com")!
@@ -653,9 +641,7 @@ struct RequestPipelineTests {
 
             typealias Response = [Item]
 
-            static var responseCases: ResponseMap {
-                [.code(200, .decode)]
-            }
+            static let responses = ResponseContract<Response>(success: .exact(200))
         }
 
         let url = URL(string: "https://api.example.com")!
@@ -704,9 +690,7 @@ struct RequestPipelineTests {
             typealias Request = CompleteRequest
             typealias Response = TestResponse
 
-            static var responseCases: ResponseMap {
-                [.code(200, .decode)]
-            }
+            static let responses = ResponseContract<Response>(success: .exact(200))
         }
 
         let url = URL(string: "https://api.example.com")!
@@ -758,9 +742,7 @@ struct RequestPipelineTests {
 
             typealias Response = TestResponse
 
-            static var responseCases: ResponseMap {
-                [.code(200, .decode)]
-            }
+            static let responses = ResponseContract<Response>(success: .exact(200))
         }
 
         let params = AuthRequiredInterface.Request()

@@ -31,15 +31,15 @@ struct InterfaceResponseTests {
 
         typealias Response = SuccessResponse
 
-        static var responseCases: ResponseMap {
-            [
-                .code(200, .decode),
-                .code(201, .decode),
+        static let responses = ResponseContract<Response>(
+            success: .exact(200),
+            additionalSuccesses: [.exact(201)],
+            failures: [
                 .code(400, .error(TestError.badRequest)),
                 .code(401, .error(TestError.unauthorized)),
                 .code(500, .error(TestError.serverError))
             ]
-        }
+        )
     }
 
     struct StringInterface: Interface {
@@ -54,9 +54,7 @@ struct InterfaceResponseTests {
 
         typealias Response = String
 
-        static var responseCases: ResponseMap {
-            [.code(200, .decode)]
-        }
+        static let responses = ResponseContract<Response>(success: .exact(200))
     }
 
     struct DataInterface: Interface {
@@ -71,9 +69,7 @@ struct InterfaceResponseTests {
 
         typealias Response = Data
 
-        static var responseCases: ResponseMap {
-            [.code(200, .decode)]
-        }
+        static let responses = ResponseContract<Response>(success: .exact(200))
     }
 
     struct NoContentInterface: Interface {
@@ -88,9 +84,7 @@ struct InterfaceResponseTests {
 
         typealias Response = Data
 
-        static var responseCases: ResponseMap {
-            [.code(204, .decode)]
-        }
+        static let responses = ResponseContract<Response>(success: .exact(204))
     }
 
     struct NoContentStringInterface: Interface {
@@ -105,9 +99,7 @@ struct InterfaceResponseTests {
 
         typealias Response = String
 
-        static var responseCases: ResponseMap {
-            [.code(204, .decode)]
-        }
+        static let responses = ResponseContract<Response>(success: .exact(204))
     }
 
     struct NoContentJSONInterface: Interface {
@@ -122,9 +114,7 @@ struct InterfaceResponseTests {
 
         typealias Response = SuccessResponse
 
-        static var responseCases: ResponseMap {
-            [.code(204, .decode)]
-        }
+        static let responses = ResponseContract<Response>(success: .exact(204))
     }
 
     struct EmptyDecodeInterface: Interface {
@@ -139,9 +129,7 @@ struct InterfaceResponseTests {
 
         typealias Response = EmptyResponse
 
-        static var responseCases: ResponseMap {
-            [.code(200, .decode)]
-        }
+        static let responses = ResponseContract<Response>(success: .exact(200))
     }
 
     struct SnakeCaseResponse: Codable, Sendable, Equatable, InterfaceResponse {
@@ -160,9 +148,7 @@ struct InterfaceResponseTests {
 
         typealias Response = SnakeCaseResponse
 
-        static var responseCases: ResponseMap {
-            [.code(200, .decode)]
-        }
+        static let responses = ResponseContract<Response>(success: .exact(200))
     }
 
     struct DatedResponse: Codable, Sendable, Equatable, InterfaceResponse {
@@ -181,9 +167,7 @@ struct InterfaceResponseTests {
 
         typealias Response = DatedResponse
 
-        static var responseCases: ResponseMap {
-            [.code(200, .decode)]
-        }
+        static let responses = ResponseContract<Response>(success: .exact(200))
     }
 
     struct CustomHandlerInterface: Interface {
@@ -202,12 +186,10 @@ struct InterfaceResponseTests {
             case notFound
         }
 
-        static var responseCases: ResponseMap {
-            [
-                .code(200, .decode),
-                .code(404, .error(CustomHandlerError.notFound))
-            ]
-        }
+        static let responses = ResponseContract<Response>(
+            success: .exact(200),
+            failures: [.code(404, .error(CustomHandlerError.notFound))]
+        )
 
         static var responseHandler: (any ResponseHandler)? {
             CustomHandler()
@@ -251,9 +233,7 @@ struct InterfaceResponseTests {
 
         typealias Response = SuccessResponse
 
-        static var responseCases: ResponseMap {
-            [.success(.decode)]
-        }
+        static let responses = ResponseContract<Response>(success: .success)
     }
 
     struct OverlapInterface: Interface {
@@ -268,12 +248,10 @@ struct InterfaceResponseTests {
 
         typealias Response = SuccessResponse
 
-        static var responseCases: ResponseMap {
-            [
-                .success(.decode),
-                .code(201, .error(TestError.unauthorized))
-            ]
-        }
+        static let responses = ResponseContract<Response>(
+            success: .success,
+            failures: [.code(201, .error(TestError.unauthorized))]
+        )
     }
 
     struct DecodeErrorInterface: Interface {
@@ -296,9 +274,9 @@ struct InterfaceResponseTests {
             let message: String
         }
 
-        static var responseCases: ResponseMap {
-            [
-                .code(200, .decode),
+        static let responses = ResponseContract<Response>(
+            success: .exact(200),
+            failures: [
                 .code(400, .decodeError(APIError.self)),
                 .code(418, .decodeError(body: { data, _ in
                     guard let message = String(data: data, encoding: .utf8) else {
@@ -307,7 +285,7 @@ struct InterfaceResponseTests {
                     return CustomError(message: message)
                 }))
             ]
-        }
+        )
     }
 
     struct SnakeCaseDecodeErrorInterface: Interface {
@@ -326,12 +304,10 @@ struct InterfaceResponseTests {
             let errorCode: Int
         }
 
-        static var responseCases: ResponseMap {
-            [
-                .code(200, .decode),
-                .code(400, .decodeError(SnakeCaseAPIError.self))
-            ]
-        }
+        static let responses = ResponseContract<Response>(
+            success: .exact(200),
+            failures: [.code(400, .decodeError(SnakeCaseAPIError.self))]
+        )
     }
 
     struct ThrowingDecodeErrorInterface: Interface {
@@ -350,13 +326,14 @@ struct InterfaceResponseTests {
             let message: String
         }
 
-        static var responseCases: ResponseMap {
-            [
+        static let responses = ResponseContract<Response>(
+            success: .exact(200),
+            failures: [
                 .code(400, .decodeError(body: { _, _ in
                     throw CustomThrownError(message: "decode closure failed")
                 }))
             ]
-        }
+        )
     }
 
     struct EmptyTolerantResponse: Decodable, Sendable, InterfaceResponse {
@@ -381,9 +358,7 @@ struct InterfaceResponseTests {
 
         typealias Response = EmptyTolerantResponse
 
-        static var responseCases: ResponseMap {
-            [.code(204, .decode)]
-        }
+        static let responses = ResponseContract<Response>(success: .exact(204))
     }
 
     struct RangeOrderInterface: Interface {
@@ -398,12 +373,13 @@ struct InterfaceResponseTests {
 
         typealias Response = SuccessResponse
 
-        static var responseCases: ResponseMap {
-            [
+        static let responses = ResponseContract<Response>(
+            success: .exact(204),
+            failures: [
                 .range(200..<300, .error(TestError.badRequest)),
                 .range(200..<400, .error(TestError.unauthorized))
             ]
-        }
+        )
     }
 
     enum TestError: Error, Sendable {
@@ -667,9 +643,10 @@ struct InterfaceResponseTests {
 
             typealias Response = SuccessResponse
 
-            static var responseCases: ResponseMap {
-                [.clientError(.error(TestError.badRequest))]
-            }
+            static let responses = ResponseContract<Response>(
+                success: .exact(200),
+                failures: [.clientError(.error(TestError.badRequest))]
+            )
         }
 
         let responseData = Data()
@@ -714,7 +691,7 @@ struct InterfaceResponseTests {
         let responseData = Data()
         let httpResponse = HTTPURLResponse(
             url: URL(string: "https://api.example.com")!,
-            statusCode: 404, // Not defined in responseCases
+            statusCode: 404, // Not defined in responses
             httpVersion: nil,
             headerFields: nil
         )!
@@ -1110,9 +1087,7 @@ struct InterfaceResponseTests {
 
             typealias Response = NestedResponse
 
-            static var responseCases: ResponseMap {
-                [.code(200, .decode)]
-            }
+            static let responses = ResponseContract<Response>(success: .exact(200))
         }
 
         let responseData = """
@@ -1153,9 +1128,7 @@ struct InterfaceResponseTests {
 
             typealias Response = [String]
 
-            static var responseCases: ResponseMap {
-                [.code(200, .decode)]
-            }
+            static let responses = ResponseContract<Response>(success: .exact(200))
         }
 
         let responseData = """
@@ -1193,9 +1166,7 @@ struct InterfaceResponseTests {
 
             typealias Response = EmptyResponse
 
-            static var responseCases: ResponseMap {
-                [.code(204, .decode)]
-            }
+            static let responses = ResponseContract<Response>(success: .exact(204))
         }
 
         let responseData = "{}".data(using: .utf8)!
@@ -1240,9 +1211,7 @@ struct InterfaceResponseTests {
 
             typealias Response = EmptyResponse
 
-            static var responseCases: ResponseMap {
-                [.code(204, .decode)]
-            }
+            static let responses = ResponseContract<Response>(success: .exact(204))
         }
 
         let responseData = Data()
@@ -1368,9 +1337,7 @@ struct InterfaceResponseTests {
 
             typealias Response = EmptyResponse
 
-            static var responseCases: ResponseMap {
-                [.code(204, .decode)]
-            }
+            static let responses = ResponseContract<Response>(success: .exact(204))
         }
 
         let responseData = Data()
@@ -1483,7 +1450,7 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        // Simulate a raw failure that was never routed through ResponseOutcome.decodeError,
+        // Simulate a raw failure that was never routed through FailureOutcome.decodeError,
         // so decodeError(as:) has to decode the body itself.
         let error = ResponseError.unknownResponseCase(
             ResponseBody(responseData, decoder: ResponseDecoder(keyDecodingStrategy: .convertFromSnakeCase)),
@@ -1500,8 +1467,8 @@ struct InterfaceResponseTests {
         #expect(plainError.decodeError(as: SnakeCaseDecodeErrorInterface.SnakeCaseAPIError.self) == nil)
     }
 
-    @Test("ResponseOutcome.decodeError decodes structured error bodies with the response's decoder")
-    func testResponseOutcomeDecodeErrorUsesResponseDecoder() {
+    @Test("FailureOutcome.decodeError decodes structured error bodies with the response's decoder")
+    func testFailureOutcomeDecodeErrorUsesResponseDecoder() {
         let responseData = #"{"error_code": 99}"#.data(using: .utf8)!
         let httpResponse = HTTPURLResponse(
             url: URL(string: "https://api.example.com")!,
@@ -1527,8 +1494,8 @@ struct InterfaceResponseTests {
         }
     }
 
-    @Test("ResponseOutcome.decodeError fails when the response decoder cannot read the error body")
-    func testResponseOutcomeDecodeErrorRespectsPlainDecoder() {
+    @Test("FailureOutcome.decodeError fails when the response decoder cannot read the error body")
+    func testFailureOutcomeDecodeErrorRespectsPlainDecoder() {
         let responseData = #"{"error_code": 99}"#.data(using: .utf8)!
         let httpResponse = HTTPURLResponse(
             url: URL(string: "https://api.example.com")!,
@@ -1592,9 +1559,7 @@ struct InterfaceResponseTests {
 
         typealias Response = CSVRows
 
-        static var responseCases: ResponseMap {
-            [.code(200, .decode)]
-        }
+        static let responses = ResponseContract<Response>(success: .exact(200))
     }
 
     @Test("A non-JSON InterfaceResponse conformance decodes without any change to the package")
@@ -1646,9 +1611,7 @@ struct InterfaceResponseTests {
 
         typealias Response = StrictlyPositiveCount
 
-        static var responseCases: ResponseMap {
-            [.code(200, .decode)]
-        }
+        static let responses = ResponseContract<Response>(success: .exact(200))
     }
 
     @Test("An InterfaceResponse throwing its own error type surfaces as ResponseError.decoding")
@@ -1768,8 +1731,8 @@ struct InterfaceResponseTests {
 
         typealias Response = T
 
-        static var responseCases: ResponseMap {
-            [.code(200, .decode)]
+        static var responses: ResponseContract<Response> {
+            ResponseContract(success: .exact(200))
         }
     }
 
@@ -1868,9 +1831,7 @@ struct InterfaceResponseTests {
 
         typealias Response = PagedNames
 
-        static var responseCases: ResponseMap {
-            [.code(200, .decode)]
-        }
+        static let responses = ResponseContract<Response>(success: .exact(200))
     }
 
     @Test("InterfaceResponse can build its value from a response header")
@@ -1917,9 +1878,7 @@ struct InterfaceResponseTests {
 
             typealias Response = StatusEcho
 
-            static var responseCases: ResponseMap {
-                [.code(204, .decode)]
-            }
+            static let responses = ResponseContract<Response>(success: .exact(204))
         }
 
         let httpResponse = HTTPURLResponse(

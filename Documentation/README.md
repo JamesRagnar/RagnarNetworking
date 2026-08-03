@@ -11,7 +11,7 @@ This directory documents the public surface of `RagnarNetworking`.
 - `Transport` - single-requirement abstraction for executing a `URLRequest`; decorate it for middleware
 - `RequestPipeline` - composes `RequestBuilder`, `Transport`, and `ResponseHandler` into one request
 - `ServerConfiguration` - base URL, body coding, and default headers; `RequestContext` pairs one with a per-request token
-- `Interfaces/` - request/response modeling, response mapping, and request construction
+- `Interfaces/` - request/response modeling, response contracts, and request construction
 
 ## Guides
 
