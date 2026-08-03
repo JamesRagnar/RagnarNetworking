@@ -103,6 +103,8 @@ extension SocketIOClient {
             throw LifecycleFailure.reconnectable(transportFailure(error))
         }
 
+        // A connection becomes usable in two protocol stages: Engine.IO OPEN establishes transport parameters, then the
+        // default Socket.IO namespace CONNECT establishes event semantics.
         let firstMessage = try await receive(generation: connectionGeneration)
         guard case .text(let text) = firstMessage else {
             throw LifecycleFailure.terminal(.unsupportedCapability("binary Engine.IO transport"))
@@ -194,6 +196,8 @@ extension SocketIOClient {
 
     func watchdogExpired(generation connectionGeneration: UInt64, failure: LifecycleFailure) async {
         guard isCurrent(connectionGeneration), forcedFailure == nil else { return }
+        // Closing the transport unblocks the single receive operation. `receive(generation:)` then substitutes this
+        // lifecycle failure for the transport cancellation so reconnect policy sees the actual watchdog result.
         forcedFailure = (connectionGeneration, failure)
         await webSocket.close(code: .internalServerError, reason: nil)
     }

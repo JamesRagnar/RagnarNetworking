@@ -1,6 +1,11 @@
 import Foundation
 
+/// An asynchronous sequence that decodes one typed value for each received event occurrence.
+///
+/// Each stream represents one independent subscription. Decoding occurs in `AsyncIterator.next()` rather than in the
+/// client actor.
 public struct SocketEventStream<Event: SocketEvent>: AsyncSequence, Sendable {
+    /// The event schema produced by the sequence.
     public typealias Element = Event.Schema
 
     private let arguments: AsyncThrowingStream<[SocketIOArgument], Error>
@@ -17,6 +22,7 @@ public struct SocketEventStream<Event: SocketEvent>: AsyncSequence, Sendable {
         self.finishArguments = finishArguments
     }
 
+    /// Creates an iterator over this subscription.
     public func makeAsyncIterator() -> AsyncIterator {
         AsyncIterator(
             iterator: arguments.makeAsyncIterator(),
@@ -25,6 +31,7 @@ public struct SocketEventStream<Event: SocketEvent>: AsyncSequence, Sendable {
         )
     }
 
+    /// An iterator that decodes buffered Socket.IO arguments as the event schema.
     public struct AsyncIterator: AsyncIteratorProtocol {
         private var iterator: AsyncThrowingStream<[SocketIOArgument], Error>.AsyncIterator
         private let decoder: SocketEventDecoder
@@ -40,6 +47,9 @@ public struct SocketEventStream<Event: SocketEvent>: AsyncSequence, Sendable {
             self.finishArguments = finishArguments
         }
 
+        /// Waits for and decodes the next event occurrence.
+        ///
+        /// A schema error finishes this subscription before the error is thrown.
         public mutating func next() async throws -> Event.Schema? {
             guard let arguments = try await iterator.next() else { return nil }
 

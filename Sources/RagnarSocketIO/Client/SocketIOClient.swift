@@ -1,6 +1,7 @@
 import Foundation
 import RagnarWebSocket
 
+/// An Engine.IO 4 and Socket.IO protocol 5 client over direct WebSocket transport.
 public actor SocketIOClient: SocketClient {
     let webSocket: any WebSocketClient
     let decoder: SocketEventDecoder
@@ -25,6 +26,10 @@ public actor SocketIOClient: SocketClient {
     var eventSubscriptions: [String: [UUID: SocketEventContinuation]] = [:]
     var statusContinuations: [UUID: AsyncStream<SocketConnectionStatus>.Continuation] = [:]
 
+    /// Creates a Socket.IO client without starting a connection.
+    ///
+    /// The decoder and encoder values are factories. The client creates a new Foundation coder for each event decode or
+    /// emission. `namespaceTimeout` must be positive.
     public init(
         webSocket: any WebSocketClient = URLSessionWebSocketClient(),
         decoder: SocketEventDecoder = .default,
@@ -60,6 +65,10 @@ public actor SocketIOClient: SocketClient {
         self.randomSource = randomSource
     }
 
+    /// Validates the endpoint and starts a new connection generation.
+    ///
+    /// The method returns after scheduling the lifecycle task. Observe `statusUpdates()` for handshake completion. A
+    /// different valid endpoint replaces the active generation; an invalid endpoint leaves it unchanged.
     public func connect(to endpoint: SocketIOEndpoint) throws {
         guard !isInvalidated else { throw SocketIOError.invalidated }
         let request = try endpoint.resolve()
@@ -83,6 +92,7 @@ public actor SocketIOClient: SocketClient {
         }
     }
 
+    /// Closes the active connection and publishes `.disconnected` without finishing subscriptions.
     public func disconnect() {
         guard !isInvalidated else { return }
         generation &+= 1
@@ -95,6 +105,7 @@ public actor SocketIOClient: SocketClient {
         pendingCloseTask = Task { await webSocket.close(code: .normalClosure, reason: nil) }
     }
 
+    /// Permanently closes the client, publishes `.invalidated`, and finishes every subscription.
     public func invalidate() {
         guard !isInvalidated else { return }
         generation &+= 1
@@ -119,6 +130,9 @@ public actor SocketIOClient: SocketClient {
         statusContinuations.removeAll()
     }
 
+    /// Encodes and emits one event payload.
+    /// - Throws: `SocketIOError.notConnected`, `SocketIOError.messageTooLarge`, an event encoding error, or a transport
+    ///   error.
     public func emit<Event: EmittableSocketEvent>(
         _ event: Event.Type,
         _ payload: Event.Schema
@@ -132,12 +146,17 @@ public actor SocketIOClient: SocketClient {
         try await emit(name: Event.name, arguments: arguments)
     }
 
+    /// Emits an event with no arguments.
     public func emit<Event: EmittableSocketEvent>(
         _ event: Event.Type
     ) async throws where Event.Schema == SocketEmptyBody {
         try await emit(event, SocketEmptyBody())
     }
 
+    /// Creates an independent typed event stream.
+    ///
+    /// Subscriptions persist across disconnect and reconnect. Event decoding occurs when the iterator requests its next
+    /// value. A decoding failure or terminating overflow affects only this subscription.
     public func events<Event: SocketEvent>(
         for event: Event.Type,
         policy: SocketStreamPolicy? = nil
@@ -159,6 +178,7 @@ public actor SocketIOClient: SocketClient {
         return subscription.stream
     }
 
+    /// Creates a stream that emits the current status immediately, then every subsequent status change.
     public func statusUpdates() -> AsyncStream<SocketConnectionStatus> {
         let subscriptionID = UUID()
         let (stream, continuation) = AsyncStream<SocketConnectionStatus>.makeStream(

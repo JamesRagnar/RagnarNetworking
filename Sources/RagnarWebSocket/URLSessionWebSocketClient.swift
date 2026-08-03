@@ -9,12 +9,14 @@ protocol URLSessionWebSocketTaskProtocol: AnyObject, Sendable {
 
 extension URLSessionWebSocketTask: URLSessionWebSocketTaskProtocol {}
 
+/// A `WebSocketClient` backed by one `URLSessionWebSocketTask` at a time.
 public actor URLSessionWebSocketClient: WebSocketClient {
     private let taskFactory: @Sendable (URLRequest) -> any URLSessionWebSocketTaskProtocol
     private var task: (any URLSessionWebSocketTaskProtocol)?
     private var generation: UInt64 = 0
     private var isReceiving = false
 
+    /// Creates a client that obtains WebSocket tasks from `session`.
     public init(session: URLSession = .shared) {
         taskFactory = { request in
             session.webSocketTask(with: request)
@@ -25,6 +27,10 @@ public actor URLSessionWebSocketClient: WebSocketClient {
         self.taskFactory = taskFactory
     }
 
+    /// Validates and resumes a new WebSocket task.
+    ///
+    /// The request must contain a `ws` or `wss` URL with a host. The method returns after resuming the task.
+    /// It does not wait for the HTTP upgrade response.
     public func open(_ request: URLRequest) throws {
         guard Self.isValid(request) else {
             throw WebSocketError.invalidRequest
@@ -39,6 +45,10 @@ public actor URLSessionWebSocketClient: WebSocketClient {
         newTask.resume()
     }
 
+    /// Sends one message on the active task.
+    ///
+    /// If the task closes while this operation is suspended, the method throws
+    /// `WebSocketError.connectionReplacedOrClosed`.
     public func send(_ message: WebSocketMessage) async throws {
         guard let task else {
             throw WebSocketError.noActiveConnection
@@ -59,6 +69,10 @@ public actor URLSessionWebSocketClient: WebSocketClient {
         }
     }
 
+    /// Receives one message from the active task.
+    ///
+    /// Only one receive operation may be active. If the task closes while this operation is suspended, the method
+    /// throws `WebSocketError.connectionReplacedOrClosed`.
     public func receive() async throws -> WebSocketMessage {
         guard let task else {
             throw WebSocketError.noActiveConnection
@@ -87,6 +101,9 @@ public actor URLSessionWebSocketClient: WebSocketClient {
         return WebSocketMessage(message)
     }
 
+    /// Clears and closes the active task with the supplied close frame.
+    ///
+    /// Calling this method repeatedly has no effect after the first close.
     public func close(code: WebSocketCloseCode = .normalClosure, reason: Data? = nil) {
         guard let task else { return }
 

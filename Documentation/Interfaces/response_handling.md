@@ -281,7 +281,7 @@ Against a client configured with `.convertFromSnakeCase` and `.iso8601`, this de
 strategy is replaced. `modified` composes, and the last applied strategy wins.
 
 `RequestEncoder.modified(_:)` is the request-side equivalent. See
-[Request Request](request_parameters.md#deriving-an-encoder).
+[Interface Request](interface_request.md#deriving-an-encoder).
 
 ### Non-JSON Responses
 

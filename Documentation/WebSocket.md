@@ -1,44 +1,73 @@
 # RagnarWebSocket
 
-`RagnarWebSocket` is a thin actor facade over one `URLSessionWebSocketTask`. It isolates Foundation transport details
-without adding protocol or lifecycle policy.
+`RagnarWebSocket` provides message-level WebSocket transport through an actor-isolated `WebSocketClient` contract.
+It does not manage a receive loop, connection status, reconnection, heartbeat, or application protocol.
+
+## Create a Client
+
+`URLSessionWebSocketClient` uses the supplied `URLSession` to create one `URLSessionWebSocketTask` at a time.
 
 ```swift
+import Foundation
 import RagnarWebSocket
 
-let client = URLSessionWebSocketClient()
-try await client.open(URLRequest(url: URL(string: "wss://example.com/socket")!))
+let client = URLSessionWebSocketClient(session: .shared)
+let request = URLRequest(url: URL(string: "wss://example.com/socket")!)
+
+try await client.open(request)
+```
+
+The request URL must use `ws` or `wss` and include a host. `open(_:)` validates the request, creates the task, and
+resumes it. It does not wait for the HTTP upgrade to complete. A received message or transport error establishes the
+upgrade result for the protocol using the client.
+
+Calling `open(_:)` while a task is active throws `WebSocketError.connectionAlreadyActive`.
+
+## Send and Receive Messages
+
+Messages are represented as `WebSocketMessage.text(_:)` or `WebSocketMessage.binary(_:)`.
+
+```swift
 try await client.send(.text("message"))
-let response = try await client.receive()
+
+switch try await client.receive() {
+case .text(let text):
+    print(text)
+
+case .binary(let data):
+    print(data.count)
+}
+```
+
+Each `receive()` call reads one message. Only one receive operation may be active for a client. A concurrent receive
+throws `WebSocketError.concurrentReceive`.
+
+`send(_:)` and `receive()` require an active task. If a suspended operation belongs to a task that has since closed,
+the operation throws `WebSocketError.connectionReplacedOrClosed` rather than returning data from an inactive task.
+
+## Close the Connection
+
+```swift
 await client.close(code: .normalClosure, reason: nil)
 ```
 
-## Contract
+`close(code:reason:)` clears the active task before sending the close frame. Repeated calls have no effect. A later
+`open(_:)` starts a new connection generation.
 
-`WebSocketClient` provides:
+## Error Handling
 
-- `open(_:)` to validate and start one `ws` or `wss` request.
-- `send(_:)` for one text or binary message.
-- `receive()` for one text or binary message.
-- `close(code:reason:)` for idempotent explicit closure.
+`WebSocketError` distinguishes request validation, client state, concurrent receives, stale operations, and Foundation
+transport failures. Transport failures contain a Sendable `WebSocketErrorSnapshot` with the underlying error type and
+description.
 
-Only one receive may be active. Closing and opening a later generation prevents a suspended operation from returning a
-message from the replaced connection.
+## Protocol Integration
 
-`open(_:)` starts the HTTP upgrade but does not report a completed handshake. The first received message or transport
-error establishes the outcome for a higher protocol.
+Higher-level protocols own these operations:
 
-## Deliberate Omissions
+1. Open a validated WebSocket request.
+2. Call `receive()` from one protocol-owned receive loop.
+3. Interpret messages and apply protocol heartbeat or connection rules.
+4. Close the transport when the protocol generation ends.
+5. Open a new task when protocol policy requires reconnection.
 
-`RagnarWebSocket` does not provide:
-
-- Receive loops or asynchronous streams.
-- Connection status.
-- Reconnection.
-- Heartbeats.
-- JSON coding.
-- Engine.IO or Socket.IO framing.
-- Application suspension behavior.
-
-Higher protocols own those decisions. Tests can inject an actor conforming to `WebSocketClient` without importing
-Foundation's task type or using `@testable import`.
+Tests can inject an actor conforming to `WebSocketClient` without exposing `URLSessionWebSocketTask`.

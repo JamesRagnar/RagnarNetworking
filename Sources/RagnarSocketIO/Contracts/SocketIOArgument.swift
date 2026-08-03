@@ -1,10 +1,16 @@
 import Foundation
 
+/// One normalized JSON argument from a Socket.IO event packet.
 public struct SocketIOArgument: Sendable, Equatable {
+    /// A JSON `null` argument.
     public static let null = SocketIOArgument(unchecked: Data("null".utf8))
 
+    /// The argument's normalized JSON representation.
     public let data: Data
 
+    /// Encodes `value` as one JSON argument.
+    ///
+    /// Object keys are normalized into sorted order so equivalent arguments compare consistently.
     public init<Value: Encodable>(
         _ value: Value,
         using encoder: JSONEncoder = JSONEncoder()
@@ -13,6 +19,7 @@ public struct SocketIOArgument: Sendable, Equatable {
         try self.init(validating: data)
     }
 
+    /// Decodes the argument as `type`.
     public func decode<Value: Decodable>(
         _ type: Value.Type,
         using decoder: JSONDecoder = JSONDecoder()
@@ -20,6 +27,7 @@ public struct SocketIOArgument: Sendable, Equatable {
         try decoder.decode(type, from: data)
     }
 
+    /// Whether the argument is JSON `null`.
     public var isNull: Bool {
         data == Self.null.data
     }

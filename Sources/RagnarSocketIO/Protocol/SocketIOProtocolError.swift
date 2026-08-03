@@ -1,31 +1,55 @@
 import Foundation
 
+/// Errors produced while validating or coding the supported Engine.IO and Socket.IO protocol subset.
 public enum SocketIOProtocolError: Error, Sendable, Equatable {
+    /// An endpoint is missing a supported scheme or host.
     case invalidEndpoint
+    /// A complete request does not specify Engine.IO protocol 4 exactly once.
     case unsupportedEngineIOVersion(String?)
+    /// A complete request does not specify direct WebSocket transport exactly once.
     case unsupportedTransport(String?)
+    /// An Engine.IO packet begins with an unknown or missing packet type.
     case unknownEngineIOPacketType(String?)
+    /// An Engine.IO `OPEN` payload is not valid for the required fields.
     case malformedOpenPayload
+    /// A heartbeat duration is nonpositive, too large, or not representable in whole milliseconds.
     case invalidHeartbeatTiming
+    /// The Engine.IO maximum payload is not positive.
     case invalidMaximumPayload
+    /// An outgoing Engine.IO message exceeds the server's maximum payload.
     case messageExceedsMaximumPayload(limit: Int, actual: Int)
+    /// An Engine.IO packet requests a recognized but unsupported transport feature.
     case unsupportedTransportFeature(String)
+    /// A Socket.IO packet has no packet type.
     case missingSocketIOPacketType
+    /// A Socket.IO packet begins with an unknown packet type.
     case unknownSocketIOPacketType(String)
+    /// A binary packet has a missing, malformed, or nonpositive attachment count.
     case invalidBinaryAttachmentCount
+    /// A Socket.IO namespace is malformed.
     case invalidNamespace
+    /// A non-default namespace does not end with the required comma.
     case namespaceMissingComma
+    /// An acknowledgement identifier cannot be represented as an integer.
     case invalidAcknowledgementID
+    /// A packet that requires an acknowledgement identifier does not contain one.
     case missingAcknowledgementID
+    /// A packet contains malformed JSON.
     case invalidJSON
+    /// An event payload is not a JSON array.
     case invalidEventPayload
+    /// An event payload does not begin with a string event name.
     case missingEventName
+    /// A `CONNECT` payload is present but is not a JSON object.
     case invalidConnectPayload
+    /// A `CONNECT_ERROR` payload is missing or is not a JSON object.
     case invalidConnectErrorPayload
+    /// A packet contains fields or payload data that its type does not permit.
     case unexpectedPayload
 }
 
 extension SocketIOProtocolError: LocalizedError {
+    /// A description of the protocol validation or coding failure.
     public var errorDescription: String? {
         switch self {
         case .invalidEndpoint:

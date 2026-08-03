@@ -1,11 +1,17 @@
 import Foundation
 
+/// Configuration used to resolve a direct-WebSocket Socket.IO connection request.
 public enum SocketIOEndpoint: Sendable, Equatable {
+    /// An HTTP or HTTPS server URL, Socket.IO path, and optional handshake headers.
+    ///
+    /// Resolution maps the scheme to WS or WSS, joins `path` onto the server URL's existing path, preserves unrelated
+    /// query items, and replaces protocol query items with `EIO=4&transport=websocket`.
     case server(
         URL,
         path: String = "/socket.io/",
         headers: [String: String] = [:]
     )
+    /// A complete WS or WSS request containing exactly `EIO=4&transport=websocket`.
     case request(URLRequest)
 
     func resolve() throws -> URLRequest {
