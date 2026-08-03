@@ -129,7 +129,7 @@ let config = ServerConfiguration(
 
 ## Response Handler
 
-`responseHandler` handles every response for this server, except for Interfaces that declare their own `Interface.responseHandler`. Set it for a concern that spans the whole API - unwrapping a `{ "data": ... }` envelope, reading a deprecation header, feeding a metrics sink - so it is written once instead of on every Interface.
+`responseHandler` handles every response for this server. Set it for a concern that spans the whole API - unwrapping a `{ "data": ... }` envelope, reading a deprecation header, feeding a metrics sink - so it is written once instead of on every Interface.
 
 ```swift
 let config = ServerConfiguration(
@@ -138,7 +138,7 @@ let config = ServerConfiguration(
 )
 ```
 
-An Interface-level handler *replaces* this one rather than layering on top of it. See [Response Handling](Interfaces/response_handling.md).
+See [Response Handling](Interfaces/response_handling.md).
 
 ## Request Context and Auth Token Behavior
 

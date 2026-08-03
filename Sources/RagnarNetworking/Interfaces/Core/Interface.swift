@@ -30,24 +30,6 @@ public protocol Interface: Sendable {
     /// `Response` type. Every contract requires at least one successful status matcher.
     static var responses: ResponseContract<Response> { get }
 
-    /// Overrides response handling for this endpoint alone.
-    ///
-    /// `nil`, the default, uses `ServerConfiguration.responseHandler`. Return a handler for an
-    /// endpoint whose response does not follow the rest of the API.
-    ///
-    /// An Interface-level handler *replaces* the configured one rather than layering on it. An
-    /// endpoint that overrides in an API whose configuration unwraps an envelope has to unwrap
-    /// that envelope itself.
-    ///
-    /// For decoding rules that differ only in field names or date format, use `CodingKeys`, a
-    /// custom `init(from:)`, or an `InterfaceResponse` conformance on the `Response` type.
-    ///
-    /// - Warning: An override written as `static var responseHandler: any ResponseHandler`
-    ///   compiles but does not satisfy this requirement, because property witness types are
-    ///   invariant. It becomes dead and the endpoint silently uses the configured handler.
-    ///   Swift emits no diagnostic. Overrides must return `(any ResponseHandler)?`.
-    static var responseHandler: (any ResponseHandler)? { get }
-
 }
 
 // MARK: - Interface Request

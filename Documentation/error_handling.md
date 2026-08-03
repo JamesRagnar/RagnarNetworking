@@ -6,7 +6,7 @@
 |---|---|---|
 | Request construction | `RequestError` | `RequestBuilder.buildRequest` (via `RequestPipeline.send`) |
 | Transport | `TransportError` | `Transport.data(for:)`, classified by `RequestPipeline.send` |
-| Response handling | `ResponseError` | `Interface.handle(_:context:defaultHandler:)` (via `RequestPipeline.send`) |
+| Response handling | `ResponseError` | `ResponseHandler.handle(_:for:context:)` (via `RequestPipeline.send`) |
 | `APIClient` lifecycle | `APIClientError` | `APIClient.send`, `APIClient.invalidate` |
 
 `Transport.data(for:)` is untyped `throws`, so `RequestPipeline.send` classifies whatever it throws into a `TransportError` rather than letting a raw `URLError` escape. A custom `Transport` conformance may throw any `Error`; it arrives as `TransportError.other` with the value unchanged.

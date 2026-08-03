@@ -32,8 +32,8 @@ public struct RequestPipeline: Sendable {
     /// Builds, executes, and handles a type-safe Interface request.
     ///
     /// The context's `responseDecoder` is threaded into response handling, so success bodies
-    /// and typed error bodies decode with the same configured rules. Response handling uses the
-    /// Interface's own `responseHandler` when it declares one, and the context's otherwise.
+    /// and typed error bodies decode with the same configured rules. The context's configured
+    /// response handler interprets the Interface's response contract.
     ///
     /// - Parameters:
     ///   - interface: The interface type defining the request/response contract
@@ -68,10 +68,10 @@ public struct RequestPipeline: Sendable {
             throw TransportError.classifying(error)
         }
 
-        return try T.handle(
+        return try context.responseHandler.handle(
             response,
-            context: context.responseContext,
-            defaultHandler: context.responseHandler
+            for: T.self,
+            context: context.responseContext
         )
     }
 

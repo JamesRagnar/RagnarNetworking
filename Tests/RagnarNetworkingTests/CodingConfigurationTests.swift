@@ -145,10 +145,10 @@ struct CodingConfigurationTests {
             headerFields: nil
         )!
 
-        let result = try LegacyOrderInterface.handle(
+        let result = try LegacyOrderInterface.handleResponse(
             (data: #"{"order_id": 7, "placed_at": 1700000000}"#.data(using: .utf8)!, response: httpResponse),
             context: ResponseContext(responseDecoder: Self.configuredDecoder),
-            defaultHandler: DefaultResponseHandler()
+            handler: DefaultResponseHandler()
         )
 
         #expect(result == LegacyOrder(orderId: 7, placedAt: Self.epoch))

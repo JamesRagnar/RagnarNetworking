@@ -48,7 +48,7 @@ public struct RequestContext: Sendable {
     /// The builder that constructs this request.
     public var builder: any RequestBuilder { configuration.builder }
 
-    /// The handler for this response, unless the Interface overrides it.
+    /// The server's response handler.
     public var responseHandler: any ResponseHandler { configuration.responseHandler }
 
     /// Configuration for handling this request's response.

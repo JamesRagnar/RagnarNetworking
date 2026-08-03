@@ -82,7 +82,7 @@ let user = try await pipeline.send(GetUserInterface.self, .init(userId: 123), co
   - Duplicate exact codes emit a developer diagnostic through `Logger`, in every build configuration.
 - `.decodeError(MyError.self)` decodes structured error bodies and throws `ResponseError.decoded`.
 - A no-body success (204/205/304) builds `Response` against zero bytes. `EmptyResponse` is the usual `Response` type for that case; `Data` and `String` also build themselves from an empty body.
-- Set `ServerConfiguration.responseHandler` for a concern that spans the whole API, and override `Interface.responseHandler` when one endpoint needs its own handling.
+- Set `ServerConfiguration.responseHandler` for a concern that spans the whole API.
 
 Example:
 

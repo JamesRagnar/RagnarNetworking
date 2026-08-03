@@ -170,57 +170,6 @@ struct InterfaceResponseTests {
         static let responses = ResponseContract<Response>(success: .exact(200))
     }
 
-    struct CustomHandlerInterface: Interface {
-        struct Request: InterfaceRequest {
-            let method: RequestMethod = .get
-            let path = "/custom-handler"
-            let queryItems: [URLQueryItem]? = nil
-            let headers: [String: String]? = nil
-            let body: EmptyBody = .init()
-            let authentication: AuthenticationScheme? = nil
-        }
-
-        typealias Response = String
-
-        enum CustomHandlerError: Error, Sendable {
-            case notFound
-        }
-
-        static let responses = ResponseContract<Response>(
-            success: .exact(200),
-            failures: [.code(404, .error(CustomHandlerError.notFound))]
-        )
-
-        static var responseHandler: (any ResponseHandler)? {
-            CustomHandler()
-        }
-
-        struct CustomHandler: ResponseHandler {
-            func handle<T: Interface>(
-                _ response: (data: Data, response: URLResponse),
-                for interface: T.Type,
-                context: ResponseContext
-            ) throws(ResponseError) -> T.Response {
-                let snapshot = HTTPResponseSnapshot(
-                    response: response.response,
-                    redactedQueryItemNames: context.redactedQueryItemNames
-                )
-                guard let statusCode = snapshot.statusCode else {
-                    throw ResponseError.unknownResponse(
-                        ResponseBody(response.data, decoder: context.responseDecoder),
-                        snapshot
-                    )
-                }
-
-                if statusCode == 200 {
-                    return "overridden" as! T.Response
-                }
-
-                return try DefaultResponseHandler().handle(response, for: interface, context: context)
-            }
-        }
-    }
-
     struct RangeInterface: Interface {
         struct Request: InterfaceRequest {
             let method: RequestMethod = .get
@@ -403,7 +352,7 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        let result = try TestInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+        let result = try TestInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
 
         #expect(result.message == "success")
         #expect(result.code == 200)
@@ -420,7 +369,7 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        let result = try StringInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+        let result = try StringInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
 
         #expect(result == "Hello, World!")
     }
@@ -436,48 +385,9 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        let result = try DataInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+        let result = try DataInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
 
         #expect(result == responseData)
-    }
-
-    @Test("Custom response handler overrides decoding")
-    func testCustomHandlerOverride() throws {
-        let responseData = "ignored".data(using: .utf8)!
-
-        let httpResponse = HTTPURLResponse(
-            url: URL(string: "https://api.example.com")!,
-            statusCode: 200,
-            httpVersion: nil,
-            headerFields: nil
-        )!
-
-        let result = try CustomHandlerInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
-
-        #expect(result == "overridden")
-    }
-
-    @Test("Custom response handler falls back to default handler")
-    func testCustomHandlerFallback() {
-        let responseData = Data()
-
-        let httpResponse = HTTPURLResponse(
-            url: URL(string: "https://api.example.com")!,
-            statusCode: 404,
-            httpVersion: nil,
-            headerFields: nil
-        )!
-
-        do {
-            _ = try CustomHandlerInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
-            #expect(Bool(false), "Should have thrown")
-        } catch let error {
-            if case .generic(_, _, let underlyingError) = error {
-                #expect(underlyingError is CustomHandlerInterface.CustomHandlerError)
-            } else {
-                #expect(Bool(false), "Expected .generic error case")
-            }
-        }
     }
 
     @Test("handle returns empty data for no-content when Response is Data")
@@ -491,7 +401,7 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        let result = try NoContentInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+        let result = try NoContentInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
 
         #expect(result.isEmpty)
     }
@@ -508,7 +418,7 @@ struct InterfaceResponseTests {
         )!
 
         do {
-            _ = try NoContentJSONInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+            _ = try NoContentJSONInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
             #expect(Bool(false), "Should have thrown")
         } catch let error {
             if case .decoding(_, _, let decodingError) = error {
@@ -535,7 +445,7 @@ struct InterfaceResponseTests {
         )!
 
         do {
-            _ = try NoContentCustomDecodableInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+            _ = try NoContentCustomDecodableInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
             #expect(Bool(false), "Should have thrown")
         } catch let error {
             if case .decoding(_, _, let decodingError) = error {
@@ -561,7 +471,7 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        let result = try NoContentStringInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+        let result = try NoContentStringInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
 
         #expect(result == "")
     }
@@ -579,7 +489,7 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        let result = try TestInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+        let result = try TestInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
 
         #expect(result.message == "created")
         #expect(result.code == 201)
@@ -598,7 +508,7 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        let result = try RangeInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+        let result = try RangeInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
 
         #expect(result.message == "range")
         #expect(result.code == 201)
@@ -618,7 +528,7 @@ struct InterfaceResponseTests {
         )!
 
         do {
-            _ = try OverlapInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+            _ = try OverlapInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
             #expect(Bool(false), "Should have thrown")
         } catch let error {
             if case .generic(_, _, let underlyingError) = error {
@@ -658,7 +568,7 @@ struct InterfaceResponseTests {
         )!
 
         do {
-            _ = try CategoryInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+            _ = try CategoryInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
             #expect(Bool(false), "Should have thrown")
         } catch let error {
             if case .generic(_, _, let underlyingError) = error {
@@ -682,7 +592,7 @@ struct InterfaceResponseTests {
         )
 
         #expect(throws: ResponseError.self) {
-            try TestInterface.handle((data: responseData, response: response), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+            try TestInterface.handleResponse((data: responseData, response: response), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
         }
     }
 
@@ -697,7 +607,7 @@ struct InterfaceResponseTests {
         )!
 
         do {
-            _ = try TestInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+            _ = try TestInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
             #expect(Bool(false), "Should have thrown")
         } catch let error {
             if case .unknownResponseCase = error {
@@ -719,7 +629,7 @@ struct InterfaceResponseTests {
         )!
 
         do {
-            _ = try TestInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+            _ = try TestInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
             #expect(Bool(false), "Should have thrown")
         } catch let error {
             // Verify it's a generic error
@@ -745,7 +655,7 @@ struct InterfaceResponseTests {
         )!
 
         do {
-            _ = try DecodeErrorInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+            _ = try DecodeErrorInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
             #expect(Bool(false), "Should have thrown")
         } catch {
             let responseError: ResponseError = error
@@ -770,7 +680,7 @@ struct InterfaceResponseTests {
         )!
 
         do {
-            _ = try DecodeErrorInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+            _ = try DecodeErrorInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
             #expect(Bool(false), "Should have thrown")
         } catch let error {
             if case .decoding(_, _, let decodingError) = error {
@@ -796,7 +706,7 @@ struct InterfaceResponseTests {
         )!
 
         do {
-            _ = try DecodeErrorInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+            _ = try DecodeErrorInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
             #expect(Bool(false), "Should have thrown")
         } catch let error {
             if case .decoding(_, _, let decodingError) = error {
@@ -822,7 +732,7 @@ struct InterfaceResponseTests {
         )!
 
         do {
-            _ = try DecodeErrorInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+            _ = try DecodeErrorInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
             #expect(Bool(false), "Should have thrown")
         } catch let error {
             if case .decoding(_, _, let decodingError) = error {
@@ -848,7 +758,7 @@ struct InterfaceResponseTests {
         )!
 
         do {
-            _ = try ThrowingDecodeErrorInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+            _ = try ThrowingDecodeErrorInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
             #expect(Bool(false), "Should have thrown")
         } catch let error {
             if case .decoding(_, _, let decodingError) = error {
@@ -877,7 +787,7 @@ struct InterfaceResponseTests {
         )!
 
         do {
-            _ = try DecodeErrorInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+            _ = try DecodeErrorInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
             #expect(Bool(false), "Should have thrown")
         } catch {
             #expect(error.statusCode == 400)
@@ -897,7 +807,7 @@ struct InterfaceResponseTests {
         )!
 
         do {
-            _ = try DecodeErrorInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+            _ = try DecodeErrorInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
             #expect(Bool(false), "Should have thrown")
         } catch let error {
             if case .decoded(_, _, let decodedError) = error,
@@ -920,7 +830,7 @@ struct InterfaceResponseTests {
         )!
 
         do {
-            _ = try RangeOrderInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+            _ = try RangeOrderInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
             #expect(Bool(false), "Should have thrown")
         } catch let error {
             if case .generic(_, _, let underlyingError) = error,
@@ -943,7 +853,7 @@ struct InterfaceResponseTests {
         )!
 
         do {
-            _ = try TestInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+            _ = try TestInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
             #expect(Bool(false), "Should have thrown")
         } catch let error {
             // Verify it's a decoding error
@@ -971,7 +881,7 @@ struct InterfaceResponseTests {
         )!
 
         do {
-            _ = try StringInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+            _ = try StringInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
             #expect(Bool(false), "Should have thrown")
         } catch let error {
             if case .decoding(_, _, let decodingError) = error {
@@ -1107,7 +1017,7 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        let result = try NestedInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+        let result = try NestedInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
 
         #expect(result.user.name == "John Doe")
         #expect(result.user.id == 123)
@@ -1142,7 +1052,7 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        let result = try ArrayInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+        let result = try ArrayInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
 
         #expect(result.count == 3)
         #expect(result[0] == "apple")
@@ -1177,7 +1087,7 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        let result = try EmptyInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+        let result = try EmptyInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
 
         #expect(result == EmptyResponse())
     }
@@ -1192,7 +1102,7 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        let result = try EmptyDecodeInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+        let result = try EmptyDecodeInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
 
         #expect(result == EmptyResponse())
     }
@@ -1222,7 +1132,7 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        let result = try EmptyInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+        let result = try EmptyInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
         _ = result
     }
 
@@ -1236,7 +1146,7 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        let result = try StringInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+        let result = try StringInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
 
         #expect(result == "")
     }
@@ -1251,7 +1161,7 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        let result = try DataInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+        let result = try DataInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
 
         #expect(result.isEmpty)
     }
@@ -1272,7 +1182,7 @@ struct InterfaceResponseTests {
         let results = try await withThrowingTaskGroup(of: SuccessResponse.self) { group in
             for _ in 0..<expectedCount {
                 group.addTask {
-                    try TestInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+                    try TestInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
                 }
             }
 
@@ -1316,7 +1226,7 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        let expected = try TestInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+        let expected = try TestInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
         let actual = try ComposingResponseHandler().handle((data: responseData, response: httpResponse), for: TestInterface.self, context: ResponseContext(responseDecoder: ResponseDecoder()))
 
         #expect(actual.message == expected.message)
@@ -1348,7 +1258,7 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        let expected = try NoContentEmptyInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+        let expected = try NoContentEmptyInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
         let actual = try ComposingResponseHandler().handle(
             (data: responseData, response: httpResponse),
             for: NoContentEmptyInterface.self,
@@ -1387,10 +1297,10 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        let result = try SnakeCaseInterface.handle(
+        let result = try SnakeCaseInterface.handleResponse(
             (data: responseData, response: httpResponse),
             context: ResponseContext(responseDecoder: ResponseDecoder(keyDecodingStrategy: .convertFromSnakeCase)),
-            defaultHandler: DefaultResponseHandler()
+            handler: DefaultResponseHandler()
         )
 
         #expect(result.userId == 42)
@@ -1406,38 +1316,17 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        let result = try DatedInterface.handle(
+        let result = try DatedInterface.handleResponse(
             (data: responseData, response: httpResponse),
             context: ResponseContext(responseDecoder: ResponseDecoder(dateDecodingStrategy: .iso8601)),
-            defaultHandler: DefaultResponseHandler()
+            handler: DefaultResponseHandler()
         )
         let expectedDate = ISO8601DateFormatter().date(from: "2026-02-03T10:00:00Z")
         #expect(result.createdAt == expectedDate)
 
         #expect(throws: ResponseError.self) {
-            try DatedInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+            try DatedInterface.handleResponse((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), handler: DefaultResponseHandler())
         }
-    }
-
-    @Test("A per-endpoint ResponseHandler is the override point for response interpretation")
-    func testPerInterfaceResponseHandlerOverride() throws {
-        let responseData = try JSONEncoder().encode(SuccessResponse(message: "ignored", code: 200))
-        let httpResponse = HTTPURLResponse(
-            url: URL(string: "https://api.example.com")!,
-            statusCode: 200,
-            httpVersion: nil,
-            headerFields: nil
-        )!
-
-        // CustomHandlerInterface's handler short-circuits 200s, proving the Interface's own
-        // handler runs instead of DefaultResponseHandler.
-        let result = try CustomHandlerInterface.handle(
-            (data: responseData, response: httpResponse),
-            context: ResponseContext(responseDecoder: ResponseDecoder()),
-            defaultHandler: DefaultResponseHandler()
-        )
-
-        #expect(result == "overridden")
     }
 
     @Test("ResponseError.decodeError(as:) decodes the body with the decoder the response carried")
@@ -1478,10 +1367,10 @@ struct InterfaceResponseTests {
         )!
 
         do {
-            _ = try SnakeCaseDecodeErrorInterface.handle(
+            _ = try SnakeCaseDecodeErrorInterface.handleResponse(
                 (data: responseData, response: httpResponse),
                 context: ResponseContext(responseDecoder: ResponseDecoder(keyDecodingStrategy: .convertFromSnakeCase)),
-                defaultHandler: DefaultResponseHandler()
+                handler: DefaultResponseHandler()
             )
             Issue.record("Expected ResponseError.decoded to be thrown")
         } catch {
@@ -1508,10 +1397,10 @@ struct InterfaceResponseTests {
         // decoding failure rather than a decoded error. This is the observable proof that the
         // error body goes through the same decoder as success bodies.
         do {
-            _ = try SnakeCaseDecodeErrorInterface.handle(
+            _ = try SnakeCaseDecodeErrorInterface.handleResponse(
                 (data: responseData, response: httpResponse),
                 context: ResponseContext(responseDecoder: ResponseDecoder()),
-                defaultHandler: DefaultResponseHandler()
+                handler: DefaultResponseHandler()
             )
             Issue.record("Expected ResponseError.decoding to be thrown")
         } catch {
@@ -1572,10 +1461,10 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        let result = try CSVInterface.handle(
+        let result = try CSVInterface.handleResponse(
             (data: responseData, response: httpResponse),
             context: ResponseContext(responseDecoder: ResponseDecoder()),
-            defaultHandler: DefaultResponseHandler()
+            handler: DefaultResponseHandler()
         )
 
         #expect(result == CSVRows(rows: [["a", "b"], ["c", "d"]]))
@@ -1624,10 +1513,10 @@ struct InterfaceResponseTests {
         )!
 
         do {
-            _ = try CountInterface.handle(
+            _ = try CountInterface.handleResponse(
                 (data: "0".data(using: .utf8)!, response: httpResponse),
                 context: ResponseContext(responseDecoder: ResponseDecoder()),
-                defaultHandler: DefaultResponseHandler()
+                handler: DefaultResponseHandler()
             )
             Issue.record("Expected ResponseError.decoding to be thrown")
         } catch {
@@ -1677,7 +1566,7 @@ struct InterfaceResponseTests {
         }
     }
 
-    @Test("A configuration-level responseHandler applies to Interfaces that do not override one")
+    @Test("A configuration-level responseHandler applies to Interfaces")
     func testConfigurationResponseHandlerApplies() throws {
         let responseData = #"{"data":{"message":"hello","code":200}}"#.data(using: .utf8)!
         let httpResponse = HTTPURLResponse(
@@ -1687,34 +1576,13 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        let result = try TestInterface.handle(
+        let result = try TestInterface.handleResponse(
             (data: responseData, response: httpResponse),
             context: ResponseContext(responseDecoder: ResponseDecoder()),
-            defaultHandler: UnwrappingResponseHandler()
+            handler: UnwrappingResponseHandler()
         )
 
         #expect(result.message == "hello")
-    }
-
-    @Test("An Interface's own responseHandler wins over the configuration's")
-    func testInterfaceResponseHandlerOverridesConfiguration() throws {
-        let responseData = #"{"data":{"message":"hello","code":200}}"#.data(using: .utf8)!
-        let httpResponse = HTTPURLResponse(
-            url: URL(string: "https://api.example.com")!,
-            statusCode: 200,
-            httpVersion: nil,
-            headerFields: nil
-        )!
-
-        // CustomHandlerInterface declares its own handler, which returns "overridden" for a
-        // 200 and never consults the envelope-unwrapping handler passed as the default.
-        let result = try CustomHandlerInterface.handle(
-            (data: responseData, response: httpResponse),
-            context: ResponseContext(responseDecoder: ResponseDecoder()),
-            defaultHandler: UnwrappingResponseHandler()
-        )
-
-        #expect(result == "overridden")
     }
 
     // MARK: - Built-in InterfaceResponse Conformances
@@ -1843,10 +1711,10 @@ struct InterfaceResponseTests {
             headerFields: ["X-Total-Count": "137"]
         )!
 
-        let result = try PagedInterface.handle(
+        let result = try PagedInterface.handleResponse(
             (data: #"["a","b"]"#.data(using: .utf8)!, response: httpResponse),
             context: ResponseContext(responseDecoder: ResponseDecoder()),
-            defaultHandler: DefaultResponseHandler()
+            handler: DefaultResponseHandler()
         )
 
         #expect(result == PagedNames(names: ["a", "b"], totalCount: 137))
@@ -1888,10 +1756,10 @@ struct InterfaceResponseTests {
             headerFields: nil
         )!
 
-        let result = try EchoInterface.handle(
+        let result = try EchoInterface.handleResponse(
             (data: Data(), response: httpResponse),
             context: ResponseContext(responseDecoder: ResponseDecoder()),
-            defaultHandler: DefaultResponseHandler()
+            handler: DefaultResponseHandler()
         )
 
         #expect(result == StatusEcho(statusCode: 204))
