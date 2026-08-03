@@ -1,13 +1,12 @@
 # RagnarNetworking Documentation
 
-This directory documents the public surface of `RagnarNetworking`.
+This directory documents the package's three independent products.
 
 ## Package Structure
 
-- `APIClient` - authenticated request execution with challenge refresh, retry, and terminal invalidation
-- `SocketClient` - actor-based socket transport abstraction for higher-level consumers
-- `SocketIOClient` - typed Socket.IO transport built on `URLSessionWebSocketTask`
-- `SocketEndpoint` - explicit server or pre-derived WebSocket connection target
+- `RagnarNetworking` - typed HTTP interfaces and authenticated request execution
+- `RagnarWebSocket` - one-message-at-a-time WebSocket transport over `URLSessionWebSocketTask`
+- `RagnarSocketIO` - typed Engine.IO 4 and Socket.IO protocol 5 subset over `RagnarWebSocket`
 - `Transport` - single-requirement abstraction for executing a `URLRequest`; decorate it for middleware
 - `RequestPipeline` - composes `RequestBuilder`, `Transport`, and `ResponseHandler` into one request
 - `ServerConfiguration` - base URL, body coding, and default headers; `RequestContext` pairs one with a per-request token
@@ -16,7 +15,8 @@ This directory documents the public surface of `RagnarNetworking`.
 ## Guides
 
 - [APIClient](api_client.md)
-- [SocketIOClient](socket_io_client.md)
+- [WebSocket Transport](WebSocket.md)
+- [Socket.IO Client](SocketIO.md)
 - [RequestPipeline and Transport](request_pipeline.md)
 - [Server Configuration](server_configuration.md)
 - [Interfaces Overview](Interfaces/README.md)

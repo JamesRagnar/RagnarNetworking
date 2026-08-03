@@ -49,6 +49,10 @@ let package = Package(
         .testTarget(
             name: "RagnarSocketIOTests",
             dependencies: ["RagnarSocketIO", "RagnarWebSocket"]
+        ),
+        .testTarget(
+            name: "RagnarSocketIOIntegrationTests",
+            dependencies: ["RagnarSocketIO"]
         )
     ]
 )

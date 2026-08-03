@@ -56,3 +56,16 @@ jobs:
           xcodebuild -scheme RagnarNetworking \
             -destination "generic/platform=${{ matrix.platform }}" \
             build
+
+  socket-io-integration:
+    name: Socket.IO 4.7.4 integration
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: IntegrationTests/SocketIOReferenceServer/package-lock.json
+      - name: Run Socket.IO integration tests
+        run: Scripts/run-socketio-integration-tests.sh
