@@ -64,7 +64,7 @@ decoder.modified { $0.dateDecodingStrategy = .secondsSince1970 }
 This is what a `RequestBody` or `InterfaceResponse` conformance uses when one type's wire format
 differs from the rest of the API. Constructing a bare `JSONEncoder()` or `JSONDecoder()` there
 instead discards the configuration silently. See
-[Deriving an Encoder](Interfaces/request_parameters.md#deriving-an-encoder) and
+[Deriving an Encoder](Interfaces/interface_request.md#deriving-an-encoder) and
 [Deriving a Decoder](Interfaces/response_handling.md#deriving-a-decoder).
 
 ## Response Decoder

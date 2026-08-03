@@ -1,6 +1,15 @@
 # RagnarNetworking
 
-A modern, type-safe Swift networking library for building API interfaces with compile-time safety and minimal boilerplate.
+A Swift package containing independent HTTP, WebSocket, and Socket.IO networking products.
+
+## Products
+
+- `RagnarNetworking` provides typed HTTP interfaces, request construction, response contracts, and `APIClient`.
+- `RagnarWebSocket` provides a thin actor facade over `URLSessionWebSocketTask`.
+- `RagnarSocketIO` provides the documented Engine.IO 4 and Socket.IO protocol 5 subset over `RagnarWebSocket`.
+
+`RagnarSocketIO` depends on `RagnarWebSocket`. Neither socket product depends on `RagnarNetworking`, so HTTP-only
+consumers do not build or link socket code.
 
 ## Quick Example
 
@@ -59,15 +68,16 @@ let user = try await client.send(
 - Strict request bodies via `RequestBody` and response types via `InterfaceResponse`, both open to
   non-JSON formats without changing the package
 - `APIClient` actor with automatic challenge retry, coalesced credential refresh, and terminal invalidation
-- `SocketIOClient` actor with typed event streams and automatic reconnection
-- Testable request execution via `Transport` and socket transport via `SocketClient`
+- Independent `RagnarSocketIO` product with typed event streams, bounded buffering, and automatic transport reconnection
+- Testable request execution via `Transport` and WebSocket execution via `WebSocketClient`
 - Advanced request-construction extension API via `RequestBuilder`
 
 ## Documentation
 
 - [Documentation Overview](Documentation/README.md)
 - [APIClient](Documentation/api_client.md)
-- [SocketIOClient](Documentation/socket_io_client.md)
+- [WebSocket Transport](Documentation/WebSocket.md)
+- [Socket.IO Client](Documentation/SocketIO.md)
 - [RequestPipeline and Transport](Documentation/request_pipeline.md)
 - [Server Configuration](Documentation/server_configuration.md)
 - [Interfaces Overview](Documentation/Interfaces/README.md)

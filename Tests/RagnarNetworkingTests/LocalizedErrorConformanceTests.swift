@@ -21,7 +21,7 @@ struct LocalizedErrorConformanceTests {
         .missingCredential(.bearer),
         .credentialCollision(scheme: .bearer, name: "Authorization"),
         .undeclaredQueryItemName(scheme: .url, name: "secret"),
-        .authenticatorAppliedNothing(.bearer),
+        .authenticatorAppliedNothing(.bearer)
     ]
 
     @Test("RequestError produces a non-empty, non-default errorDescription", arguments: requestErrorCases)
@@ -45,7 +45,7 @@ struct LocalizedErrorConformanceTests {
                 debugDescription: "No value associated with key email."
             )
         ),
-        .custom(message: "custom failure"),
+        .custom(message: "custom failure")
     ]
 
     @Test("InterfaceDecodingError produces a non-empty, non-default errorDescription", arguments: interfaceDecodingErrorCases)
@@ -69,42 +69,6 @@ struct LocalizedErrorConformanceTests {
         )
 
         #expect(error.errorDescription?.contains("items.0.id") == true)
-    }
-
-    // MARK: - SocketIOError
-
-    static let socketIOErrorCases: [SocketIOError] = [
-        .notConnected,
-        .encodingFailed,
-    ]
-
-    @Test("SocketIOError produces a non-empty, non-default errorDescription", arguments: socketIOErrorCases)
-    func testSocketIOErrorDescription(_ error: SocketIOError) {
-        let description = error.errorDescription
-
-        #expect(description != nil)
-        #expect(description?.isEmpty == false)
-        #expect(description?.contains("SocketIOError") == false)
-        #expect(description?.contains("error 1") == false)
-    }
-
-    // MARK: - SocketEndpointError
-
-    static let socketEndpointErrorCases: [SocketEndpointError] = [
-        .unsupportedServerScheme("ws"),
-        .unsupportedWebSocketScheme("https"),
-        .missingHost,
-        .invalidURL
-    ]
-
-    @Test("SocketEndpointError produces a non-empty, non-default errorDescription", arguments: socketEndpointErrorCases)
-    func testSocketEndpointErrorDescription(_ error: SocketEndpointError) {
-        let description = error.errorDescription
-
-        #expect(description != nil)
-        #expect(description?.isEmpty == false)
-        #expect(description?.contains("SocketEndpointError") == false)
-        #expect(description?.contains("error 1") == false)
     }
 
     // MARK: - Existing conformances unchanged

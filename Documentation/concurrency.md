@@ -2,9 +2,9 @@
 
 ## Actor Isolation
 
-`APIClient` and `SocketIOClient` are actors. Calls into either from multiple tasks are serialized at each isolated method's entry, and safe to make concurrently.
+`APIClient` in `RagnarNetworking` and `SocketIOClient` in `RagnarSocketIO` are actors. Calls into either from multiple tasks are serialized at each isolated method's entry, and safe to make concurrently.
 
-Both actors are reentrant at `await` points, per standard Swift actor semantics: while one call to `APIClient.send` is suspended reading or refreshing its `CredentialSource`, or awaiting transport, another call to `send` (or any other isolated method) can run on the same actor. `APIClient.send` and `SocketIOClient`'s connection-management methods (`connect`, `disconnect`, `reconnect(to:)`, `invalidate`) are written to tolerate this interleaving. For example, `APIClient` reads `isInvalidated` and `refreshGeneration` fresh after each `await` rather than caching them across a suspension.
+Both actors are reentrant at `await` points, per standard Swift actor semantics. While one call to `APIClient.send` is suspended reading or refreshing its `CredentialSource`, or awaiting transport, another call can run on the same actor. For example, `APIClient` reads `isInvalidated` and `refreshGeneration` fresh after each `await` rather than caching them across a suspension. See [Socket.IO Client](SocketIO.md) for the separate socket product's lifecycle guarantees.
 
 ## APIClient Cancellation
 
@@ -14,9 +14,9 @@ Cancelling the `Task` that called `send` cancels that call's in-flight transport
 
 ## SocketIOClient Cancellation
 
-Each call to `events(for:)` or `statusUpdates()` returns an independent `AsyncStream`. Cancelling the `Task` iterating one consumer's stream ends that consumer's `for await` loop and deregisters only that consumer (via the stream's `onTermination`); it does not affect other consumers of the same event, the underlying connection, or other registered streams. Streams are only finished for all consumers by `invalidate()`.
+Each call to `events(for:)` returns an independent `SocketEventStream`, and each call to `statusUpdates()` returns an independent `AsyncStream`. Cancelling a task that iterates either stream deregisters only that subscription. It does not affect other subscriptions or the underlying connection. `invalidate()` finishes all remaining streams.
 
-`connect()`, `disconnect()`, `reconnect(to:)`, and `invalidate()` are not tied to caller task cancellation - they run to completion once called.
+`connect(to:)`, `disconnect()`, and `invalidate()` are not tied to caller task cancellation. They run to completion once called.
 
 ## Transport Thread Safety
 

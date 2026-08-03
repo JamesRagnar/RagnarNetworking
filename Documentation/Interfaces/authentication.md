@@ -279,4 +279,4 @@ Cross-client refresh coalescing is intentionally unsupported.
 ## Not Supported
 
 - **Multiple credential lifecycles per client.** Use separate clients when credentials refresh independently.
-- **Socket authentication.** `SocketIOClient` has no credential lifecycle integration.
+- **Socket authentication.** The separate `RagnarSocketIO` product has no credential lifecycle integration. Consumers must reauthenticate after every `.connected` transition when required by their server.

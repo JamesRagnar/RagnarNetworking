@@ -65,7 +65,8 @@ public extension URLRequest {
     private func credentialComponents() throws(RequestError) -> URLComponents {
         guard let url, let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             throw .invalidRequest(
-                description: "The builder returned a request without a valid URL, so the credential could not be applied"
+                description: "The builder returned a request without a valid URL, "
+                    + "so the credential could not be applied"
             )
         }
 
