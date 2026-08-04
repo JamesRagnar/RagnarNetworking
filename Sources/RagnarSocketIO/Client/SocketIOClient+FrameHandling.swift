@@ -102,7 +102,7 @@ extension SocketIOClient {
         guard let maximumPayload else { throw LifecycleFailure.terminal(.protocolViolation("Missing OPEN state")) }
 
         resetHeartbeat(generation: connectionGeneration, deadline: currentHeartbeatDeadline())
-        Logger.socketIO.debug("Engine.IO PING answered, heartbeat rearmed")
+        Logger.socketIO.debug("Engine.IO PING received, heartbeat rearmed")
         do {
             let pong = try EngineIOCodec.encode(.pong(payload))
             try EngineIOPacket.pong(payload).validateMessageSize(maximum: maximumPayload)
@@ -167,6 +167,7 @@ extension SocketIOClient {
     }
 
     func fanOut(eventName: String, arguments: [SocketIOArgument]) {
+        Logger.socketIO.debug("Received event \(eventName, privacy: .private)")
         guard let subscriptions = eventSubscriptions[eventName] else {
             Logger.socketIO.debug("Dropped event \(eventName, privacy: .private): no subscriptions")
             return

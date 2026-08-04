@@ -15,8 +15,8 @@ One subsystem filter covers the whole package. A category filter narrows it to o
 ## Levels
 
 - `.debug` carries per-connection activity: transport open and close, the Engine.IO handshake, heartbeat responses,
-  reconnect attempts and their delays, retryable connection failures, and events dropped by a subscription or buffering
-  policy.
+  reconnect attempts and their delays, retryable connection failures, received event names, and events dropped by a
+  subscription or buffering policy.
 - `.warning` carries developer diagnostics for declarations that cannot report misuse through a thrown error. A
   duplicate exact status code in a `ResponseContract` is the only case.
 - `.error` carries terminal outcomes: a connection failure that ends the lifecycle, and a reconnect policy that reaches
