@@ -7,11 +7,6 @@ private enum StreamEvent: SocketEvent {
     static let name = "stream"
 }
 
-private enum FailingStreamEvent: SocketEvent {
-    typealias Schema = Int
-    static let name = "failing"
-}
-
 private func arguments(_ value: Int) throws -> [SocketIOArgument] {
     [try SocketIOArgument(value)]
 }
@@ -42,28 +37,37 @@ struct SocketEventStreamTests {
         #expect(try await collect(second.stream) == [1, 2])
     }
 
-    @Test("A decoding failure is local to one subscription")
+    @Test("A decoding failure discards the occurrence and iteration continues")
     func decodingFailure() async throws {
+        let stream = SocketEventStream<StreamEvent>.make(
+            policy: .bounded,
+            decoder: .default,
+            onTermination: {}
+        )
+        #expect(stream.continuation.yield([try SocketIOArgument("wrong")]))
+        #expect(stream.continuation.yield(try arguments(1)))
+        #expect(stream.continuation.yield([try SocketIOArgument("wrong"), try SocketIOArgument("count")]))
+        #expect(stream.continuation.yield(try arguments(2)))
+        stream.continuation.finish()
+
+        #expect(try await collect(stream.stream) == [1, 2])
+    }
+
+    @Test("A decoding failure terminates a lossless subscription and releases it")
+    func losslessDecodingFailure() async throws {
         let terminated = AsyncStream<Void>.makeStream()
-        let failing = SocketEventStream<FailingStreamEvent>.make(
+        let stream = SocketEventStream<StreamEvent>.make(
             policy: .lossless,
             decoder: .default,
             onTermination: { terminated.continuation.yield() }
         )
-        let healthy = SocketEventStream<StreamEvent>.make(
-            policy: .lossless,
-            decoder: .default,
-            onTermination: {}
-        )
-        #expect(failing.continuation.yield([try SocketIOArgument("wrong")]))
-        #expect(healthy.continuation.yield(try arguments(1)))
-        healthy.continuation.finish()
+        #expect(stream.continuation.yield([try SocketIOArgument("wrong")]))
+        #expect(stream.continuation.yield(try arguments(1)))
 
-        var failingIterator = failing.stream.makeAsyncIterator()
+        var iterator = stream.stream.makeAsyncIterator()
         await #expect(throws: SocketIOError.self) {
-            try await failingIterator.next()
+            try await iterator.next()
         }
-        #expect(try await collect(healthy.stream) == [1])
 
         var terminationIterator = terminated.stream.makeAsyncIterator()
         _ = await terminationIterator.next()

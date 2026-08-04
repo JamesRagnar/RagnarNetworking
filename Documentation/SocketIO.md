@@ -15,9 +15,9 @@ The client supports:
 - Server-driven heartbeat.
 - Automatic reconnect after transport loss or heartbeat timeout.
 
-The client rejects polling, transport upgrades, non-default namespaces, acknowledgements, binary events, binary
-attachments, connection-state recovery, and replay. A recognized unsupported capability ends the active connection
-with `.failed(.unsupportedCapability(_))`.
+The client does not implement polling, transport upgrades, non-default namespaces, acknowledgements, binary events,
+binary attachments, connection-state recovery, or replay. Inbound messages that use them are discarded and logged. See
+[Message Handling](#message-handling).
 
 ## Define Events
 
@@ -152,34 +152,67 @@ do {
         print(update.identifier)
     }
 } catch {
-    // Handle schema failure, overflow, or invalidation.
+    // Handle a lost occurrence under a terminating policy, or invalidation.
 }
 ```
 
 Each call to `events(for:policy:)` creates an independent subscription. Event decoding occurs when the iterator requests
-the next value. A decoding failure terminates only that subscription.
+the next value. An occurrence that does not satisfy the schema is a lost occurrence and follows the subscription's loss
+policy.
+
+## Message Handling
+
+An inbound message that this client cannot interpret is discarded and logged at `.error`. The connection stays usable.
+WebSocket delivers whole frames, so a message that cannot be interpreted carries no information about the next one.
+
+Discarded, connection continues:
+
+- Undecodable Engine.IO frames and binary frames.
+- Engine.IO `NOOP` and `UPGRADE`.
+- Undecodable Socket.IO packets.
+- Packets for a non-default namespace.
+- Acknowledgements, acknowledgement-bearing events, and binary packets.
+- A repeated Socket.IO `CONNECT`.
+- Occurrences lost under a `.discard` stream policy, whether the buffer was full or the schema did not match.
+
+Ends the connection:
+
+- Transport failure, Engine.IO `CLOSE`, heartbeat timeout, a repeated Engine.IO `OPEN`, and a handshake whose first
+  frame is undecodable or is not `OPEN`, all subject to `ReconnectPolicy`.
+- `CONNECT_ERROR` on the default namespace, namespace timeout, and the capability mismatches a retry cannot clear: a
+  binary handshake frame, or a transport upgrade offered in the `OPEN` payload.
+- Socket.IO `DISCONNECT` on the default namespace, which is a clean end.
 
 ## Select a Stream Policy
 
+A policy declares how many occurrences to buffer and what happens when an occurrence does not reach the consumer. An
+occurrence is lost when a bounded buffer drops it or when it does not satisfy the event's schema. Both are a gap in what
+the consumer receives, so `SocketStreamPolicy.Loss` governs both.
+
+- `.discard` drops the occurrence, logs it, and keeps the subscription active.
+- `.terminate` finishes the subscription with `SocketIOError.bufferOverflow` or `SocketIOError.eventDecodingFailed`.
+
 The event type's `defaultStreamPolicy` applies when `events(for:)` does not receive an explicit policy. The default is
-`.lossless`, which retains the oldest 64 pending events and terminates with `SocketIOError.bufferOverflow` if the buffer
-fills.
+`.bounded`.
 
 Available policies are:
 
-- `.lossless` or `try .lossless(capacity:)` for ordered events that require resynchronization after overflow.
-- `.latest` or `try .latest(capacity:)` for state or telemetry where newer values replace pending older values.
-- `.unbounded` when the consumer explicitly accepts an unbounded queue.
-- `try SocketStreamPolicy(buffering:overflow:)` for a custom buffering and overflow combination.
+- `.bounded` or `try .bounded(capacity:)` retains the oldest 64 events and discards lost occurrences.
+- `.lossless` or `try .lossless(capacity:)` retains the oldest 64 events and terminates on any lost occurrence. Use it
+  when the consumer must detect a gap and resynchronize through another mechanism.
+- `.latest` or `try .latest(capacity:)` retains the newest values and discards lost occurrences.
+- `.unbounded` accepts an unbounded queue and discards lost occurrences.
+- `try SocketStreamPolicy(buffering:loss:)` for a custom combination.
 
-Bounded capacities must be greater than zero.
+Bounded capacities must be greater than zero. A terminated subscription is released by the client, and
+`events(for:policy:)` may be called again to replace it.
 
 ## Implement a Custom Client
 
 External `SocketClient` implementations create subscriptions with `SocketEventStream.makeStream(...)`. Return the
 source's `stream` from `events(for:policy:)`, then use the source to yield ordered Socket.IO arguments or finish the
-subscription. The source applies the selected buffering, overflow, decoding, and termination behavior without exposing
-an `AsyncThrowingStream` continuation.
+subscription. The source applies the selected buffering, loss, and decoding behavior without exposing an
+`AsyncThrowingStream` continuation.
 
 ## Emit Events
 
@@ -214,8 +247,8 @@ The client reads `pingInterval`, `pingTimeout`, and `maxPayload` from the Engine
 resets on `OPEN` and server `PING`. Each `PING` receives a `PONG` with the same payload.
 
 Automatic reconnect applies after transport failure, Engine.IO close, heartbeat timeout, or send failure. It does not
-apply after explicit disconnect, invalidation, server namespace disconnect, `CONNECT_ERROR`, namespace timeout, invalid
-endpoint configuration, or an unsupported protocol capability.
+apply after explicit disconnect, invalidation, server namespace disconnect, `CONNECT_ERROR`, namespace timeout, or
+invalid endpoint configuration.
 
 `ReconnectPolicy` controls the initial delay, maximum delay, multiplier, symmetric jitter, and optional attempt limit.
 Use `.disabled` when the application owns reconnection.
@@ -237,8 +270,8 @@ A successful namespace connection resets the reconnect attempt count.
 `RagnarSocketIO` manages transport and namespace state only. If the server requires an application authentication event,
 send it after every `.connected` transition before treating application events as usable.
 
-The client does not replay events missed during disconnection and does not recover application state after stream
-overflow. Use the server's HTTP API or another application-specific mechanism to resynchronize.
+The client does not replay events missed during disconnection and does not recover application state after a discarded
+message or a lost occurrence. Use the server's HTTP API or another application-specific mechanism to resynchronize.
 
 ## Reference Tests
 

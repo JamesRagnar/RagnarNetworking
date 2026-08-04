@@ -126,14 +126,16 @@ extension SocketIOClient {
             throw LifecycleFailure.terminal(.unsupportedCapability("binary Engine.IO transport"))
         }
 
+        // A fresh handshake can clear a junk or out-of-order first frame, so these retry under the reconnect policy.
+        // The capability mismatches around them cannot be cleared by retrying and stay terminal.
         let firstPacket: EngineIOPacket
         do {
             firstPacket = try EngineIOCodec.decode(text)
         } catch {
-            throw LifecycleFailure.terminal(protocolFailure(error))
+            throw LifecycleFailure.reconnectable(protocolFailure(error))
         }
         guard case .open(let openPayload) = firstPacket else {
-            throw LifecycleFailure.terminal(.protocolViolation("Engine.IO OPEN was not the first packet"))
+            throw LifecycleFailure.reconnectable(.protocolViolation("Engine.IO OPEN was not the first packet"))
         }
         guard openPayload.upgrades.isEmpty else {
             throw LifecycleFailure.terminal(.unsupportedCapability("Engine.IO transport upgrade"))

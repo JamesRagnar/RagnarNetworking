@@ -11,15 +11,18 @@ public struct SocketEventStream<Event: SocketEvent>: AsyncSequence, Sendable {
 
     private let arguments: AsyncThrowingStream<[SocketIOArgument], Error>
     private let decoder: SocketEventDecoder
+    private let loss: SocketStreamPolicy.Loss
     private let finishArguments: @Sendable (any Error) -> Void
 
     init(
         arguments: AsyncThrowingStream<[SocketIOArgument], Error>,
         decoder: SocketEventDecoder,
+        loss: SocketStreamPolicy.Loss,
         finishArguments: @escaping @Sendable (any Error) -> Void
     ) {
         self.arguments = arguments
         self.decoder = decoder
+        self.loss = loss
         self.finishArguments = finishArguments
     }
 
@@ -28,6 +31,7 @@ public struct SocketEventStream<Event: SocketEvent>: AsyncSequence, Sendable {
         AsyncIterator(
             iterator: arguments.makeAsyncIterator(),
             decoder: decoder,
+            loss: loss,
             finishArguments: finishArguments
         )
     }
@@ -36,41 +40,51 @@ public struct SocketEventStream<Event: SocketEvent>: AsyncSequence, Sendable {
     public struct AsyncIterator: AsyncIteratorProtocol {
         private var iterator: AsyncThrowingStream<[SocketIOArgument], Error>.AsyncIterator
         private let decoder: SocketEventDecoder
+        private let loss: SocketStreamPolicy.Loss
         private let finishArguments: @Sendable (any Error) -> Void
 
         init(
             iterator: AsyncThrowingStream<[SocketIOArgument], Error>.AsyncIterator,
             decoder: SocketEventDecoder,
+            loss: SocketStreamPolicy.Loss,
             finishArguments: @escaping @Sendable (any Error) -> Void
         ) {
             self.iterator = iterator
             self.decoder = decoder
+            self.loss = loss
             self.finishArguments = finishArguments
         }
 
         /// Waits for and decodes the next event occurrence.
         ///
-        /// A schema error finishes this subscription before the error is thrown.
+        /// An occurrence that does not satisfy the event's schema is lost. Under `.discard` it is dropped and iteration
+        /// continues; under `.terminate` this subscription finishes with `SocketIOError.eventDecodingFailed`.
         public mutating func next() async throws -> Event.Schema? {
-            guard let arguments = try await iterator.next() else { return nil }
-
-            do {
-                return try Event.decode(
-                    arguments: arguments,
-                    using: decoder.makeDecoder()
-                )
-            } catch {
-                let streamError = if let socketError = error as? SocketIOError {
-                    socketError
-                } else {
-                    SocketIOError.eventDecodingFailed(
-                        eventName: Event.name,
-                        snapshot: SocketIODecodingErrorSnapshot(error)
+            while let arguments = try await iterator.next() {
+                do {
+                    return try Event.decode(
+                        arguments: arguments,
+                        using: decoder.makeDecoder()
+                    )
+                } catch {
+                    let snapshot = SocketIODecodingErrorSnapshot(error)
+                    guard loss == .discard else {
+                        let streamError = SocketIOError.eventDecodingFailed(
+                            eventName: Event.name,
+                            snapshot: snapshot
+                        )
+                        finishArguments(streamError)
+                        throw streamError
+                    }
+                    Logger.socketIO.error(
+                        """
+                        Discarded event \(Event.name, privacy: .private): \
+                        schema failure \(snapshot.category, privacy: .public)
+                        """
                     )
                 }
-                finishArguments(streamError)
-                throw streamError
             }
+            return nil
         }
     }
 }
@@ -78,7 +92,7 @@ public struct SocketEventStream<Event: SocketEvent>: AsyncSequence, Sendable {
 /// A producer handle for a typed Socket.IO event stream.
 ///
 /// Custom `SocketClient` implementations use a source to feed received arguments into the same decoding, buffering, and
-/// overflow behavior as `SocketIOClient`.
+/// loss behavior as `SocketIOClient`.
 public struct SocketEventStreamSource<Event: SocketEvent>: Sendable {
     /// The typed stream returned to the event consumer.
     public let stream: SocketEventStream<Event>
@@ -95,7 +109,8 @@ public struct SocketEventStreamSource<Event: SocketEvent>: Sendable {
 
     /// Feeds one ordered argument list into the stream.
     ///
-    /// Returns `false` when the stream has terminated, including termination caused by lossless buffer overflow.
+    /// Returns `false` when the stream has terminated, including termination caused by a lost occurrence under
+    /// `SocketStreamPolicy.Loss.terminate`.
     @discardableResult
     public func yield(arguments: [SocketIOArgument]) -> Bool {
         continuation.yield(arguments)
@@ -114,16 +129,16 @@ public struct SocketEventStreamSource<Event: SocketEvent>: Sendable {
 
 struct SocketEventContinuation: Sendable {
     private let eventName: String
-    private let overflow: SocketStreamPolicy.Overflow
+    private let loss: SocketStreamPolicy.Loss
     private let continuation: AsyncThrowingStream<[SocketIOArgument], Error>.Continuation
 
     init(
         eventName: String,
-        overflow: SocketStreamPolicy.Overflow,
+        loss: SocketStreamPolicy.Loss,
         continuation: AsyncThrowingStream<[SocketIOArgument], Error>.Continuation
     ) {
         self.eventName = eventName
-        self.overflow = overflow
+        self.loss = loss
         self.continuation = continuation
     }
 
@@ -133,7 +148,7 @@ struct SocketEventContinuation: Sendable {
             return true
 
         case .dropped:
-            guard overflow == .terminate else {
+            guard loss == .terminate else {
                 Logger.socketIO.debug("Dropped event \(self.eventName, privacy: .private): stream buffer full")
                 return true
             }
@@ -157,7 +172,7 @@ extension SocketEventStream {
     /// Creates a typed stream and its producer source.
     ///
     /// Use this factory when implementing `SocketClient`. Values fed through the source retain the selected buffering,
-    /// overflow, event decoding, and termination behavior.
+    /// loss, and event decoding behavior.
     public static func makeStream(
         policy: SocketStreamPolicy = Event.defaultStreamPolicy,
         decoder: SocketEventDecoder = .default,
@@ -187,11 +202,12 @@ extension SocketEventStream {
             SocketEventStream(
                 arguments: arguments,
                 decoder: decoder,
+                loss: policy.loss,
                 finishArguments: { error in continuation.finish(throwing: error) }
             ),
             SocketEventContinuation(
                 eventName: Event.name,
-                overflow: policy.overflow,
+                loss: policy.loss,
                 continuation: continuation
             )
         )

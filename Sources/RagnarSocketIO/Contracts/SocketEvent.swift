@@ -27,8 +27,8 @@ public protocol EmittableSocketEvent: SocketEvent {
 }
 
 public extension SocketEvent {
-    /// A bounded 64-event lossless policy.
-    static var defaultStreamPolicy: SocketStreamPolicy { .lossless }
+    /// A bounded 64-event policy that drops newer values while the buffer is full.
+    static var defaultStreamPolicy: SocketStreamPolicy { .bounded }
 
     /// Decodes exactly one argument as `Schema`.
     static func decode(

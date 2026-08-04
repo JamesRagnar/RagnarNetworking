@@ -39,10 +39,10 @@ public enum SocketIOError: Error, Sendable, Equatable {
     case invalidStreamCapacity(Int)
     /// An event received a different number of arguments than its contract requires.
     case invalidArgumentCount(eventName: String, expected: Int, actual: Int)
-    /// An event argument could not be decoded as its schema.
-    case eventDecodingFailed(eventName: String, snapshot: SocketIODecodingErrorSnapshot)
-    /// A terminating stream policy dropped an event because its buffer was full.
+    /// A terminating stream policy lost an event because its buffer was full.
     case bufferOverflow(eventName: String)
+    /// A terminating stream policy lost an event that did not satisfy its schema.
+    case eventDecodingFailed(eventName: String, snapshot: SocketIODecodingErrorSnapshot)
     /// An emission was attempted before the default namespace connected.
     case notConnected
     /// An emitted Engine.IO message exceeds the server's handshake limit.
@@ -61,11 +61,11 @@ extension SocketIOError: LocalizedError {
         case .invalidArgumentCount(let eventName, let expected, let actual):
             "Socket event \(eventName) expected \(expected) arguments but received \(actual)."
 
-        case .eventDecodingFailed(let eventName, let snapshot):
-            "Socket event \(eventName) failed decoding with \(snapshot.category)."
-
         case .bufferOverflow(let eventName):
             "Socket event \(eventName) exceeded its stream buffer."
+
+        case .eventDecodingFailed(let eventName, let snapshot):
+            "Socket event \(eventName) failed decoding with \(snapshot.category)."
 
         case .notConnected:
             "The Socket.IO client is not connected."

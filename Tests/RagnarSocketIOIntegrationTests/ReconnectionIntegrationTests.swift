@@ -40,17 +40,17 @@ struct ReconnectionIntegrationTests {
         }
     }
 
-    @Test("Acknowledgement-bearing events fail as unsupported")
+    @Test("Acknowledgement-bearing events are discarded and the connection survives")
     func acknowledgement() async throws {
         try await withIntegrationServer { server in
             let client = try makeIntegrationClient()
+            let scalar = await client.events(for: FixtureScalarEvent.self)
             try await client.connect(to: .server(server.endpoint))
             try await waitForStatus(.connected, from: client)
+
             try await client.emit(FixtureAcknowledgementEvent.self)
-            try await waitForStatus(
-                .failed(.unsupportedCapability("acknowledgement-bearing event")),
-                from: client
-            )
+            try await client.emit(FixtureCommandEvent.self)
+            #expect(try await nextValue(from: scalar) == 42)
             await client.invalidate()
         }
     }
