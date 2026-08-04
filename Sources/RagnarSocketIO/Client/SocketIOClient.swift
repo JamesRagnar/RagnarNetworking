@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import RagnarWebSocket
 
 /// An Engine.IO 4 and Socket.IO protocol 5 client over direct WebSocket transport.
@@ -87,6 +88,12 @@ public actor SocketIOClient: SocketClient {
         self.endpoint = endpoint
         isExplicitlyDisconnected = false
         setStatus(.connecting)
+        Logger.socketIO.debug(
+            """
+            Starting generation \(connectionGeneration, privacy: .public) \
+            for \(request.url?.absoluteString ?? "no URL", privacy: .private)
+            """
+        )
         connectionTask = Task {
             await self.runConnectionLoop(generation: connectionGeneration, request: request)
         }
@@ -102,6 +109,7 @@ public actor SocketIOClient: SocketClient {
         heartbeatDeadline = nil
         forcedFailure = nil
         setStatus(.disconnected)
+        Logger.socketIO.debug("Disconnected by the app at generation \(self.generation, privacy: .public)")
         pendingCloseTask = Task { await webSocket.close(code: .normalClosure, reason: nil) }
     }
 
@@ -115,6 +123,12 @@ public actor SocketIOClient: SocketClient {
         maximumPayload = nil
         heartbeatDeadline = nil
         forcedFailure = nil
+        Logger.socketIO.debug(
+            """
+            Invalidated at generation \(self.generation, privacy: .public), \
+            finishing \(self.eventSubscriptions.count, privacy: .public) event subscriptions
+            """
+        )
         pendingCloseTask = Task { await webSocket.close(code: .normalClosure, reason: nil) }
 
         for subscriptions in eventSubscriptions.values {

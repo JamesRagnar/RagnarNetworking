@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import RagnarWebSocket
 
 enum LifecycleFailure: Error, Sendable {
@@ -42,12 +43,21 @@ extension SocketIOClient {
     func prepareReconnect(attempt: Int, generation connectionGeneration: UInt64) async -> Bool {
         guard attempt > 0 else { return true }
         guard canReconnect(attempt: attempt) else {
-            setStatus(.failed(.reconnectExhausted(attempts: attempt - 1)))
+            let failure = SocketConnectionFailure.reconnectExhausted(attempts: attempt - 1)
+            logTerminalFailure(failure)
+            setStatus(.failed(failure))
             return false
         }
         setStatus(.reconnecting(attempt: attempt))
+        let delay = reconnectDelay(attempt: attempt)
+        Logger.socketIO.debug(
+            """
+            Reconnect attempt \(attempt, privacy: .public) \
+            in \(delay.loggableSeconds, format: .fixed(precision: 3), privacy: .public)s
+            """
+        )
         do {
-            try await clock.sleep(for: reconnectDelay(attempt: attempt))
+            try await clock.sleep(for: delay)
         } catch {
             return false
         }
@@ -65,25 +75,31 @@ extension SocketIOClient {
         switch error {
         case LifecycleFailure.reconnectable(let failure):
             guard reconnectPolicy.enabled else {
+                logTerminalFailure(failure)
                 setStatus(.failed(failure))
                 return .stop
             }
+            logRetryableFailure(failure)
             return .retry(status == .connected ? 1 : reconnectAttempt + 1)
 
         case LifecycleFailure.terminal(let failure):
+            logTerminalFailure(failure)
             setStatus(.failed(failure))
             return .stop
 
         case LifecycleFailure.serverDisconnect:
+            Logger.socketIO.debug("Server disconnected the namespace")
             setStatus(.disconnected)
             return .stop
 
         default:
             let failure = transportFailure(error)
             guard reconnectPolicy.enabled else {
+                logTerminalFailure(failure)
                 setStatus(.failed(failure))
                 return .stop
             }
+            logRetryableFailure(failure)
             return .retry(reconnectAttempt + 1)
         }
     }
@@ -123,6 +139,16 @@ extension SocketIOClient {
             throw LifecycleFailure.terminal(.unsupportedCapability("Engine.IO transport upgrade"))
         }
 
+        Logger.socketIO.debug(
+            """
+            Engine.IO OPEN: pingInterval \
+            \(openPayload.pingInterval.loggableSeconds, format: .fixed(precision: 3), privacy: .public)s, \
+            pingTimeout \
+            \(openPayload.pingTimeout.loggableSeconds, format: .fixed(precision: 3), privacy: .public)s, \
+            maxPayload \(openPayload.maxPayload, privacy: .public) bytes
+            """
+        )
+
         maximumPayload = openPayload.maxPayload
         heartbeatDeadline = openPayload.pingInterval + openPayload.pingTimeout
         resetHeartbeat(
@@ -136,6 +162,7 @@ extension SocketIOClient {
         namespaceTimeoutTask?.cancel()
         namespaceTimeoutTask = nil
         guard isCurrent(connectionGeneration) else { throw CancellationError() }
+        Logger.socketIO.debug("Namespace / connected at generation \(connectionGeneration, privacy: .public)")
         setStatus(.connected)
 
         try await receiveLoop(generation: connectionGeneration)

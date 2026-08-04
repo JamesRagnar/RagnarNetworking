@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import RagnarWebSocket
 
 extension SocketIOClient {
@@ -101,6 +102,7 @@ extension SocketIOClient {
         guard let maximumPayload else { throw LifecycleFailure.terminal(.protocolViolation("Missing OPEN state")) }
 
         resetHeartbeat(generation: connectionGeneration, deadline: currentHeartbeatDeadline())
+        Logger.socketIO.debug("Engine.IO PING received, heartbeat rearmed")
         do {
             let pong = try EngineIOCodec.encode(.pong(payload))
             try EngineIOPacket.pong(payload).validateMessageSize(maximum: maximumPayload)
@@ -165,7 +167,11 @@ extension SocketIOClient {
     }
 
     func fanOut(eventName: String, arguments: [SocketIOArgument]) {
-        guard let subscriptions = eventSubscriptions[eventName] else { return }
+        Logger.socketIO.debug("Received event \(eventName, privacy: .private)")
+        guard let subscriptions = eventSubscriptions[eventName] else {
+            Logger.socketIO.debug("Dropped event \(eventName, privacy: .private): no subscriptions")
+            return
+        }
         var terminated: [UUID] = []
         for (identifier, continuation) in subscriptions where !continuation.yield(arguments) {
             terminated.append(identifier)
@@ -183,6 +189,11 @@ extension SocketIOClient {
         struct Payload: Decodable {
             let message: String?
         }
-        return try? payload.decode(Payload.self).message
+        guard let message = try? payload.decode(Payload.self).message else {
+            let raw = String(bytes: payload.data, encoding: .utf8) ?? "not UTF-8"
+            Logger.socketIO.error("Undecodable connect_error payload (\(raw, privacy: .private))")
+            return nil
+        }
+        return message
     }
 }

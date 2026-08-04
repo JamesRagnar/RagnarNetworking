@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 /// An asynchronous sequence that decodes one typed value for each received event occurrence.
 ///
@@ -132,7 +133,10 @@ struct SocketEventContinuation: Sendable {
             return true
 
         case .dropped:
-            guard overflow == .terminate else { return true }
+            guard overflow == .terminate else {
+                Logger.socketIO.debug("Dropped event \(self.eventName, privacy: .private): stream buffer full")
+                return true
+            }
             continuation.finish(throwing: SocketIOError.bufferOverflow(eventName: eventName))
             return false
 
