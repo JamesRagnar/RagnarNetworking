@@ -78,4 +78,24 @@ struct EventIntegrationTests {
             await client.invalidate()
         }
     }
+
+    @Test("A lossless subscription surfaces a schema failure and a replacement recovers")
+    func losslessSchemaFailure() async throws {
+        try await withIntegrationServer { server in
+            let client = try makeIntegrationClient()
+            let mismatched = await client.events(for: FixtureEchoEvent<String>.self, policy: .lossless)
+            try await client.connect(to: .server(server.endpoint))
+            try await waitForStatus(.connected, from: client)
+
+            try await client.emit(FixtureEchoEvent<Int>.self, 1)
+            await #expect(throws: SocketIOError.self) {
+                try await nextValue(from: mismatched)
+            }
+
+            let replacement = await client.events(for: FixtureEchoEvent<String>.self, policy: .lossless)
+            try await client.emit(FixtureEchoEvent<String>.self, "recovered")
+            #expect(try await nextValue(from: replacement) == "recovered")
+            await client.invalidate()
+        }
+    }
 }

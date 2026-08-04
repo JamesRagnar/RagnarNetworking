@@ -1,14 +1,14 @@
 import Foundation
 
-/// A summary of an event schema decoding failure, used to describe a discarded occurrence.
-struct SocketIODecodingErrorSnapshot: Sendable, Equatable {
+/// A Sendable summary of an event schema decoding failure.
+public struct SocketIODecodingErrorSnapshot: Sendable, Equatable {
     /// The decoding error category or fully qualified error type name.
-    let category: String
+    public let category: String
     /// The coding path at which decoding failed.
-    let codingPath: [String]
+    public let codingPath: [String]
 
     /// Captures a decoding error without retaining the underlying error value.
-    init(_ error: any Error) {
+    public init(_ error: any Error) {
         switch error {
         case DecodingError.typeMismatch(_, let context):
             category = "typeMismatch"
@@ -39,8 +39,10 @@ public enum SocketIOError: Error, Sendable, Equatable {
     case invalidStreamCapacity(Int)
     /// An event received a different number of arguments than its contract requires.
     case invalidArgumentCount(eventName: String, expected: Int, actual: Int)
-    /// A terminating stream policy dropped an event because its buffer was full.
+    /// A terminating stream policy lost an event because its buffer was full.
     case bufferOverflow(eventName: String)
+    /// A terminating stream policy lost an event that did not satisfy its schema.
+    case eventDecodingFailed(eventName: String, snapshot: SocketIODecodingErrorSnapshot)
     /// An emission was attempted before the default namespace connected.
     case notConnected
     /// An emitted Engine.IO message exceeds the server's handshake limit.
@@ -61,6 +63,9 @@ extension SocketIOError: LocalizedError {
 
         case .bufferOverflow(let eventName):
             "Socket event \(eventName) exceeded its stream buffer."
+
+        case .eventDecodingFailed(let eventName, let snapshot):
+            "Socket event \(eventName) failed decoding with \(snapshot.category)."
 
         case .notConnected:
             "The Socket.IO client is not connected."

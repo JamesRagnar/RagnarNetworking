@@ -22,8 +22,10 @@ One subsystem filter covers the whole package. A category filter narrows it to o
 - `.error` carries contract violations: every inbound message the client discards, and terminal outcomes such as a
   connection failure that ends the lifecycle or a reconnect policy that reaches its attempt limit.
 
-A failure thrown to the caller is not also logged. Values dropped by a buffering policy stay at `.debug`, because that
-is the configured policy working rather than a violation.
+A failure thrown to the caller is not also logged, so an occurrence lost under `.terminate` produces no log line.
+Buffer values dropped under `.discard` stay at `.debug`, because a bounded buffer dropping values is the configured
+policy working. A schema failure is logged at `.error` even when discarded, because it indicates a contract that no
+longer matches.
 
 ## Verbosity
 

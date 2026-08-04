@@ -107,10 +107,10 @@ struct SocketEventTests {
     @Test("Stream policy validates bounded capacity")
     func policyValidation() throws {
         #expect(throws: SocketIOError.invalidStreamCapacity(0)) {
-            try SocketStreamPolicy(buffering: .oldest(0), overflow: .terminate)
+            try SocketStreamPolicy(buffering: .oldest(0), loss: .terminate)
         }
         #expect(throws: SocketIOError.invalidStreamCapacity(-1)) {
-            try SocketStreamPolicy(buffering: .newest(-1), overflow: .dropAndContinue)
+            try SocketStreamPolicy(buffering: .newest(-1), loss: .discard)
         }
         #expect(try SocketStreamPolicy.lossless(capacity: 2).buffering == .oldest(2))
         #expect(try SocketStreamPolicy.latest(capacity: 2).buffering == .newest(2))

@@ -211,6 +211,27 @@ struct SocketIOClientLifecycleTests {
         }
     }
 
+    @Test("A lossless subscription terminates on schema failure and a replacement receives")
+    func losslessSchemaFailureTerminates() async throws {
+        let webSocket = TestWebSocketClient()
+        let clock = ManualSocketIOClock()
+        let client = makeSocketClient(webSocket: webSocket, clock: clock)
+        var events = await client.events(for: NumberEvent.self, policy: .lossless).makeAsyncIterator()
+        try await client.connect(to: socketTestEndpoint)
+        try await completeHandshake(client: client, webSocket: webSocket)
+
+        await webSocket.inject(.text(#"42["number","not a number"]"#))
+        await #expect(throws: SocketIOError.self) {
+            try await events.next()
+        }
+        try await waitUntil { await client.eventSubscriptions[NumberEvent.name] == nil }
+
+        var replacement = await client.events(for: NumberEvent.self, policy: .lossless).makeAsyncIterator()
+        await webSocket.inject(.text(#"42["number",9]"#))
+        #expect(try await replacement.next() == 9)
+        await client.invalidate()
+    }
+
     @Test("A schema failure discards the occurrence and the subscription keeps receiving")
     func schemaFailureDiscardsOneOccurrence() async throws {
         let webSocket = TestWebSocketClient()

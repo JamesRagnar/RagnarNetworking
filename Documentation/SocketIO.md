@@ -152,13 +152,13 @@ do {
         print(update.identifier)
     }
 } catch {
-    // Handle overflow or invalidation.
+    // Handle a lost occurrence under a terminating policy, or invalidation.
 }
 ```
 
 Each call to `events(for:policy:)` creates an independent subscription. Event decoding occurs when the iterator requests
-the next value. An occurrence that does not satisfy the schema is discarded by that subscription, which continues with
-the next occurrence.
+the next value. An occurrence that does not satisfy the schema is a lost occurrence and follows the subscription's loss
+policy.
 
 ## Message Handling
 
@@ -173,8 +173,7 @@ Discarded, connection continues:
 - Packets for a non-default namespace.
 - Acknowledgements, acknowledgement-bearing events, and binary packets.
 - A repeated Socket.IO `CONNECT`.
-- Occurrences that fail the subscribed schema, per subscription.
-- Values dropped by a bounded buffering policy.
+- Occurrences lost under a `.discard` stream policy, whether the buffer was full or the schema did not match.
 
 Ends the connection:
 
@@ -186,26 +185,33 @@ Ends the connection:
 
 ## Select a Stream Policy
 
+A policy declares how many occurrences to buffer and what happens when an occurrence does not reach the consumer. An
+occurrence is lost when a bounded buffer drops it or when it does not satisfy the event's schema. Both are a gap in what
+the consumer receives, so `SocketStreamPolicy.Loss` governs both.
+
+- `.discard` drops the occurrence, logs it, and keeps the subscription active.
+- `.terminate` finishes the subscription with `SocketIOError.bufferOverflow` or `SocketIOError.eventDecodingFailed`.
+
 The event type's `defaultStreamPolicy` applies when `events(for:)` does not receive an explicit policy. The default is
-`.bounded`, which retains the oldest 64 pending events and drops newer values while the buffer is full.
+`.bounded`.
 
 Available policies are:
 
-- `.bounded` or `try .bounded(capacity:)` for events where a slow consumer should lose values rather than the
-  subscription.
-- `.lossless` or `try .lossless(capacity:)` to terminate with `SocketIOError.bufferOverflow` instead of dropping, for
-  ordered events that require resynchronization after overflow.
-- `.latest` or `try .latest(capacity:)` for state or telemetry where newer values replace pending older values.
-- `.unbounded` when the consumer explicitly accepts an unbounded queue.
-- `try SocketStreamPolicy(buffering:overflow:)` for a custom buffering and overflow combination.
+- `.bounded` or `try .bounded(capacity:)` retains the oldest 64 events and discards lost occurrences.
+- `.lossless` or `try .lossless(capacity:)` retains the oldest 64 events and terminates on any lost occurrence. Use it
+  when the consumer must detect a gap and resynchronize through another mechanism.
+- `.latest` or `try .latest(capacity:)` retains the newest values and discards lost occurrences.
+- `.unbounded` accepts an unbounded queue and discards lost occurrences.
+- `try SocketStreamPolicy(buffering:loss:)` for a custom combination.
 
-Bounded capacities must be greater than zero.
+Bounded capacities must be greater than zero. A terminated subscription is released by the client, and
+`events(for:policy:)` may be called again to replace it.
 
 ## Implement a Custom Client
 
 External `SocketClient` implementations create subscriptions with `SocketEventStream.makeStream(...)`. Return the
 source's `stream` from `events(for:policy:)`, then use the source to yield ordered Socket.IO arguments or finish the
-subscription. The source applies the selected buffering, overflow, and decoding behavior without exposing an
+subscription. The source applies the selected buffering, loss, and decoding behavior without exposing an
 `AsyncThrowingStream` continuation.
 
 ## Emit Events
@@ -265,7 +271,7 @@ A successful namespace connection resets the reconnect attempt count.
 send it after every `.connected` transition before treating application events as usable.
 
 The client does not replay events missed during disconnection and does not recover application state after a discarded
-message or stream overflow. Use the server's HTTP API or another application-specific mechanism to resynchronize.
+message or a lost occurrence. Use the server's HTTP API or another application-specific mechanism to resynchronize.
 
 ## Reference Tests
 

@@ -53,6 +53,26 @@ struct SocketEventStreamTests {
         #expect(try await collect(stream.stream) == [1, 2])
     }
 
+    @Test("A decoding failure terminates a lossless subscription and releases it")
+    func losslessDecodingFailure() async throws {
+        let terminated = AsyncStream<Void>.makeStream()
+        let stream = SocketEventStream<StreamEvent>.make(
+            policy: .lossless,
+            decoder: .default,
+            onTermination: { terminated.continuation.yield() }
+        )
+        #expect(stream.continuation.yield([try SocketIOArgument("wrong")]))
+        #expect(stream.continuation.yield(try arguments(1)))
+
+        var iterator = stream.stream.makeAsyncIterator()
+        await #expect(throws: SocketIOError.self) {
+            try await iterator.next()
+        }
+
+        var terminationIterator = terminated.stream.makeAsyncIterator()
+        _ = await terminationIterator.next()
+    }
+
     @Test("Oldest buffering terminates a lossless subscription on overflow")
     func losslessOverflow() async throws {
         let stream = SocketEventStream<StreamEvent>.make(
