@@ -5,6 +5,10 @@
 
 import OSLog
 
+let loggingSubsystem = "com.ragnar.networking"
+
 extension Logger {
-    static let diagnostics = Logger(subsystem: "RagnarNetworking", category: "Diagnostics")
+
+    static let interfaces = Logger(subsystem: loggingSubsystem, category: "Interfaces")
+
 }

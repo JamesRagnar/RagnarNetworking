@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 protocol URLSessionWebSocketTaskProtocol: AnyObject, Sendable {
     func resume()
@@ -43,6 +44,12 @@ public actor URLSessionWebSocketClient: WebSocketClient {
         let newTask = taskFactory(request)
         task = newTask
         newTask.resume()
+        Logger.webSocket.debug(
+            """
+            Resumed task \(self.generation, privacy: .public) \
+            for \(request.url?.absoluteString ?? "no URL", privacy: .private)
+            """
+        )
     }
 
     /// Sends one message on the active task.
@@ -110,6 +117,7 @@ public actor URLSessionWebSocketClient: WebSocketClient {
         generation &+= 1
         self.task = nil
         task.cancel(with: code.foundationValue, reason: reason)
+        Logger.webSocket.debug("Closed task with code \(code.rawValue, privacy: .public)")
     }
 
     private static func isValid(_ request: URLRequest) -> Bool {

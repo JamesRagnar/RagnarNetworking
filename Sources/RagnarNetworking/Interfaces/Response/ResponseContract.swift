@@ -105,8 +105,8 @@ public struct ResponseContract<Output: InterfaceResponse & Sendable>: Sendable {
         exactCodes: inout Set<Int>
     ) {
         guard exactMatches[code] == nil else {
-            Logger.diagnostics.warning(
-                "RagnarNetworking: duplicate exact response case \(code, privacy: .public). Keeping first."
+            Logger.interfaces.warning(
+                "Duplicate exact response case \(code, privacy: .public). Keeping the first declaration."
             )
             return
         }
