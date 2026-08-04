@@ -7,11 +7,6 @@ private enum StreamEvent: SocketEvent {
     static let name = "stream"
 }
 
-private enum FailingStreamEvent: SocketEvent {
-    typealias Schema = Int
-    static let name = "failing"
-}
-
 private func arguments(_ value: Int) throws -> [SocketIOArgument] {
     [try SocketIOArgument(value)]
 }
@@ -42,31 +37,20 @@ struct SocketEventStreamTests {
         #expect(try await collect(second.stream) == [1, 2])
     }
 
-    @Test("A decoding failure is local to one subscription")
+    @Test("A decoding failure discards the occurrence and iteration continues")
     func decodingFailure() async throws {
-        let terminated = AsyncStream<Void>.makeStream()
-        let failing = SocketEventStream<FailingStreamEvent>.make(
-            policy: .lossless,
-            decoder: .default,
-            onTermination: { terminated.continuation.yield() }
-        )
-        let healthy = SocketEventStream<StreamEvent>.make(
-            policy: .lossless,
+        let stream = SocketEventStream<StreamEvent>.make(
+            policy: .bounded,
             decoder: .default,
             onTermination: {}
         )
-        #expect(failing.continuation.yield([try SocketIOArgument("wrong")]))
-        #expect(healthy.continuation.yield(try arguments(1)))
-        healthy.continuation.finish()
+        #expect(stream.continuation.yield([try SocketIOArgument("wrong")]))
+        #expect(stream.continuation.yield(try arguments(1)))
+        #expect(stream.continuation.yield([try SocketIOArgument("wrong"), try SocketIOArgument("count")]))
+        #expect(stream.continuation.yield(try arguments(2)))
+        stream.continuation.finish()
 
-        var failingIterator = failing.stream.makeAsyncIterator()
-        await #expect(throws: SocketIOError.self) {
-            try await failingIterator.next()
-        }
-        #expect(try await collect(healthy.stream) == [1])
-
-        var terminationIterator = terminated.stream.makeAsyncIterator()
-        _ = await terminationIterator.next()
+        #expect(try await collect(stream.stream) == [1, 2])
     }
 
     @Test("Oldest buffering terminates a lossless subscription on overflow")

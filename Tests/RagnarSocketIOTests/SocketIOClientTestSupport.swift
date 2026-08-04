@@ -114,6 +114,12 @@ enum NumberEvent: SocketEvent {
     static let name = "number"
 }
 
+/// Shares the `number` wire name with `NumberEvent` under a different schema.
+enum StringNumberEvent: SocketEvent {
+    typealias Schema = String
+    static let name = "number"
+}
+
 enum OutgoingNumberEvent: EmittableSocketEvent {
     typealias Schema = Int
     static let name = "outgoing"

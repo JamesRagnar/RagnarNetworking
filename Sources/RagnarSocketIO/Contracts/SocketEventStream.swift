@@ -11,24 +11,20 @@ public struct SocketEventStream<Event: SocketEvent>: AsyncSequence, Sendable {
 
     private let arguments: AsyncThrowingStream<[SocketIOArgument], Error>
     private let decoder: SocketEventDecoder
-    private let finishArguments: @Sendable (any Error) -> Void
 
     init(
         arguments: AsyncThrowingStream<[SocketIOArgument], Error>,
-        decoder: SocketEventDecoder,
-        finishArguments: @escaping @Sendable (any Error) -> Void
+        decoder: SocketEventDecoder
     ) {
         self.arguments = arguments
         self.decoder = decoder
-        self.finishArguments = finishArguments
     }
 
     /// Creates an iterator over this subscription.
     public func makeAsyncIterator() -> AsyncIterator {
         AsyncIterator(
             iterator: arguments.makeAsyncIterator(),
-            decoder: decoder,
-            finishArguments: finishArguments
+            decoder: decoder
         )
     }
 
@@ -36,41 +32,37 @@ public struct SocketEventStream<Event: SocketEvent>: AsyncSequence, Sendable {
     public struct AsyncIterator: AsyncIteratorProtocol {
         private var iterator: AsyncThrowingStream<[SocketIOArgument], Error>.AsyncIterator
         private let decoder: SocketEventDecoder
-        private let finishArguments: @Sendable (any Error) -> Void
 
         init(
             iterator: AsyncThrowingStream<[SocketIOArgument], Error>.AsyncIterator,
-            decoder: SocketEventDecoder,
-            finishArguments: @escaping @Sendable (any Error) -> Void
+            decoder: SocketEventDecoder
         ) {
             self.iterator = iterator
             self.decoder = decoder
-            self.finishArguments = finishArguments
         }
 
         /// Waits for and decodes the next event occurrence.
         ///
-        /// A schema error finishes this subscription before the error is thrown.
+        /// An occurrence that does not satisfy the event's schema is discarded, and iteration continues with the next
+        /// occurrence.
         public mutating func next() async throws -> Event.Schema? {
-            guard let arguments = try await iterator.next() else { return nil }
-
-            do {
-                return try Event.decode(
-                    arguments: arguments,
-                    using: decoder.makeDecoder()
-                )
-            } catch {
-                let streamError = if let socketError = error as? SocketIOError {
-                    socketError
-                } else {
-                    SocketIOError.eventDecodingFailed(
-                        eventName: Event.name,
-                        snapshot: SocketIODecodingErrorSnapshot(error)
+            while let arguments = try await iterator.next() {
+                do {
+                    return try Event.decode(
+                        arguments: arguments,
+                        using: decoder.makeDecoder()
+                    )
+                } catch {
+                    let snapshot = SocketIODecodingErrorSnapshot(error)
+                    Logger.socketIO.error(
+                        """
+                        Discarded event \(Event.name, privacy: .private): \
+                        schema failure \(snapshot.category, privacy: .public)
+                        """
                     )
                 }
-                finishArguments(streamError)
-                throw streamError
             }
+            return nil
         }
     }
 }
@@ -186,8 +178,7 @@ extension SocketEventStream {
         return (
             SocketEventStream(
                 arguments: arguments,
-                decoder: decoder,
-                finishArguments: { error in continuation.finish(throwing: error) }
+                decoder: decoder
             ),
             SocketEventContinuation(
                 eventName: Event.name,

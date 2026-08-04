@@ -1,14 +1,14 @@
 import Foundation
 
-/// A Sendable summary of an event schema decoding failure.
-public struct SocketIODecodingErrorSnapshot: Sendable, Equatable {
+/// A summary of an event schema decoding failure, used to describe a discarded occurrence.
+struct SocketIODecodingErrorSnapshot: Sendable, Equatable {
     /// The decoding error category or fully qualified error type name.
-    public let category: String
+    let category: String
     /// The coding path at which decoding failed.
-    public let codingPath: [String]
+    let codingPath: [String]
 
     /// Captures a decoding error without retaining the underlying error value.
-    public init(_ error: any Error) {
+    init(_ error: any Error) {
         switch error {
         case DecodingError.typeMismatch(_, let context):
             category = "typeMismatch"
@@ -39,8 +39,6 @@ public enum SocketIOError: Error, Sendable, Equatable {
     case invalidStreamCapacity(Int)
     /// An event received a different number of arguments than its contract requires.
     case invalidArgumentCount(eventName: String, expected: Int, actual: Int)
-    /// An event argument could not be decoded as its schema.
-    case eventDecodingFailed(eventName: String, snapshot: SocketIODecodingErrorSnapshot)
     /// A terminating stream policy dropped an event because its buffer was full.
     case bufferOverflow(eventName: String)
     /// An emission was attempted before the default namespace connected.
@@ -60,9 +58,6 @@ extension SocketIOError: LocalizedError {
 
         case .invalidArgumentCount(let eventName, let expected, let actual):
             "Socket event \(eventName) expected \(expected) arguments but received \(actual)."
-
-        case .eventDecodingFailed(let eventName, let snapshot):
-            "Socket event \(eventName) failed decoding with \(snapshot.category)."
 
         case .bufferOverflow(let eventName):
             "Socket event \(eventName) exceeded its stream buffer."

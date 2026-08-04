@@ -15,9 +15,9 @@ The client supports:
 - Server-driven heartbeat.
 - Automatic reconnect after transport loss or heartbeat timeout.
 
-The client rejects polling, transport upgrades, non-default namespaces, acknowledgements, binary events, binary
-attachments, connection-state recovery, and replay. A recognized unsupported capability ends the active connection
-with `.failed(.unsupportedCapability(_))`.
+The client does not implement polling, transport upgrades, non-default namespaces, acknowledgements, binary events,
+binary attachments, connection-state recovery, or replay. Inbound messages that use them are discarded and logged. See
+[Message Handling](#message-handling).
 
 ## Define Events
 
@@ -152,22 +152,49 @@ do {
         print(update.identifier)
     }
 } catch {
-    // Handle schema failure, overflow, or invalidation.
+    // Handle overflow or invalidation.
 }
 ```
 
 Each call to `events(for:policy:)` creates an independent subscription. Event decoding occurs when the iterator requests
-the next value. A decoding failure terminates only that subscription.
+the next value. An occurrence that does not satisfy the schema is discarded by that subscription, which continues with
+the next occurrence.
+
+## Message Handling
+
+An inbound message that this client cannot interpret is discarded and logged at `.error`. The connection stays usable.
+WebSocket delivers whole frames, so a message that cannot be interpreted carries no information about the next one.
+
+Discarded, connection continues:
+
+- Undecodable Engine.IO frames and binary frames.
+- Engine.IO `NOOP` and `UPGRADE`.
+- Undecodable Socket.IO packets.
+- Packets for a non-default namespace.
+- Acknowledgements, acknowledgement-bearing events, and binary packets.
+- A repeated Socket.IO `CONNECT`.
+- Occurrences that fail the subscribed schema, per subscription.
+- Values dropped by a bounded buffering policy.
+
+Ends the connection:
+
+- Transport failure, Engine.IO `CLOSE`, heartbeat timeout, a repeated Engine.IO `OPEN`, and a handshake whose first
+  frame is undecodable or is not `OPEN`, all subject to `ReconnectPolicy`.
+- `CONNECT_ERROR` on the default namespace, namespace timeout, and the capability mismatches a retry cannot clear: a
+  binary handshake frame, or a transport upgrade offered in the `OPEN` payload.
+- Socket.IO `DISCONNECT` on the default namespace, which is a clean end.
 
 ## Select a Stream Policy
 
 The event type's `defaultStreamPolicy` applies when `events(for:)` does not receive an explicit policy. The default is
-`.lossless`, which retains the oldest 64 pending events and terminates with `SocketIOError.bufferOverflow` if the buffer
-fills.
+`.bounded`, which retains the oldest 64 pending events and drops newer values while the buffer is full.
 
 Available policies are:
 
-- `.lossless` or `try .lossless(capacity:)` for ordered events that require resynchronization after overflow.
+- `.bounded` or `try .bounded(capacity:)` for events where a slow consumer should lose values rather than the
+  subscription.
+- `.lossless` or `try .lossless(capacity:)` to terminate with `SocketIOError.bufferOverflow` instead of dropping, for
+  ordered events that require resynchronization after overflow.
 - `.latest` or `try .latest(capacity:)` for state or telemetry where newer values replace pending older values.
 - `.unbounded` when the consumer explicitly accepts an unbounded queue.
 - `try SocketStreamPolicy(buffering:overflow:)` for a custom buffering and overflow combination.
@@ -178,8 +205,8 @@ Bounded capacities must be greater than zero.
 
 External `SocketClient` implementations create subscriptions with `SocketEventStream.makeStream(...)`. Return the
 source's `stream` from `events(for:policy:)`, then use the source to yield ordered Socket.IO arguments or finish the
-subscription. The source applies the selected buffering, overflow, decoding, and termination behavior without exposing
-an `AsyncThrowingStream` continuation.
+subscription. The source applies the selected buffering, overflow, and decoding behavior without exposing an
+`AsyncThrowingStream` continuation.
 
 ## Emit Events
 
@@ -214,8 +241,8 @@ The client reads `pingInterval`, `pingTimeout`, and `maxPayload` from the Engine
 resets on `OPEN` and server `PING`. Each `PING` receives a `PONG` with the same payload.
 
 Automatic reconnect applies after transport failure, Engine.IO close, heartbeat timeout, or send failure. It does not
-apply after explicit disconnect, invalidation, server namespace disconnect, `CONNECT_ERROR`, namespace timeout, invalid
-endpoint configuration, or an unsupported protocol capability.
+apply after explicit disconnect, invalidation, server namespace disconnect, `CONNECT_ERROR`, namespace timeout, or
+invalid endpoint configuration.
 
 `ReconnectPolicy` controls the initial delay, maximum delay, multiplier, symmetric jitter, and optional attempt limit.
 Use `.disabled` when the application owns reconnection.
@@ -237,8 +264,8 @@ A successful namespace connection resets the reconnect attempt count.
 `RagnarSocketIO` manages transport and namespace state only. If the server requires an application authentication event,
 send it after every `.connected` transition before treating application events as usable.
 
-The client does not replay events missed during disconnection and does not recover application state after stream
-overflow. Use the server's HTTP API or another application-specific mechanism to resynchronize.
+The client does not replay events missed during disconnection and does not recover application state after a discarded
+message or stream overflow. Use the server's HTTP API or another application-specific mechanism to resynchronize.
 
 ## Reference Tests
 

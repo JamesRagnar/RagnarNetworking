@@ -19,10 +19,11 @@ One subsystem filter covers the whole package. A category filter narrows it to o
   subscription or buffering policy.
 - `.warning` carries developer diagnostics for declarations that cannot report misuse through a thrown error. A
   duplicate exact status code in a `ResponseContract` is the only case.
-- `.error` carries terminal outcomes: a connection failure that ends the lifecycle, and a reconnect policy that reaches
-  its attempt limit.
+- `.error` carries contract violations: every inbound message the client discards, and terminal outcomes such as a
+  connection failure that ends the lifecycle or a reconnect policy that reaches its attempt limit.
 
-A failure thrown to the caller is not also logged.
+A failure thrown to the caller is not also logged. Values dropped by a buffering policy stay at `.debug`, because that
+is the configured policy working rather than a violation.
 
 ## Verbosity
 

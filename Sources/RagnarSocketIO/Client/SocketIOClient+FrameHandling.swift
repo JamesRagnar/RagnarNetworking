@@ -5,96 +5,112 @@ import RagnarWebSocket
 extension SocketIOClient {
     func awaitNamespaceConnection(generation connectionGeneration: UInt64) async throws {
         while isCurrent(connectionGeneration) {
-            let packet = try await receiveEnginePacket(generation: connectionGeneration)
+            guard let packet = try await receiveEnginePacket(generation: connectionGeneration) else { continue }
             switch packet {
             case .ping(let payload):
                 try await handlePing(payload, generation: connectionGeneration)
 
-            case .pong:
-                continue
-
             case .message(let payload):
-                if try handleNamespaceSocketPacket(decodeSocketPacket(payload)) { return }
+                guard let socketPacket = decodeSocketPacket(payload) else { continue }
+                if try handleNamespaceSocketPacket(socketPacket) { return }
 
             case .close:
                 throw LifecycleFailure.reconnectable(.protocolViolation("Engine.IO transport closed"))
 
             case .open:
-                throw LifecycleFailure.terminal(.protocolViolation("Repeated Engine.IO OPEN"))
+                throw LifecycleFailure.reconnectable(.protocolViolation("Repeated Engine.IO OPEN"))
 
-            case .upgrade:
-                throw unsupported("Engine.IO transport upgrade")
+            case .pong:
+                continue
 
-            case .noop:
-                throw unsupported("Engine.IO NOOP")
+            case .upgrade, .noop:
+                discard("unsupported Engine.IO packet before namespace connection")
             }
         }
         throw CancellationError()
     }
 
+    /// Returns whether the packet completed the default namespace connection.
+    ///
+    /// Anything this method discards is backstopped by `namespaceTimeout`, which fails the attempt if the server never
+    /// completes the handshake.
     func handleNamespaceSocketPacket(_ packet: SocketIOPacket) throws -> Bool {
         switch packet {
         case .connect(let namespace, _):
-            guard namespace == "/" else { throw unsupported("non-default namespace") }
+            guard namespace == "/" else {
+                discard("CONNECT for a non-default namespace", detail: namespace)
+                return false
+            }
             return true
 
         case .connectError(let namespace, let payload):
-            guard namespace == "/" else { throw unsupported("non-default namespace") }
+            guard namespace == "/" else {
+                discard("CONNECT_ERROR for a non-default namespace", detail: namespace)
+                return false
+            }
             throw LifecycleFailure.terminal(.connectError(message: connectErrorMessage(payload)))
 
-        case .event:
-            throw LifecycleFailure.terminal(.protocolViolation("Event received before namespace connection"))
-
-        case .disconnect:
+        case .disconnect(let namespace):
+            guard namespace == "/" else {
+                discard("DISCONNECT for a non-default namespace", detail: namespace)
+                return false
+            }
             throw LifecycleFailure.serverDisconnect
 
-        case .acknowledgement:
-            throw unsupported("Socket.IO acknowledgement")
-
-        case .binaryEvent, .binaryAcknowledgement:
-            throw unsupported("Socket.IO binary packet")
+        case .event, .acknowledgement, .binaryEvent, .binaryAcknowledgement:
+            discard("Socket.IO packet received before namespace connection")
+            return false
         }
     }
 
     func receiveLoop(generation connectionGeneration: UInt64) async throws {
         while isCurrent(connectionGeneration) {
-            let packet = try await receiveEnginePacket(generation: connectionGeneration)
+            guard let packet = try await receiveEnginePacket(generation: connectionGeneration) else { continue }
             switch packet {
             case .ping(let payload):
                 try await handlePing(payload, generation: connectionGeneration)
 
-            case .pong:
-                continue
-
             case .message(let payload):
-                try handleConnectedSocketPacket(try decodeSocketPacket(payload))
+                guard let socketPacket = decodeSocketPacket(payload) else { continue }
+                try handleConnectedSocketPacket(socketPacket)
 
             case .close:
                 throw LifecycleFailure.reconnectable(.protocolViolation("Engine.IO transport closed"))
 
             case .open:
-                throw LifecycleFailure.terminal(.protocolViolation("Repeated Engine.IO OPEN"))
+                throw LifecycleFailure.reconnectable(.protocolViolation("Repeated Engine.IO OPEN"))
 
-            case .upgrade:
-                throw unsupported("Engine.IO transport upgrade")
+            case .pong:
+                continue
 
-            case .noop:
-                throw unsupported("Engine.IO NOOP")
+            case .upgrade, .noop:
+                discard("unsupported Engine.IO packet")
             }
         }
         throw CancellationError()
     }
 
-    func receiveEnginePacket(generation connectionGeneration: UInt64) async throws -> EngineIOPacket {
+    /// Returns the next interpretable Engine.IO packet, or `nil` when the received frame was discarded.
+    ///
+    /// WebSocket delivers whole frames, so a frame this client cannot interpret carries no information about the next
+    /// one. Discarding it keeps the connection usable.
+    func receiveEnginePacket(generation connectionGeneration: UInt64) async throws -> EngineIOPacket? {
         let message = try await receive(generation: connectionGeneration)
         guard case .text(let text) = message else {
-            throw unsupported("binary Engine.IO transport")
+            discard("binary Engine.IO frame")
+            return nil
         }
         do {
             return try EngineIOCodec.decode(text)
         } catch {
-            throw LifecycleFailure.terminal(protocolFailure(error))
+            discard("undecodable Engine.IO frame", detail: text)
+            return nil
         }
+    }
+
+    func discard(_ reason: String, detail: String? = nil) {
+        let suffix = detail.map { " (\($0))" } ?? ""
+        Logger.socketIO.error("Discarded \(reason, privacy: .public)\(suffix, privacy: .private)")
     }
 
     func handlePing(_ payload: String, generation connectionGeneration: UInt64) async throws {
@@ -132,37 +148,50 @@ extension SocketIOClient {
         }
     }
 
-    func decodeSocketPacket(_ payload: String) throws -> SocketIOPacket {
+    func decodeSocketPacket(_ payload: String) -> SocketIOPacket? {
         do {
             return try SocketIOCodec.decode(payload)
         } catch {
-            throw LifecycleFailure.terminal(protocolFailure(error))
+            discard("undecodable Socket.IO packet", detail: payload)
+            return nil
         }
     }
 
     func handleConnectedSocketPacket(_ packet: SocketIOPacket) throws {
         switch packet {
         case .event(let namespace, let acknowledgementID, let name, let arguments):
-            guard namespace == "/" else { throw unsupported("non-default namespace") }
-            guard acknowledgementID == nil else { throw unsupported("acknowledgement-bearing event") }
+            guard namespace == "/" else {
+                discard("event for a non-default namespace", detail: namespace)
+                return
+            }
+            guard acknowledgementID == nil else {
+                discard("acknowledgement-bearing event", detail: name)
+                return
+            }
             fanOut(eventName: name, arguments: arguments)
 
         case .disconnect(let namespace):
-            guard namespace == "/" else { throw unsupported("non-default namespace") }
+            guard namespace == "/" else {
+                discard("DISCONNECT for a non-default namespace", detail: namespace)
+                return
+            }
             throw LifecycleFailure.serverDisconnect
 
         case .connectError(let namespace, let payload):
-            guard namespace == "/" else { throw unsupported("non-default namespace") }
+            guard namespace == "/" else {
+                discard("CONNECT_ERROR for a non-default namespace", detail: namespace)
+                return
+            }
             throw LifecycleFailure.terminal(.connectError(message: connectErrorMessage(payload)))
 
         case .connect:
-            throw LifecycleFailure.terminal(.protocolViolation("Repeated Socket.IO CONNECT"))
+            discard("repeated Socket.IO CONNECT")
 
         case .acknowledgement:
-            throw unsupported("Socket.IO acknowledgement")
+            discard("Socket.IO acknowledgement")
 
         case .binaryEvent, .binaryAcknowledgement:
-            throw unsupported("Socket.IO binary packet")
+            discard("Socket.IO binary packet")
         }
     }
 
@@ -179,10 +208,6 @@ extension SocketIOClient {
         for identifier in terminated {
             removeEventSubscription(id: identifier, eventName: eventName)
         }
-    }
-
-    func unsupported(_ capability: String) -> LifecycleFailure {
-        .terminal(.unsupportedCapability(capability))
     }
 
     func connectErrorMessage(_ payload: SocketIOArgument) -> String? {

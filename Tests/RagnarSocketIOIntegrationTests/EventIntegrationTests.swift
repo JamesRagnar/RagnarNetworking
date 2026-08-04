@@ -60,7 +60,7 @@ struct EventIntegrationTests {
         }
     }
 
-    @Test("Schema failure terminates only the mismatched subscription")
+    @Test("A schema failure discards the occurrence and the subscription keeps receiving")
     func schemaFailure() async throws {
         try await withIntegrationServer { server in
             let client = try makeIntegrationClient()
@@ -70,9 +70,8 @@ struct EventIntegrationTests {
             try await waitForStatus(.connected, from: client)
 
             try await client.emit(FixtureEchoEvent<Int>.self, 1)
-            await #expect(throws: SocketIOError.self) {
-                try await nextValue(from: mismatched)
-            }
+            try await client.emit(FixtureEchoEvent<String>.self, "second")
+            #expect(try await nextValue(from: mismatched) == "second")
 
             try await client.emit(FixtureCommandEvent.self)
             #expect(try await nextValue(from: correct) == 42)

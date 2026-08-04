@@ -35,6 +35,12 @@ public struct SocketStreamPolicy: Sendable, Equatable {
         self.overflow = overflow
     }
 
+    /// Retains the oldest 64 pending events and drops newer values while the buffer is full.
+    public static let bounded = SocketStreamPolicy(
+        uncheckedBuffering: .oldest(64),
+        overflow: .dropAndContinue
+    )
+
     /// Retains the oldest 64 pending events and terminates on overflow.
     public static let lossless = SocketStreamPolicy(
         uncheckedBuffering: .oldest(64),
@@ -52,6 +58,11 @@ public struct SocketStreamPolicy: Sendable, Equatable {
         uncheckedBuffering: .unbounded,
         overflow: .dropAndContinue
     )
+
+    /// Retains the oldest `capacity` events and drops newer values while the buffer is full.
+    public static func bounded(capacity: Int) throws -> SocketStreamPolicy {
+        try SocketStreamPolicy(buffering: .oldest(capacity), overflow: .dropAndContinue)
+    }
 
     /// Retains the oldest `capacity` events and terminates on overflow.
     public static func lossless(capacity: Int) throws -> SocketStreamPolicy {

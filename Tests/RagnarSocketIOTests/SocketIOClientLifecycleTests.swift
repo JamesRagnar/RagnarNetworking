@@ -166,24 +166,27 @@ struct SocketIOClientLifecycleTests {
         await client.invalidate()
     }
 
-    @Test("Recognized unsupported packets fail explicitly without reconnect")
-    func unsupportedPacket() async throws {
+    @Test("Uninterpretable messages are discarded and the connection keeps delivering")
+    func uninterpretableMessagesAreDiscarded() async throws {
         let webSocket = TestWebSocketClient()
         let clock = ManualSocketIOClock()
-        let policy = try ReconnectPolicy(
-            initialDelay: .seconds(1),
-            maximumDelay: .seconds(1),
-            jitter: 0,
-            maximumAttempts: 1
-        )
-        let client = makeSocketClient(webSocket: webSocket, clock: clock, reconnectPolicy: policy)
+        let client = makeSocketClient(webSocket: webSocket, clock: clock)
+        var events = await client.events(for: NumberEvent.self).makeAsyncIterator()
         try await client.connect(to: socketTestEndpoint)
         try await completeHandshake(client: client, webSocket: webSocket)
 
-        await webSocket.inject(.text("431[]"))
-        try await waitUntil {
-            await client.status == .failed(.unsupportedCapability("Socket.IO acknowledgement"))
-        }
+        await webSocket.inject(.text("431[]"))                       // acknowledgement
+        await webSocket.inject(.text("42/admin,[\"number\",1]"))     // non-default namespace
+        await webSocket.inject(.text(#"421["number",2]"#))           // acknowledgement-bearing event
+        await webSocket.inject(.text("4not-a-packet"))               // undecodable Socket.IO packet
+        await webSocket.inject(.text("nonsense"))                    // undecodable Engine.IO frame
+        await webSocket.inject(.binary(Data([0x00])))                // binary frame
+        await webSocket.inject(.text("6"))                           // Engine.IO NOOP
+        await webSocket.inject(.text("40"))                          // repeated CONNECT
+
+        await webSocket.inject(.text(#"42["number",7]"#))
+        #expect(try await events.next() == 7)
+        #expect(await client.status == .connected)
         #expect(await webSocket.requests.count == 1)
         await client.invalidate()
     }
@@ -206,5 +209,40 @@ struct SocketIOClientLifecycleTests {
         await #expect(throws: SocketIOError.invalidated) {
             try await client.connect(to: socketTestEndpoint)
         }
+    }
+
+    @Test("A schema failure discards the occurrence and the subscription keeps receiving")
+    func schemaFailureDiscardsOneOccurrence() async throws {
+        let webSocket = TestWebSocketClient()
+        let clock = ManualSocketIOClock()
+        let client = makeSocketClient(webSocket: webSocket, clock: clock)
+        var events = await client.events(for: NumberEvent.self).makeAsyncIterator()
+        try await client.connect(to: socketTestEndpoint)
+        try await completeHandshake(client: client, webSocket: webSocket)
+
+        await webSocket.inject(.text(#"42["number","not a number"]"#))
+        await webSocket.inject(.text(#"42["number",3]"#))
+        #expect(try await events.next() == 3)
+        #expect(await client.eventSubscriptions[NumberEvent.name]?.count == 1)
+        await client.invalidate()
+    }
+
+    @Test("A schema failure affects only the subscription that cannot decode it")
+    func schemaFailureIsPerSubscription() async throws {
+        let webSocket = TestWebSocketClient()
+        let clock = ManualSocketIOClock()
+        let client = makeSocketClient(webSocket: webSocket, clock: clock)
+        var numbers = await client.events(for: NumberEvent.self).makeAsyncIterator()
+        var strings = await client.events(for: StringNumberEvent.self).makeAsyncIterator()
+        try await client.connect(to: socketTestEndpoint)
+        try await completeHandshake(client: client, webSocket: webSocket)
+
+        await webSocket.inject(.text(#"42["number","text"]"#))
+        await webSocket.inject(.text(#"42["number",5]"#))
+
+        #expect(try await strings.next() == "text")
+        #expect(try await numbers.next() == 5)
+        #expect(await client.eventSubscriptions[NumberEvent.name]?.count == 2)
+        await client.invalidate()
     }
 }
