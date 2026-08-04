@@ -207,4 +207,50 @@ struct SocketIOClientLifecycleTests {
             try await client.connect(to: socketTestEndpoint)
         }
     }
+
+    @Test("A terminated subscription is released and a replacement for the same event receives")
+    func replacementSubscription() async throws {
+        let webSocket = TestWebSocketClient()
+        let clock = ManualSocketIOClock()
+        let client = makeSocketClient(webSocket: webSocket, clock: clock)
+        var events = await client.events(for: NumberEvent.self).makeAsyncIterator()
+        try await client.connect(to: socketTestEndpoint)
+        try await completeHandshake(client: client, webSocket: webSocket)
+
+        await webSocket.inject(.text(#"42["number","not a number"]"#))
+        await #expect(throws: SocketIOError.self) {
+            try await events.next()
+        }
+        try await waitUntil { await client.eventSubscriptions[NumberEvent.name] == nil }
+
+        var replacement = await client.events(for: NumberEvent.self).makeAsyncIterator()
+        #expect(await client.eventSubscriptions[NumberEvent.name]?.count == 1)
+
+        await webSocket.inject(.text(#"42["number",3]"#))
+        #expect(try await replacement.next() == 3)
+        await client.invalidate()
+    }
+
+    @Test("A malformed payload terminates every subscription to that event")
+    func malformedPayloadTerminatesEverySubscription() async throws {
+        let webSocket = TestWebSocketClient()
+        let clock = ManualSocketIOClock()
+        let client = makeSocketClient(webSocket: webSocket, clock: clock)
+        var first = await client.events(for: NumberEvent.self).makeAsyncIterator()
+        var second = await client.events(for: NumberEvent.self).makeAsyncIterator()
+        try await client.connect(to: socketTestEndpoint)
+        try await completeHandshake(client: client, webSocket: webSocket)
+        #expect(await client.eventSubscriptions[NumberEvent.name]?.count == 2)
+
+        // Every subscription buffers the same arguments, and each iterator decodes them independently.
+        await webSocket.inject(.text(#"42["number","not a number"]"#))
+        await #expect(throws: SocketIOError.self) {
+            try await first.next()
+        }
+        await #expect(throws: SocketIOError.self) {
+            try await second.next()
+        }
+        try await waitUntil { await client.eventSubscriptions[NumberEvent.name] == nil }
+        await client.invalidate()
+    }
 }
