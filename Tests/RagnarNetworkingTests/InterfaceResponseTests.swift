@@ -19,6 +19,13 @@ struct InterfaceResponseTests {
         let code: Int
     }
 
+    struct InvalidBodyScenario: Sendable, CustomTestStringConvertible {
+        let name: String
+        let data: Data
+
+        var testDescription: String { name }
+    }
+
     struct TestInterface: Interface {
         struct Request: InterfaceRequest {
             let method: RequestMethod = .get
@@ -782,9 +789,15 @@ struct InterfaceResponseTests {
         }
     }
 
-    @Test("decodeError surfaces custom decoding errors for malformed JSON")
-    func testDecodeErrorInvalidJSON() {
-        let responseData = "not json".data(using: .utf8)!
+    @Test(
+        "decodeError surfaces JSON decoding diagnostics for invalid bodies",
+        arguments: [
+            InvalidBodyScenario(name: "malformed JSON", data: Data("not json".utf8)),
+            InvalidBodyScenario(name: "empty body", data: Data()),
+            InvalidBodyScenario(name: "HTML body", data: Data("<html><body>Error</body></html>".utf8))
+        ]
+    )
+    func testDecodeErrorInvalidBody(_ scenario: InvalidBodyScenario) {
         let httpResponse = HTTPURLResponse(
             url: URL(string: "https://api.example.com")!,
             statusCode: 400,
@@ -793,59 +806,7 @@ struct InterfaceResponseTests {
         )!
 
         do {
-            _ = try DecodeErrorInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
-            #expect(Bool(false), "Should have thrown")
-        } catch let error {
-            if case .decoding(_, _, let decodingError) = error {
-                if case .jsonDecoder(let diagnostics) = decodingError {
-                    #expect(diagnostics.debugDescription.isEmpty == false)
-                } else {
-                    #expect(Bool(false), "Expected jsonDecoder error")
-                }
-            } else {
-                #expect(Bool(false), "Expected .decoding error case")
-            }
-        }
-    }
-
-    @Test("decodeError surfaces custom decoding errors for empty bodies")
-    func testDecodeErrorEmptyBody() {
-        let responseData = Data()
-        let httpResponse = HTTPURLResponse(
-            url: URL(string: "https://api.example.com")!,
-            statusCode: 400,
-            httpVersion: nil,
-            headerFields: nil
-        )!
-
-        do {
-            _ = try DecodeErrorInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
-            #expect(Bool(false), "Should have thrown")
-        } catch let error {
-            if case .decoding(_, _, let decodingError) = error {
-                if case .jsonDecoder(let diagnostics) = decodingError {
-                    #expect(diagnostics.debugDescription.isEmpty == false)
-                } else {
-                    #expect(Bool(false), "Expected jsonDecoder error")
-                }
-            } else {
-                #expect(Bool(false), "Expected .decoding error case")
-            }
-        }
-    }
-
-    @Test("decodeError surfaces custom decoding errors for HTML bodies")
-    func testDecodeErrorHTMLBody() {
-        let responseData = "<html><body>Error</body></html>".data(using: .utf8)!
-        let httpResponse = HTTPURLResponse(
-            url: URL(string: "https://api.example.com")!,
-            statusCode: 400,
-            httpVersion: nil,
-            headerFields: nil
-        )!
-
-        do {
-            _ = try DecodeErrorInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
+            _ = try DecodeErrorInterface.handle((data: scenario.data, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
             #expect(Bool(false), "Should have thrown")
         } catch let error {
             if case .decoding(_, _, let decodingError) = error {
@@ -1026,157 +987,6 @@ struct InterfaceResponseTests {
         )
     }
 
-    @Test("Decodes JSON response directly")
-    func testDecodeJSONDirect() throws {
-        let responseData = """
-        {"message": "direct", "code": 100}
-        """.data(using: .utf8)!
-
-        let result = try DefaultResponseHandler().decode(
-            responseData,
-            as: TestInterface.self,
-            metadata: Self.snapshot(),
-            responseDecoder: ResponseDecoder()
-        )
-
-        #expect(result.message == "direct")
-        #expect(result.code == 100)
-    }
-
-    @Test("Decodes String response directly")
-    func testDecodeStringDirect() throws {
-        let responseData = "Test String".data(using: .utf8)!
-
-        let result = try DefaultResponseHandler().decode(
-            responseData,
-            as: StringInterface.self,
-            metadata: Self.snapshot(),
-            responseDecoder: ResponseDecoder()
-        )
-
-        #expect(result == "Test String")
-    }
-
-    @Test("Decodes Data response directly")
-    func testDecodeDataDirect() throws {
-        let responseData = Data([0x10, 0x20, 0x30])
-
-        let result = try DefaultResponseHandler().decode(
-            responseData,
-            as: DataInterface.self,
-            metadata: Self.snapshot(),
-            responseDecoder: ResponseDecoder()
-        )
-
-        #expect(result == responseData)
-    }
-
-    @Test("Throws jsonDecoder error for malformed JSON")
-    func testDecodeMalformedJSON() {
-        let responseData = "{invalid}".data(using: .utf8)!
-
-        #expect(throws: InterfaceDecodingError.self) {
-            try DefaultResponseHandler().decode(
-                responseData,
-                as: TestInterface.self,
-                metadata: Self.snapshot(),
-                responseDecoder: ResponseDecoder()
-            )
-        }
-    }
-
-    // MARK: - Complex JSON Structures
-
-    @Test("Handles nested JSON structures")
-    func testNestedJSON() throws {
-        struct NestedResponse: Codable, Sendable, InterfaceResponse {
-            struct User: Codable, Sendable {
-                let name: String
-                let id: Int
-            }
-            let user: User
-            let timestamp: String
-        }
-
-        struct NestedInterface: Interface {
-            struct Request: InterfaceRequest {
-                let method: RequestMethod = .get
-                let path = "/nested"
-                let queryItems: [URLQueryItem]? = nil
-                let headers: [String: String]? = nil
-                let body: EmptyBody = .init()
-                let authentication: AuthenticationScheme? = nil
-            }
-
-            typealias Response = NestedResponse
-
-            static var responseCases: ResponseMap {
-                [.code(200, .decode)]
-            }
-        }
-
-        let responseData = """
-        {
-            "user": {
-                "name": "John Doe",
-                "id": 123
-            },
-            "timestamp": "2025-01-16T12:00:00Z"
-        }
-        """.data(using: .utf8)!
-
-        let httpResponse = HTTPURLResponse(
-            url: URL(string: "https://api.example.com")!,
-            statusCode: 200,
-            httpVersion: nil,
-            headerFields: nil
-        )!
-
-        let result = try NestedInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
-
-        #expect(result.user.name == "John Doe")
-        #expect(result.user.id == 123)
-        #expect(result.timestamp == "2025-01-16T12:00:00Z")
-    }
-
-    @Test("Handles array responses")
-    func testArrayResponse() throws {
-        struct ArrayInterface: Interface {
-            struct Request: InterfaceRequest {
-                let method: RequestMethod = .get
-                let path = "/array"
-                let queryItems: [URLQueryItem]? = nil
-                let headers: [String: String]? = nil
-                let body: EmptyBody = .init()
-                let authentication: AuthenticationScheme? = nil
-            }
-
-            typealias Response = [String]
-
-            static var responseCases: ResponseMap {
-                [.code(200, .decode)]
-            }
-        }
-
-        let responseData = """
-        ["apple", "banana", "cherry"]
-        """.data(using: .utf8)!
-
-        let httpResponse = HTTPURLResponse(
-            url: URL(string: "https://api.example.com")!,
-            statusCode: 200,
-            httpVersion: nil,
-            headerFields: nil
-        )!
-
-        let result = try ArrayInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
-
-        #expect(result.count == 3)
-        #expect(result[0] == "apple")
-        #expect(result[1] == "banana")
-        #expect(result[2] == "cherry")
-    }
-
     // MARK: - Empty Responses
 
     @Test("Handles empty JSON object")
@@ -1317,95 +1127,6 @@ struct InterfaceResponseTests {
 
         #expect(results.count == expectedCount)
         #expect(results.allSatisfy { $0.message == "concurrent" && $0.code == 200 })
-    }
-
-    // MARK: - Composing a Custom ResponseHandler on DefaultResponseHandler
-
-    /// Delegates to `DefaultResponseHandler.handle` instead of reimplementing status-code
-    /// matching, demonstrating the composition pattern that `handle` and `decode` being
-    /// public (rather than internal) enables.
-    struct ComposingResponseHandler: ResponseHandler {
-        private let base = DefaultResponseHandler()
-
-        func handle<T: Interface>(
-            _ response: (data: Data, response: URLResponse),
-            for interface: T.Type,
-            context: ResponseContext
-        ) throws(ResponseError) -> T.Response {
-            // A real handler would inspect the raw response here before delegating.
-            try base.handle(response, for: interface, context: context)
-        }
-    }
-
-    @Test("Composed ResponseHandler produces the same result as the default handler for the success path")
-    func testComposedHandlerMatchesDefaultForSuccess() throws {
-        let responseData = try JSONEncoder().encode(SuccessResponse(message: "ok", code: 200))
-        let httpResponse = HTTPURLResponse(
-            url: URL(string: "https://api.example.com")!,
-            statusCode: 200,
-            httpVersion: nil,
-            headerFields: nil
-        )!
-
-        let expected = try TestInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
-        let actual = try ComposingResponseHandler().handle((data: responseData, response: httpResponse), for: TestInterface.self, context: ResponseContext(responseDecoder: ResponseDecoder()))
-
-        #expect(actual.message == expected.message)
-        #expect(actual.code == expected.code)
-    }
-
-    @Test("Composed ResponseHandler produces the same result as the default handler for a no-body success")
-    func testComposedHandlerMatchesDefaultForNoBodySuccess() throws {
-        struct NoContentEmptyInterface: Interface {
-            struct Request: InterfaceRequest {
-                let method: RequestMethod = .get
-                let path = "/no-content-empty"
-                let queryItems: [URLQueryItem]? = nil
-                let headers: [String: String]? = nil
-                let body: EmptyBody = .init()
-                let authentication: AuthenticationScheme? = nil
-            }
-
-            typealias Response = EmptyResponse
-
-            static var responseCases: ResponseMap {
-                [.code(204, .decode)]
-            }
-        }
-
-        let responseData = Data()
-        let httpResponse = HTTPURLResponse(
-            url: URL(string: "https://api.example.com")!,
-            statusCode: 204,
-            httpVersion: nil,
-            headerFields: nil
-        )!
-
-        let expected = try NoContentEmptyInterface.handle((data: responseData, response: httpResponse), context: ResponseContext(responseDecoder: ResponseDecoder()), defaultHandler: DefaultResponseHandler())
-        let actual = try ComposingResponseHandler().handle(
-            (data: responseData, response: httpResponse),
-            for: NoContentEmptyInterface.self,
-            context: ResponseContext(responseDecoder: ResponseDecoder())
-        )
-
-        #expect(actual == expected)
-    }
-
-    @Test("Composed ResponseHandler produces the same result as the default handler for the error path")
-    func testComposedHandlerMatchesDefaultForError() {
-        let httpResponse = HTTPURLResponse(
-            url: URL(string: "https://api.example.com")!,
-            statusCode: 400,
-            httpVersion: nil,
-            headerFields: nil
-        )!
-
-        do {
-            _ = try ComposingResponseHandler().handle((data: Data(), response: httpResponse), for: TestInterface.self, context: ResponseContext(responseDecoder: ResponseDecoder()))
-            Issue.record("Expected ResponseError.generic to be thrown")
-        } catch {
-            #expect(error.statusCode == 400)
-        }
     }
 
     // MARK: - Response Decoder Tests

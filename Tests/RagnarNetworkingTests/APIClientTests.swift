@@ -85,6 +85,22 @@ private struct SnakeCaseResponseInterface: Interface {
     }
 }
 
+private struct RefreshOptInInterface: Interface {
+    struct Request: InterfaceRequest {
+        let method: RequestMethod = .get
+        let path: String = "/refresh-opt-in"
+        let queryItems: [URLQueryItem]? = nil
+        let headers: [String: String]? = nil
+        let body: EmptyBody = .init()
+        let authentication: AuthenticationScheme? = nil
+        let refreshesOnChallenge = true
+    }
+
+    typealias Response = TestInterface.Response
+
+    static let responseCases: ResponseMap = [.code(200, .decode)]
+}
+
 // MARK: - Token Store
 
 private actor TokenStore {
@@ -166,6 +182,24 @@ private actor Signal {
     func wait() async {
         if isFired { return }
         await withCheckedContinuation { continuation = $0 }
+    }
+}
+
+private actor JoinCounter {
+    private var count = 0
+    private let target: Int
+    private let onTarget: Signal
+
+    init(target: Int, onTarget: Signal) {
+        self.target = target
+        self.onTarget = onTarget
+    }
+
+    func arrive() async {
+        count += 1
+        if count == target {
+            await onTarget.fire()
+        }
     }
 }
 
@@ -394,6 +428,21 @@ struct APIClientTests {
         #expect(await mock.callCount == 1)
     }
 
+    @Test("Unauthenticated client cannot refresh an opted-in request")
+    func unauthenticatedClientCannotRefresh() async {
+        let mock = MockTransport()
+        await mock.enqueue(data: Data(), statusCode: 401)
+        let client = APIClient(
+            configuration: ServerConfiguration(url: testServerURL),
+            transport: mock
+        )
+
+        await #expect(throws: APIClientError.self) {
+            try await client.send(RefreshOptInInterface.self, .init())
+        }
+        #expect(await mock.callCount == 1)
+    }
+
     // MARK: 2. .bearer auth sets Authorization header
 
     @Test(".bearer auth calls token and sets Authorization: Bearer header")
@@ -569,13 +618,17 @@ struct APIClientTests {
             "fresh1", "fresh2", "fresh3"
         ])
 
-        let client = makeClient(
-            mock: mock,
+        let allJoined = Signal()
+        let joinCounter = JoinCounter(target: 3, onTarget: allJoined)
+        let client = APIClient(
+            configuration: ServerConfiguration(url: testServerURL),
+            transport: mock,
             token: { await store.next() },
             refresh: {
                 await refreshCounter.increment()
-                try await Task.sleep(for: .milliseconds(50))
-            }
+                await allJoined.wait()
+            },
+            onRefreshWait: { await joinCounter.arrive() }
         )
 
         let params = TestInterface.Request(authentication: .bearer)

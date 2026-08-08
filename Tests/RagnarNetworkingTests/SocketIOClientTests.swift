@@ -9,6 +9,10 @@ final class MockWebSocketTask: WebSocketTask, @unchecked Sendable {
     // AsyncStream used to feed messages into receive()
     private let (stream, continuation) = AsyncStream<URLSessionWebSocketTask.Message>.makeStream()
     private var iterator: AsyncStream<URLSessionWebSocketTask.Message>.AsyncIterator
+    private let (sentStream, sentContinuation) = AsyncStream<URLSessionWebSocketTask.Message>.makeStream()
+    private var sentIterator: AsyncStream<URLSessionWebSocketTask.Message>.AsyncIterator
+    private let (resumeStream, resumeContinuation) = AsyncStream<Void>.makeStream()
+    private var resumeIterator: AsyncStream<Void>.AsyncIterator
 
     nonisolated(unsafe) var sentMessages: [URLSessionWebSocketTask.Message] = []
     nonisolated(unsafe) var resumeCount: Int = 0
@@ -16,6 +20,8 @@ final class MockWebSocketTask: WebSocketTask, @unchecked Sendable {
 
     init() {
         iterator = stream.makeAsyncIterator()
+        sentIterator = sentStream.makeAsyncIterator()
+        resumeIterator = resumeStream.makeAsyncIterator()
     }
 
     func inject(text: String) {
@@ -28,6 +34,7 @@ final class MockWebSocketTask: WebSocketTask, @unchecked Sendable {
 
     func resume() {
         resumeCount += 1
+        resumeContinuation.yield()
     }
 
     func cancel(with closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
@@ -37,6 +44,7 @@ final class MockWebSocketTask: WebSocketTask, @unchecked Sendable {
 
     func send(_ message: URLSessionWebSocketTask.Message) async throws {
         sentMessages.append(message)
+        sentContinuation.yield(message)
     }
 
     func receive() async throws -> URLSessionWebSocketTask.Message {
@@ -44,6 +52,14 @@ final class MockWebSocketTask: WebSocketTask, @unchecked Sendable {
             throw URLError(.networkConnectionLost)
         }
         return message
+    }
+
+    func nextSentMessage() async -> URLSessionWebSocketTask.Message? {
+        await sentIterator.next()
+    }
+
+    func waitUntilResumed() async {
+        _ = await resumeIterator.next()
     }
 }
 
@@ -78,12 +94,12 @@ private let testBaseURL = URL(string: "http://example.com")!
 /// inject "40"  → client sets status to .connected
 private func performHandshake(on task: MockWebSocketTask) async {
     task.inject(text: "0{}")
-    // Wait for the client to send "40" before injecting the connect ack
-    var attempts = 0
-    while task.sentMessages.isEmpty && attempts < 100 {
-        await Task.yield()
-        attempts += 1
+    let connectFrame = await task.nextSentMessage()
+    guard case let .string(text) = connectFrame else {
+        Issue.record("Expected the Socket.IO connect frame")
+        return
     }
+    #expect(text == "40")
     task.inject(text: "40")
 }
 
@@ -416,6 +432,20 @@ struct SocketIOClientTests {
         var eventIterator = eventStream.makeAsyncIterator()
         let event = await eventIterator.next()
         #expect(event?.message == "hello")
+    }
+
+    @Test("events(for:) delivers no-payload events as SocketEmptyBody")
+    func eventsDeliverEmptyEvent() async throws {
+        let task = MockWebSocketTask()
+        let socket = makeSocket(tasks: [task])
+        let eventStream = await socket.events(for: EmptyEvent.self)
+
+        await socket.connect()
+        await performHandshake(on: task)
+        task.inject(text: #"42["test_empty"]"#)
+
+        var eventIterator = eventStream.makeAsyncIterator()
+        _ = try #require(await eventIterator.next())
     }
 
     @Test("Multiple independent events(for:) streams for the same event type each receive the event")
@@ -754,6 +784,73 @@ struct SocketIOClientTests {
         await socket.invalidate()
     }
 
+    @Test("Reconnect delay grows exponentially and stops at the configured maximum")
+    func reconnectBackoffProgressionAndCap() async {
+        let tasks = (0..<4).map { _ in MockWebSocketTask() }
+        let clock = ManualSleepClock()
+        nonisolated(unsafe) var taskIndex = 0
+        let socket = SocketIOClient(
+            url: testURL,
+            reconnect: .init(enabled: true, initialDelay: .seconds(1), maxDelay: .seconds(3), multiplier: 2),
+            taskFactory: { _, _ in
+                defer { taskIndex += 1 }
+                return tasks[taskIndex]
+            },
+            clock: clock
+        )
+
+        await socket.connect()
+        await tasks[0].waitUntilResumed()
+
+        for index in 0..<3 {
+            tasks[index].simulateDisconnect()
+            await waitForClockQuiescence(clock)
+            await clock.advanceLatest()
+            await tasks[index + 1].waitUntilResumed()
+        }
+
+        let reconnectDelays = await clock.requestedDurations.filter { $0 != .seconds(45) }
+        #expect(reconnectDelays == [.seconds(1), .seconds(2), .seconds(3)])
+
+        await socket.invalidate()
+    }
+
+    @Test("A successful connection resets reconnect backoff")
+    func successfulConnectionResetsReconnectBackoff() async {
+        let tasks = (0..<3).map { _ in MockWebSocketTask() }
+        let clock = ManualSleepClock()
+        nonisolated(unsafe) var taskIndex = 0
+        let socket = SocketIOClient(
+            url: testURL,
+            reconnect: .init(enabled: true, initialDelay: .seconds(1), maxDelay: .seconds(8), multiplier: 2),
+            taskFactory: { _, _ in
+                defer { taskIndex += 1 }
+                return tasks[taskIndex]
+            },
+            clock: clock
+        )
+        let statusStream = await socket.statusUpdates()
+        var statusIterator = statusStream.makeAsyncIterator()
+
+        await socket.connect()
+        await tasks[0].waitUntilResumed()
+        tasks[0].simulateDisconnect()
+        await waitForClockQuiescence(clock)
+        await clock.advanceLatest()
+        await tasks[1].waitUntilResumed()
+
+        await performHandshake(on: tasks[1])
+        while await statusIterator.next() != .connected {}
+
+        tasks[1].simulateDisconnect()
+        await waitForClockQuiescence(clock)
+
+        let reconnectDelays = await clock.requestedDurations.filter { $0 != .seconds(45) }
+        #expect(reconnectDelays == [.seconds(1), .seconds(1)])
+
+        await socket.invalidate()
+    }
+
     // MARK: - Heartbeat Timeout
 
     @Test("open payload with custom pingInterval/pingTimeout is used for the heartbeat deadline")
@@ -918,8 +1015,11 @@ struct SocketIOClientTests {
         #expect(status == .failed(reason: "Not authorized"))
     }
 
-    @Test("CONNECT_ERROR (44) with no payload falls back to a generic reason")
-    func connectErrorWithNoPayloadUsesGenericReason() async {
+    @Test(
+        "CONNECT_ERROR (44) with an unusable payload falls back to a generic reason",
+        arguments: ["44", "44{not valid json", "44{}"]
+    )
+    func connectErrorWithUnusablePayloadUsesGenericReason(_ frame: String) async {
         let task = MockWebSocketTask()
         let socket = makeSocket(tasks: [task])
 
@@ -930,26 +1030,7 @@ struct SocketIOClientTests {
         _ = await statusIterator.next() // .disconnected
         _ = await statusIterator.next() // .connecting
 
-        task.inject(text: "44")
-
-        let status = await statusIterator.next()
-        #expect(status == .failed(reason: "Connection rejected by server"))
-    }
-
-    @Test("CONNECT_ERROR (44) with malformed JSON falls back to a generic reason without crashing")
-    func connectErrorWithMalformedJSONUsesGenericReason() async {
-        let task = MockWebSocketTask()
-        let socket = makeSocket(tasks: [task])
-
-        let statusStream = await socket.statusUpdates()
-        await socket.connect()
-
-        var statusIterator = statusStream.makeAsyncIterator()
-        _ = await statusIterator.next() // .disconnected
-        _ = await statusIterator.next() // .connecting
-
-        // Has a brace, so it reaches the JSONSerialization path, but is not valid JSON.
-        task.inject(text: "44{not valid json")
+        task.inject(text: frame)
 
         let status = await statusIterator.next()
         #expect(status == .failed(reason: "Connection rejected by server"))
@@ -1049,27 +1130,33 @@ struct SocketIOClientTests {
     }
 }
 
-// MARK: - SocketEmptyBody Tests
+// MARK: - Engine.IO Frame Parsing Tests
 
-@Suite("SocketEmptyBody Tests", .timeLimit(.minutes(1)))
-struct SocketEmptyBodyTests {
+@Suite("Engine.IO Frame Parsing Tests", .timeLimit(.minutes(1)))
+struct EngineIOFrameParsingTests {
 
-    @Test("init() creates an instance")
-    func initCreatesInstance() {
-        _ = SocketEmptyBody()
+    @Test("Rejects empty and unrecognized Engine.IO frames", arguments: ["", "9payload"])
+    func rejectsInvalidFrames(_ text: String) {
+        #expect(ParsedEngineIOFrame.parse(text) == nil)
     }
 
-    @Test("Decodable from empty JSON object")
-    func decodableFromEmptyObject() throws {
-        let data = Data("{}".utf8)
-        _ = try JSONDecoder().decode(SocketEmptyBody.self, from: data)
-    }
+    @Test(
+        "Parses Engine.IO frames without nested Socket.IO packets",
+        arguments: [
+            ("0payload", EngineIOPacketType.open, "payload"),
+            ("2", .ping, ""),
+            ("4xpayload", .message, "xpayload")
+        ]
+    )
+    func parsesFramesWithoutSocketPackets(
+        text: String,
+        expectedType: EngineIOPacketType,
+        expectedPayload: String
+    ) throws {
+        let frame = try #require(ParsedEngineIOFrame.parse(text))
 
-    @Test("Decodable from JSON array (no-payload event frame data)")
-    func decodableFromEmptyArrayElement() throws {
-        // Socket.IO no-payload events supply Data("{}") as the payload default
-        let data = Data("{}".utf8)
-        let body = try JSONDecoder().decode(SocketEmptyBody.self, from: data)
-        _ = body
+        #expect(frame.engineIOType == expectedType)
+        #expect(frame.socketIOType == nil)
+        #expect(String(frame.payload) == expectedPayload)
     }
 }

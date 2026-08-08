@@ -22,6 +22,7 @@ public actor APIClient {
     private let token: @Sendable () async throws -> String?
     private let refresh: @Sendable () async throws -> Void
     private var ongoingRefresh: Task<Void, Error>?
+    private let onRefreshWait: (@Sendable () async -> Void)?
 
     /// Bumped each time a refresh completes successfully. Lets a request that read its
     /// token before an unrelated refresh completed skip a redundant second refresh.
@@ -56,6 +57,21 @@ public actor APIClient {
         self.pipeline = RequestPipeline(transport: transport)
         self.token = token
         self.refresh = refresh
+        self.onRefreshWait = nil
+    }
+
+    init(
+        configuration: ServerConfiguration,
+        transport: any Transport = URLSession.shared,
+        token: @escaping @Sendable () async throws -> String?,
+        refresh: @escaping @Sendable () async throws -> Void,
+        onRefreshWait: (@Sendable () async -> Void)?
+    ) {
+        self.configuration = configuration
+        self.pipeline = RequestPipeline(transport: transport)
+        self.token = token
+        self.refresh = refresh
+        self.onRefreshWait = onRefreshWait
     }
 
     /// Creates an `APIClient` for requests that declare no `AuthenticationScheme`.
@@ -75,6 +91,7 @@ public actor APIClient {
         self.pipeline = RequestPipeline(transport: transport)
         self.token = { nil }
         self.refresh = { throw APIClientError.noCredentialSource }
+        self.onRefreshWait = nil
     }
 
     /// Sends a typed request.
@@ -214,11 +231,13 @@ public actor APIClient {
 
     private func coalesceRefresh() async throws {
         if let task = ongoingRefresh {
+            await onRefreshWait?()
             try await task.value
             return
         }
         let task = Task<Void, Error> { [self] in try await refresh() }
         ongoingRefresh = task
+        await onRefreshWait?()
         do {
             try await task.value
             ongoingRefresh = nil

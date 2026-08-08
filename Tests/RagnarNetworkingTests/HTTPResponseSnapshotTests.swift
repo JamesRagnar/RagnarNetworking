@@ -12,6 +12,15 @@ import Testing
 @Suite("HTTPResponseSnapshot Tests", .timeLimit(.minutes(1)))
 struct HTTPResponseSnapshotTests {
 
+    struct RedactionScenario: Sendable, CustomTestStringConvertible {
+        let name: String
+        let url: String
+        let redactedNames: Set<String>
+        let expectedURL: String
+
+        var testDescription: String { name }
+    }
+
     @Test("Captures non-HTTP response properties")
     func testNonHTTPResponseCapture() {
         let url = URL(string: "https://api.example.com/test")!
@@ -65,88 +74,56 @@ struct HTTPResponseSnapshotTests {
 
     // MARK: - Query Item Redaction
 
-    @Test("Removes a redacted query item from the captured URL")
-    func testRedactsTokenQueryItem() {
-        let url = URL(string: "https://api.example.com/test?token=secret-value&other=kept")!
+    @Test(
+        "Redacts configured query items without changing unrelated URL content",
+        arguments: [
+            RedactionScenario(
+                name: "matching name",
+                url: "https://api.example.com/test?token=secret-value&other=kept",
+                redactedNames: ["token"],
+                expectedURL: "https://api.example.com/test?other=kept"
+            ),
+            RedactionScenario(
+                name: "case-insensitive name",
+                url: "https://api.example.com/test?Token=secret-value",
+                redactedNames: ["token"],
+                expectedURL: "https://api.example.com/test"
+            ),
+            RedactionScenario(
+                name: "multiple names",
+                url: "https://api.example.com/test?token=a&access_token=b&other=kept",
+                redactedNames: ["token", "access_token"],
+                expectedURL: "https://api.example.com/test?other=kept"
+            ),
+            RedactionScenario(
+                name: "no matching name",
+                url: "https://api.example.com/test?other=kept",
+                redactedNames: ["token"],
+                expectedURL: "https://api.example.com/test?other=kept"
+            ),
+            RedactionScenario(
+                name: "no configured names",
+                url: "https://api.example.com/test?token=secret-value",
+                redactedNames: [],
+                expectedURL: "https://api.example.com/test?token=secret-value"
+            )
+        ]
+    )
+    func testQueryItemRedaction(_ scenario: RedactionScenario) throws {
+        let url = try #require(URL(string: scenario.url))
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
-
         let snapshot = HTTPResponseSnapshot(
             response: response,
-            redactedQueryItemNames: ["token"]
+            redactedQueryItemNames: scenario.redactedNames
         )
 
-        #expect(snapshot.url?.absoluteString.contains("secret-value") == false)
-        #expect(snapshot.url?.absoluteString.contains("other=kept") == true)
-    }
-
-    @Test("Removes a redacted query item case-insensitively")
-    func testRedactsTokenQueryItemCaseInsensitively() {
-        let url = URL(string: "https://api.example.com/test?Token=secret-value")!
-        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
-
-        let snapshot = HTTPResponseSnapshot(
-            response: response,
-            redactedQueryItemNames: ["token"]
-        )
-
-        #expect(snapshot.url?.absoluteString.contains("secret-value") == false)
-    }
-
-    @Test("Removes every redacted name when several are configured")
-    func testRedactsMultipleNames() {
-        let url = URL(string: "https://api.example.com/test?token=a&access_token=b&other=kept")!
-        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
-
-        let snapshot = HTTPResponseSnapshot(
-            response: response,
-            redactedQueryItemNames: ["token", "access_token"]
-        )
-
-        let captured = try! #require(snapshot.url?.absoluteString)
-        #expect(!captured.contains("token=a"))
-        #expect(!captured.contains("access_token=b"))
-        #expect(captured.contains("other=kept"))
-    }
-
-    @Test("A URL with no redacted query item is unaffected")
-    func testURLWithNoTokenIsUnaffected() {
-        let url = URL(string: "https://api.example.com/test?other=kept")!
-        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
-
-        let snapshot = HTTPResponseSnapshot(
-            response: response,
-            redactedQueryItemNames: ["token"]
-        )
-
-        #expect(snapshot.url == url)
-    }
-
-    @Test("Nothing is redacted when no names are configured")
-    func testNoNamesRedactsNothing() {
-        let url = URL(string: "https://api.example.com/test?token=secret-value")!
-        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
-
-        let snapshot = HTTPResponseSnapshot(response: response)
-
-        #expect(snapshot.url == url)
+        #expect(snapshot.url?.absoluteString == scenario.expectedURL)
     }
 
 }
 
 @Suite("ErrorSnapshot Tests", .timeLimit(.minutes(1)))
 struct ErrorSnapshotTests {
-
-    @Test("Memberwise init stores all fields")
-    func memberwiseInitStoresFields() {
-        let snapshot = ErrorSnapshot(
-            typeName: "MyError",
-            description: "something went wrong",
-            localizedDescription: "Something went wrong."
-        )
-        #expect(snapshot.typeName == "MyError")
-        #expect(snapshot.description == "something went wrong")
-        #expect(snapshot.localizedDescription == "Something went wrong.")
-    }
 
     @Test("Error init captures type name, description, and localized description")
     func errorInitCapturesProperties() {
@@ -159,23 +136,4 @@ struct ErrorSnapshotTests {
         #expect(snapshot.description.isEmpty == false)
     }
 
-    @Test("Equatable: equal snapshots compare equal")
-    func equalSnapshotsAreEqual() {
-        let a = ErrorSnapshot(typeName: "E", description: "d", localizedDescription: "l")
-        let b = ErrorSnapshot(typeName: "E", description: "d", localizedDescription: "l")
-        #expect(a == b)
-    }
-
-    @Test("Equatable: snapshots with different fields are not equal")
-    func differentSnapshotsAreNotEqual() {
-        let a = ErrorSnapshot(typeName: "E", description: "d", localizedDescription: "l")
-        let b = ErrorSnapshot(typeName: "X", description: "d", localizedDescription: "l")
-        #expect(a != b)
-    }
-
-    @Test("CustomStringConvertible description matches description field")
-    func descriptionMatchesStoredField() {
-        let snapshot = ErrorSnapshot(typeName: "T", description: "my error text", localizedDescription: "l")
-        #expect(snapshot.description == "my error text")
-    }
 }

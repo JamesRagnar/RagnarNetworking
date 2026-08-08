@@ -179,19 +179,11 @@ struct TransportErrorCatchSiteTests {
         }
     }
 
-    @Test("A caller can switch exhaustively over TransportError with no default")
-    func exhaustiveSwitchCompiles() {
-        func describe(_ failure: TransportError) -> String {
-            switch failure {
-            case .offline: return "offline"
-            case .timedOut: return "timedOut"
-            case .url: return "url"
-            case .other: return "other"
-            }
-        }
+}
 
-        #expect(describe(.offline(URLError(.notConnectedToInternet))) == "offline")
-        #expect(describe(.timedOut(URLError(.timedOut))) == "timedOut")
+private func exhaustivelyHandle(_ failure: TransportError) {
+    switch failure {
+    case .offline, .timedOut, .url, .other:
+        break
     }
-
 }

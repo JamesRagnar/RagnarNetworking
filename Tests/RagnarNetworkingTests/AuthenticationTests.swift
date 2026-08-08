@@ -435,6 +435,35 @@ struct AuthenticatorTests {
         #expect(built.value(forHTTPHeaderField: "Authorization") == nil)
     }
 
+    @Test("The basic authenticator writes an Authorization header")
+    func basicAuthenticatorWritesHeader() throws {
+        let fields = try HeaderAuthenticator.basic.headers(
+            for: "encoded-credentials",
+            on: URLRequest(url: testServerURL)
+        )
+
+        #expect(fields == ["Authorization": "Basic encoded-credentials"])
+    }
+
+    @Test("Authentication rejects a builder result without a URL")
+    func authenticationRequiresARequestURL() {
+        var built = URLRequest(url: testServerURL)
+        built.url = nil
+        let context = RequestContext(
+            configuration: ServerConfiguration(url: testServerURL),
+            credential: "abc123"
+        )
+
+        #expect {
+            try built.applyAuthentication(.bearer, context: context)
+        } throws: { error in
+            guard case .invalidRequest(let description) = error as? RequestError else {
+                return false
+            }
+            return description.contains("without a valid URL")
+        }
+    }
+
     @Test("A custom authenticator registered for .bearer replaces the built-in form")
     func customAuthenticatorForBearer() throws {
         let configuration = ServerConfiguration(
@@ -544,23 +573,24 @@ struct AuthenticatorTests {
         }
     }
 
-    @Test("A registered scheme with no credential still fails with .authentication")
-    func missingCredentialFails() {
+    @Test(
+        "A registered scheme with no credential still fails",
+        arguments: [AuthenticationScheme.bearer, .url]
+    )
+    func missingCredentialFails(_ scheme: AuthenticationScheme) {
         let configuration = ServerConfiguration(url: testServerURL)
 
-        for scheme in [AuthenticationScheme.bearer, .url] {
-            #expect {
-                _ = try request(
-                    SchemeInterface.Request(authentication: scheme),
-                    configuration: configuration,
-                    credential: nil
-                )
-            } throws: { error in
-                guard case .missingCredential(let failed) = error as? RequestError else {
-                    return false
-                }
-                return failed == scheme
+        #expect {
+            _ = try request(
+                SchemeInterface.Request(authentication: scheme),
+                configuration: configuration,
+                credential: nil
+            )
+        } throws: { error in
+            guard case .missingCredential(let failed) = error as? RequestError else {
+                return false
             }
+            return failed == scheme
         }
     }
 

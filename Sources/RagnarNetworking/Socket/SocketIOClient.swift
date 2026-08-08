@@ -277,6 +277,7 @@ public actor SocketIOClient {
                 do {
                     let message = try await task.receive()
                     await handleMessage(message, generation: generation)
+                    delay = reconnectDelay(afterReceivingWith: status, current: delay)
                 } catch {
                     guard generation == connectionGeneration else { return }
                     heartbeatTask?.cancel()
@@ -385,6 +386,10 @@ public actor SocketIOClient {
         guard let current else { return reconnectPolicy.initialDelay }
         let seconds = Double(current.components.seconds) + Double(current.components.attoseconds) / 1e18
         return min(.seconds(seconds * reconnectPolicy.multiplier), reconnectPolicy.maxDelay)
+    }
+
+    private func reconnectDelay(afterReceivingWith status: Status, current: Duration?) -> Duration? {
+        status == .connected ? nil : current
     }
 
     private func removeEventContinuation(_ id: UUID, name: String) {

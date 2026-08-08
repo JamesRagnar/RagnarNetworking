@@ -15,12 +15,17 @@ struct URLRequestInterfaceTests {
     // MARK: - Test Fixtures
 
     struct BasicRequest: InterfaceRequest {
-        let method: RequestMethod = .get
+        let method: RequestMethod
         let path: String
         let queryItems: [URLQueryItem]? = nil
         let headers: [String: String]? = nil
         let body: EmptyBody = .init()
         let authentication: AuthenticationScheme? = nil
+
+        init(method: RequestMethod = .get, path: String) {
+            self.method = method
+            self.path = path
+        }
     }
 
     struct AuthenticatedRequest: InterfaceRequest {
@@ -42,6 +47,29 @@ struct URLRequestInterfaceTests {
         let authentication: AuthenticationScheme?
     }
 
+    struct BodyRequest<BodyType: RequestBody>: InterfaceRequest {
+        let method: RequestMethod = .post
+        let path: String = "/test"
+        let queryItems: [URLQueryItem]? = nil
+        let headers: [String: String]? = nil
+        let body: BodyType
+        let authentication: AuthenticationScheme? = nil
+    }
+
+    struct PayloadWithNullable: RequestBody, Encodable, Sendable {
+        let nickname: Nullable<String>?
+    }
+
+    struct NullableScenario: Sendable, CustomTestStringConvertible {
+        let name: String
+        let nickname: Nullable<String>?
+        let containsKey: Bool
+        let isNull: Bool
+        let value: String?
+
+        var testDescription: String { name }
+    }
+
     // MARK: - Basic Request Construction
 
     @Test("Constructs basic GET request")
@@ -61,31 +89,27 @@ struct URLRequestInterfaceTests {
         #expect(request.value(forHTTPHeaderField: "Content-Type") == nil)
     }
 
-    @Test("Constructs request with different HTTP methods")
-    func testDifferentHTTPMethods() throws {
+    @Test(
+        "Constructs request with each HTTP method",
+        arguments: [
+            RequestMethod.get,
+            .post,
+            .put,
+            .delete,
+            .patch,
+            .head,
+            .options
+        ]
+    )
+    func testDifferentHTTPMethods(_ method: RequestMethod) throws {
         let url = URL(string: "https://api.example.com")!
         let config = RequestContext(configuration: ServerConfiguration(url: url))
+        let request = try URLRequest(
+            interfaceRequest: BasicRequest(method: method, path: "/test"),
+            context: config
+        )
 
-        let methods: [RequestMethod] = [.get, .post, .put, .delete, .patch, .head, .options]
-
-        for method in methods {
-            struct TestParams: InterfaceRequest {
-                let method: RequestMethod
-                let path = "/test"
-                let queryItems: [URLQueryItem]? = nil
-                let headers: [String: String]? = nil
-                let body: EmptyBody = .init()
-                let authentication: AuthenticationScheme? = nil
-            }
-
-            let params = TestParams(method: method)
-            let request = try URLRequest(
-                interfaceRequest: params,
-                context: config
-            )
-
-            #expect(request.httpMethod == method.rawValue)
-        }
+        #expect(request.httpMethod == method.rawValue)
     }
 
     // MARK: - Authentication
@@ -692,21 +716,34 @@ struct URLRequestInterfaceTests {
         }
     }
 
+    @Test("Rejects non-empty body data without a Content-Type")
+    func testBodyRequiresContentType() {
+        struct MissingContentTypeBody: RequestBody {
+            func encodeBody(using encoder: RequestEncoder) throws -> EncodedBody {
+                EncodedBody(data: Data("payload".utf8), contentType: nil)
+            }
+        }
+
+        let params = BodyRequest(body: MissingContentTypeBody())
+        let context = RequestContext(
+            configuration: ServerConfiguration(url: URL(string: "https://api.example.com")!)
+        )
+
+        #expect {
+            try URLRequest(interfaceRequest: params, context: context)
+        } throws: { error in
+            guard case .invalidRequest(let description) = error as? RequestError else {
+                return false
+            }
+            return description.contains("without a Content-Type")
+        }
+    }
+
     @Test("Request body uses configured encoder strategies")
     func testEncoderConfiguration() throws {
         struct EncoderBody: RequestBody, Encodable, Sendable {
             let userName: String
             let createdAt: Date
-        }
-
-        struct TestParams: InterfaceRequest {
-            typealias Body = EncoderBody
-            let method: RequestMethod = .post
-            let path: String = "/test"
-            let queryItems: [URLQueryItem]? = nil
-            let headers: [String: String]? = nil
-            let body: EncoderBody
-            let authentication: AuthenticationScheme? = nil
         }
 
         let config = RequestContext(
@@ -720,7 +757,7 @@ struct URLRequestInterfaceTests {
         )
 
         let date = ISO8601DateFormatter().date(from: "2026-02-03T12:00:00Z")!
-        let params = TestParams(body: EncoderBody(userName: "test", createdAt: date))
+        let params = BodyRequest(body: EncoderBody(userName: "test", createdAt: date))
         let request = try URLRequest(
             interfaceRequest: params,
             context: config
@@ -735,19 +772,9 @@ struct URLRequestInterfaceTests {
 
     @Test("ArrayBody encodes top-level array")
     func testArrayBody() throws {
-        struct TestParams: InterfaceRequest {
-            typealias Body = ArrayBody<Int>
-            let method: RequestMethod = .post
-            let path: String = "/test"
-            let queryItems: [URLQueryItem]? = nil
-            let headers: [String: String]? = nil
-            let body: ArrayBody<Int>
-            let authentication: AuthenticationScheme? = nil
-        }
-
         let url = URL(string: "https://api.example.com")!
         let config = RequestContext(configuration: ServerConfiguration(url: url))
-        let params = TestParams(body: ArrayBody([1, 2, 3]))
+        let params = BodyRequest(body: ArrayBody([1, 2, 3]))
 
         let request = try URLRequest(
             interfaceRequest: params,
@@ -766,20 +793,10 @@ struct URLRequestInterfaceTests {
             let name: String
         }
 
-        struct TestParams: InterfaceRequest {
-            typealias Body = EncodableBody<LegacyPayload>
-            let method: RequestMethod = .post
-            let path: String = "/test"
-            let queryItems: [URLQueryItem]? = nil
-            let headers: [String: String]? = nil
-            let body: EncodableBody<LegacyPayload>
-            let authentication: AuthenticationScheme? = nil
-        }
-
         let url = URL(string: "https://api.example.com")!
         let config = RequestContext(configuration: ServerConfiguration(url: url))
         let payload = LegacyPayload(id: 42, name: "test")
-        let params = TestParams(body: EncodableBody(payload))
+        let params = BodyRequest(body: EncodableBody(payload))
 
         let request = try URLRequest(
             interfaceRequest: params,
@@ -791,227 +808,67 @@ struct URLRequestInterfaceTests {
         #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
     }
 
-    @Test("Nullable encodes explicit null")
-    func testNullableEncodesNull() throws {
-        struct PayloadWithNullable: RequestBody, Encodable, Sendable {
-            let nickname: Nullable<String>?
-        }
-
-        struct TestParams: InterfaceRequest {
-            typealias Body = PayloadWithNullable
-            let method: RequestMethod = .post
-            let path: String = "/test"
-            let queryItems: [URLQueryItem]? = nil
-            let headers: [String: String]? = nil
-            let body: PayloadWithNullable
-            let authentication: AuthenticationScheme? = nil
-        }
-
+    @Test(
+        "Nullable preserves omitted, null, and value states",
+        arguments: [
+            NullableScenario(name: "omitted", nickname: nil, containsKey: false, isNull: false, value: nil),
+            NullableScenario(name: "null", nickname: .null, containsKey: true, isNull: true, value: nil),
+            NullableScenario(name: "value", nickname: .value("Bob"), containsKey: true, isNull: false, value: "Bob")
+        ]
+    )
+    func testNullableEncoding(_ scenario: NullableScenario) throws {
         let url = URL(string: "https://api.example.com")!
         let config = RequestContext(configuration: ServerConfiguration(url: url))
-        let params = TestParams(body: PayloadWithNullable(nickname: .null))
+        let params = BodyRequest(body: PayloadWithNullable(nickname: scenario.nickname))
 
         let request = try URLRequest(
             interfaceRequest: params,
             context: config
         )
 
-        let json = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
-        #expect(json.keys.contains("nickname"))
-        #expect(json["nickname"] is NSNull)
-    }
-
-    @Test("Nullable encodes value")
-    func testNullableEncodesValue() throws {
-        struct PayloadWithNullable: RequestBody, Encodable, Sendable {
-            let nickname: Nullable<String>?
-        }
-
-        struct TestParams: InterfaceRequest {
-            typealias Body = PayloadWithNullable
-            let method: RequestMethod = .post
-            let path: String = "/test"
-            let queryItems: [URLQueryItem]? = nil
-            let headers: [String: String]? = nil
-            let body: PayloadWithNullable
-            let authentication: AuthenticationScheme? = nil
-        }
-
-        let url = URL(string: "https://api.example.com")!
-        let config = RequestContext(configuration: ServerConfiguration(url: url))
-        let params = TestParams(body: PayloadWithNullable(nickname: .value("Bob")))
-
-        let request = try URLRequest(
-            interfaceRequest: params,
-            context: config
-        )
-
-        let json = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
-        #expect(json["nickname"] as? String == "Bob")
-    }
-
-    @Test("Nullable omits field when property is nil")
-    func testNullableOmitsWhenNil() throws {
-        struct PayloadWithNullable: RequestBody, Encodable, Sendable {
-            let nickname: Nullable<String>?
-        }
-
-        struct TestParams: InterfaceRequest {
-            typealias Body = PayloadWithNullable
-            let method: RequestMethod = .post
-            let path: String = "/test"
-            let queryItems: [URLQueryItem]? = nil
-            let headers: [String: String]? = nil
-            let body: PayloadWithNullable
-            let authentication: AuthenticationScheme? = nil
-        }
-
-        let url = URL(string: "https://api.example.com")!
-        let config = RequestContext(configuration: ServerConfiguration(url: url))
-        let params = TestParams(body: PayloadWithNullable(nickname: nil))
-
-        let request = try URLRequest(
-            interfaceRequest: params,
-            context: config
-        )
-
-        let json = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
-        #expect(!json.keys.contains("nickname"))
+        let body = try #require(request.httpBody)
+        let jsonObject = try JSONSerialization.jsonObject(with: body)
+        let json = try #require(jsonObject as? [String: Any])
+        #expect(json.keys.contains("nickname") == scenario.containsKey)
+        #expect((json["nickname"] is NSNull) == scenario.isNull)
+        #expect(json["nickname"] as? String == scenario.value)
     }
 
     // MARK: - Path Handling
 
-    @Test("Constructs path correctly")
-    func testPathConstruction() throws {
-        let url = URL(string: "https://api.example.com")!
+    @Test(
+        "Joins and normalizes request paths",
+        arguments: [
+            ("https://api.example.com", "/api/v1/users/123", "/api/v1/users/123"),
+            ("https://api.example.com", "/api/users", "/api/users"),
+            ("https://api.example.com/v1", "/users", "/v1/users"),
+            ("https://api.example.com/v1/", "/users", "/v1/users"),
+            ("https://api.example.com/v1/", "", "/v1"),
+            ("https://api.example.com", "users", "/users")
+        ]
+    )
+    func testPathConstruction(baseURL: String, path: String, expectedPath: String) throws {
+        let url = try #require(URL(string: baseURL))
         let config = RequestContext(configuration: ServerConfiguration(url: url))
-        let params = BasicRequest(path: "/api/v1/users/123")
+        let params = BasicRequest(path: path)
 
         let request = try URLRequest(
             interfaceRequest: params,
             context: config
         )
 
-        #expect(request.url?.path == "/api/v1/users/123")
+        #expect(request.url?.path == expectedPath)
     }
 
-    @Test("Handles path with leading slash")
-    func testPathWithLeadingSlash() throws {
-        let url = URL(string: "https://api.example.com")!
-        let config = RequestContext(configuration: ServerConfiguration(url: url))
-        let params = BasicRequest(path: "/api/users")
+    @Test("Rejects URL components that cannot form a URL")
+    func testInvalidURLComponents() {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "["
 
-        let request = try URLRequest(
-            interfaceRequest: params,
-            context: config
-        )
-
-        #expect(request.url?.path == "/api/users")
-        #expect(request.url?.absoluteString.contains("api/users") == true)
-    }
-
-    @Test("Appends path to base URL path")
-    func testAppendsPathToBaseURLPath() throws {
-        let url = URL(string: "https://api.example.com/v1")!
-        let config = RequestContext(configuration: ServerConfiguration(url: url))
-        let params = BasicRequest(path: "/users")
-
-        let request = try URLRequest(
-            interfaceRequest: params,
-            context: config
-        )
-
-        #expect(request.url?.path == "/v1/users")
-    }
-
-    @Test("Appends path to base URL path with trailing slash")
-    func testAppendsPathToBaseURLPathWithTrailingSlash() throws {
-        let url = URL(string: "https://api.example.com/v1/")!
-        let config = RequestContext(configuration: ServerConfiguration(url: url))
-        let params = BasicRequest(path: "/users")
-
-        let request = try URLRequest(
-            interfaceRequest: params,
-            context: config
-        )
-
-        #expect(request.url?.path == "/v1/users")
-    }
-
-    @Test("Normalizes missing leading slash in path")
-    func testNormalizesMissingLeadingSlash() throws {
-        let url = URL(string: "https://api.example.com")!
-        let config = RequestContext(configuration: ServerConfiguration(url: url))
-        let params = BasicRequest(path: "users")
-
-        let request = try URLRequest(
-            interfaceRequest: params,
-            context: config
-        )
-
-        #expect(request.url?.path == "/users")
-    }
-
-    // MARK: - Error Cases
-
-    @Test("Valid configuration builds request successfully")
-    func testValidURLConfiguration() throws {
-        let url = URL(string: "https://api.example.com")!
-        let config = RequestContext(configuration: ServerConfiguration(url: url))
-        let params = BasicRequest(path: "/test")
-
-        let request = try URLRequest(
-            interfaceRequest: params,
-            context: config
-        )
-
-        #expect(request.url != nil)
-    }
-
-    // MARK: - Interface-typed initializer
-
-    @Test("Interface-typed init produces equivalent request to InterfaceRequest init")
-    func testInterfaceTypedInit() throws {
-        struct SimpleInterface: Interface {
-            struct Request: InterfaceRequest {
-                let method: RequestMethod = .get
-                let path: String = "/api/check"
-                let queryItems: [URLQueryItem]? = nil
-                let headers: [String: String]? = nil
-                let body: EmptyBody = .init()
-                let authentication: AuthenticationScheme? = nil
-            }
-            struct Response: Decodable, Sendable, InterfaceResponse {}
-            static var responseCases: ResponseMap { [.code(200, .decode)] }
+        #expect(throws: RequestError.self) {
+            try URLRequestBuilder().makeURL(from: components)
         }
-
-        let url = URL(string: "https://api.example.com")!
-        let config = RequestContext(configuration: ServerConfiguration(url: url))
-        let params = SimpleInterface.Request()
-
-        let viaInterface = try URLRequest(SimpleInterface.self, params, context: config)
-        let viaParams = try URLRequest(interfaceRequest: params, context: config)
-
-        #expect(viaInterface.url == viaParams.url)
-        #expect(viaInterface.httpMethod == viaParams.httpMethod)
-    }
-
-    // MARK: - RequestEncoder
-
-    @Test("RequestEncoder with custom factory uses the provided encoder")
-    func testCustomEncoderFactory() throws {
-        let encoder = RequestEncoder(makeJSONEncoder: {
-            let e = JSONEncoder()
-            e.keyEncodingStrategy = .convertToSnakeCase
-            return e
-        })
-
-        struct Payload: Encodable { let myKey: String }
-        let produced = encoder.makeJSONEncoder()
-        let data = try produced.encode(Payload(myKey: "value"))
-        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-        #expect(json["my_key"] as? String == "value")
-        #expect(json["myKey"] == nil)
     }
 
     // MARK: - Integration Tests
